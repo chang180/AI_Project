@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉑ 直播平台（Twitch / 抖音） · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉑ 直播平台：即時低延遲串流與洪峰觀看 / 聊天 fan-out</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 44 分鐘</span>
+    <span class="tag">Design a Live Streaming Platform</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>即時攝入（RTMP/SRT/WebRTC）＋ 邊轉邊切的即時轉碼 ＋ 滑動視窗 HLS manifest ＋ CDN 全球分發 ＋ 聊天 fan-out</strong>」的綜合題。
+    與 VOD（<a href="../10-youtube/notes.html">⑩ YouTube</a>）最大差別：影片<em>不存在於未來</em> —
+    <strong>無法預轉碼、無完整 manifest</strong>，一切邊產生邊推送，觀眾只能看到「<em>live edge（直播邊緣）</em>」附近的幾秒。
+    面試真正考的是 <strong>延遲 vs 穩定的取捨、滑動視窗 manifest 的維護、以及洪峰觀看與聊天的 fan-out</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（百萬同時觀看）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>開播 / 收播</strong>：主播用 OBS / App 推流（RTMP / SRT / WebRTC），平台即時接收。</li>
+    <li><strong>即時轉碼</strong>：把單一來源流轉成多碼率（如 1080p / 720p / 480p / 360p），供不同頻寬觀眾選擇。</li>
+    <li><strong>低延遲播放</strong>：觀眾透過 HLS / LL-HLS 拉流觀看，延遲愈低愈好（互動直播需 &lt; 3 秒）。</li>
+    <li><strong>聊天室</strong>：同一房間觀眾即時互發訊息，需 fan-out 給房內所有人。</li>
+    <li><strong>觀看人數</strong>：即時顯示同時在線人數（concurrent viewers）。</li>
+    <li><strong>可選：錄製轉 VOD</strong>：直播結束後把 segment 拼成回放（這時就退化成 VOD 題）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：端到端（glass-to-glass）愈短愈好；互動場景需 LL-HLS / WebRTC 級（秒級或亞秒級）。</li>
+    <li><strong>高可用</strong>：主播這條攝入鏈一斷，整場直播就黑掉 → 攝入需備援。</li>
+    <li><strong>洪峰彈性</strong>：明星開播瞬間湧入數十萬～數百萬觀眾，必須 CDN 卸載 + 房間 fan-out 可橫向擴展。</li>
+    <li><strong>讀遠多於寫</strong>：一個主播（寫）對應百萬觀眾（讀）→ 設計圍繞讀路徑與 fan-out。</li>
+    <li><strong>無法回頭</strong>：直播是 append-only 的即時流，<em>過期的 segment 直接丟棄</em>，不像 VOD 永久保存。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「<strong>要多低的延遲？</strong>」這決定整套技術選型：標準 HLS（~10～30s）夠用就好、互動直播要 LL-HLS（~2～5s）、連麥 / 視訊通話級要 WebRTC（亞秒）。延遲愈低，<em>穩定性與成本愈難</em> — 先把這條軸講清楚再往下設計。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>同時直播數（寫）</td><td>尖峰 5 萬場同時開播</td><td>5 萬條攝入流 → 5 萬個即時轉碼工作（GPU/CPU 密集）</td></tr>
+    <tr><td>同時觀看（讀）</td><td>熱門單場可達 100 萬同時在線</td><td>單場峰值出向 = 100萬 × 5Mbps ≈ <strong>5 Tbps</strong> → 必須 CDN 卸載</td></tr>
+    <tr><td>segment 大小</td><td>2 秒一段、~1Mbps 一檔約 250KB</td><td>每流每秒產 0.5 個 segment；滑動視窗只留最近 3～6 個</td></tr>
+    <tr><td>聊天訊息（fan-out）</td><td>熱門房 1000 訊息/秒、100 萬觀眾</td><td>fan-out 放大 = 1000 × 100萬 = <strong>10 億 推送/秒</strong> → 分房 + 分層 fan-out</td></tr>
+    <tr><td>儲存</td><td>直播本身不存；只留最近視窗</td><td>近乎 0（除非開錄製轉 VOD，才落物件儲存）</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>兩個放大器決定成敗：①<strong>影片出向頻寬</strong>（Tbps 級 → CDN 卸載 99%+）；②<strong>聊天 fan-out 放大</strong>（訊息數 × 觀眾數 → 分房 + 階層式廣播）。儲存反而不是瓶頸（直播只留 live edge 附近數秒）。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 1) 建立直播（取得 stream_key 與推流位址）
+POST /api/v1/streams
+Body: { "title": "深夜實況", "user_id": "u_42" }
+→ 201 { "stream_id": "live_abc", "stream_key": "sk_xxx",
+        "ingest_url": "rtmp://ingest.live.io/app",   # OBS 推這裡
+        "playback_url": "https://cdn.live.io/live_abc/master.m3u8" }
+
+# 2) 主播推流（協定層，非 HTTP）：OBS → RTMP/SRT/WebRTC → 攝入伺服器
+#    平台收到後即時轉碼 → 切片 → 更新滑動視窗 manifest
+
+# 3) 觀眾取直播 manifest（HLS，內容隨時間滑動）
+GET /api/v1/streams/{stream_id}/master.m3u8     → 各碼率子清單
+GET /api/v1/streams/{stream_id}/720p/index.m3u8 → 只列「最近 N 個」segment + EXT-X-MEDIA-SEQUENCE
+#    注意：沒有 #EXT-X-ENDLIST（直播未結束），舊 segment 會從清單滾掉
+
+# 4) 聊天（WebSocket / 長連線，這裡用 HTTP 示意）
+POST /api/v1/streams/{stream_id}/chat   Body: { "user": "alice", "text": "GG" }
+GET  /api/v1/streams/{stream_id}/chat   → 房內最近訊息（真實走 WS 推播 fan-out）
+
+# 5) 觀看人數 / 加入退出
+POST /api/v1/streams/{stream_id}/join   → { "viewers": 12345 }
+POST /api/v1/streams/{stream_id}/leave
+
+# 6) 收播（可選觸發錄製轉 VOD）
+POST /api/v1/streams/{stream_id}/stop   → { "status": "ENDED", "vod_id": "vid_999"? }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>streams （直播中繼資料，存 RDB / KV；影片本體不在這）
+  stream_id    VARCHAR PRIMARY KEY
+  user_id      BIGINT
+  title        TEXT
+  stream_key   VARCHAR        -- 推流鑑權用（保密）
+  status       ENUM(LIVE, ENDED)
+  started_at   TIMESTAMP
+  viewers      INT            -- 同時在線（高頻 → 走快取 / 近似計數）
+
+# segment 本體 → 物件儲存 / 邊緣記憶體，且「只保留滑動視窗內最近 N 個」，過期即刪
+# 直播 manifest（.m3u8）→ 每產一個新 segment 就重算：
+#    EXT-X-MEDIA-SEQUENCE++ ，移除最舊一段，加入最新一段（無 ENDLIST）
+
+chat_messages （聊天，append-only；按房間分區）
+  stream_id, seq, user, text, ts        -- 真實走 WS 推播 + Kafka，不一定落久存
+viewer_presence （在線狀態，TTL 過期自動退出）
+  stream_id, viewer_id, last_heartbeat  -- 心跳續命，掉線自動移除</code></pre>
+  <div class="box"><span class="label">為何直播不像 VOD 永久保存</span>VOD 的 manifest 是<strong>完整、固定、可預轉碼</strong>的；直播的 manifest 是<strong>滑動視窗、不斷變動、邊產生邊丟棄</strong>的。直播只需 live edge 附近數秒的 segment 即可服務觀眾，過期 segment 立刻清掉（除非另開錄製）。這就是「<em>無法預轉碼</em>」的根本原因 — 內容此刻才產生。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 主播 ──RTMP/SRT/WebRTC 推流──▶ 攝入(Ingest) ──▶ 即時轉碼(多碼率) ──▶ 打包(HLS 切片)
+                                                                      │ 更新滑動視窗 manifest
+                                                                      ▼
+                                                               CDN 邊緣（快取 segment）
+                                                                      │
+ 觀眾 ◀──就近拉 master.m3u8 → 子清單 → 拉最近 N 個 segment──────────────┘
+   │
+   ├──聊天──▶ Chat 服務 ──▶ fan-out（分房廣播）──▶ 房內所有觀眾
+   └──join/leave──▶ ViewerCounter（同時在線，近似計數）</code></pre>
+  <ol>
+    <li><strong>攝入（Ingest）</strong>：接 RTMP / SRT / WebRTC 單一來源流，做備援（主備攝入點），一斷就切換。</li>
+    <li><strong>即時轉碼</strong>：<em>邊收邊轉</em>成多碼率（ABR ladder），不能像 VOD 那樣事後批次轉 — 內容此刻才到。</li>
+    <li><strong>打包（Packager）</strong>：把轉碼後的流切成小 segment（2s），維護<strong>滑動視窗 manifest</strong>：只列最近 N 段、<code>EXT-X-MEDIA-SEQUENCE</code> 遞增、無 <code>ENDLIST</code>。</li>
+    <li><strong>CDN 分發</strong>：segment 推到邊緣快取，百萬觀眾就近拉 → 卸載 99%+ 出向頻寬；源站只服務回源 miss。</li>
+    <li><strong>聊天 fan-out</strong>：依 stream_id 分房，訊息廣播給房內連線；熱門房用階層式 fan-out（前端聚合節點扇出）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>攝入協定：RTMP vs SRT vs WebRTC</h3>
+  <ul>
+    <li><strong>RTMP</strong>：最通用（OBS 預設），TCP-based、相容性最好，但延遲較高、本身已老。</li>
+    <li><strong>SRT</strong>：基於 UDP，抗丟包、適合不穩定網路的遠端攝入，延遲可控。</li>
+    <li><strong>WebRTC</strong>：亞秒級延遲，適合連麥 / 互動，但擴展到百萬觀眾成本高（通常只用在攝入端與小範圍互動）。</li>
+  </ul>
+  <h3>即時轉碼：為什麼不能預轉碼？</h3>
+  <ul>
+    <li>VOD 的原片<em>完整存在</em>，可離線批次轉所有解析度；直播的內容<strong>此刻才產生</strong>，只能邊收邊轉。</li>
+    <li>轉碼是關鍵路徑且即時 → 算力（GPU/CPU）必須跟上輸入速率，跟不上就掉幀 / 卡頓。</li>
+    <li>ABR ladder（多碼率）讓不同頻寬觀眾各取所需，但每多一檔碼率就多一份即時轉碼成本。</li>
+  </ul>
+  <h3>滑動視窗 HLS manifest（本題精髓）</h3>
+  <ul>
+    <li>直播 media playlist <strong>不含 <code>#EXT-X-ENDLIST</code></strong>（代表「還沒結束，繼續來抓」）。</li>
+    <li>每產一個新 segment：<strong>移除最舊一段、加入最新一段</strong>，視窗長度固定（如保留 3～6 段）。</li>
+    <li><code>#EXT-X-MEDIA-SEQUENCE</code> 標示「目前清單第一段是全域第幾段」，<strong>隨舊段滾掉而遞增</strong> — 播放器靠它判斷連續性與是否落後。</li>
+    <li>觀眾因此只能看到 <strong>live edge 附近</strong>的內容，無法倒帶到開播時（除非另存 VOD）。</li>
+  </ul>
+  <pre><code>#EXTM3U                          ← 720p/index.m3u8（直播，某一刻）
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:2
+#EXT-X-MEDIA-SEQUENCE:104         ← 第一段是全域第 104 段（前 104 段已滾掉）
+#EXTINF:2.000,
+seg_104.ts
+#EXTINF:2.000,
+seg_105.ts
+#EXTINF:2.000,
+seg_106.ts                       ← 沒有 #EXT-X-ENDLIST → 直播持續中
+# 下一刻：seg_104 滾掉、加入 seg_107，MEDIA-SEQUENCE 變 105</code></pre>
+  <h3>低延遲手段：LL-HLS</h3>
+  <ul>
+    <li>把 segment 再切成更小的 <strong>partial segment（如 200ms）</strong>，邊產邊推，不必等整段 2s 才能播。</li>
+    <li>用 <strong>blocking playlist reload</strong>（伺服器 hold 住請求直到新片就緒）省掉輪詢空轉。</li>
+    <li>代價：manifest 更新更頻繁、實作更複雜、對 CDN 與播放器要求更高。</li>
+  </ul>
+  <h3>聊天 fan-out 與觀看人數</h3>
+  <ul>
+    <li><strong>分房（room sharding）</strong>：依 stream_id 把連線分到不同 chat 節點，一則訊息只廣播給該房連線。</li>
+    <li><strong>階層式 fan-out</strong>：百萬人房間單節點扇不動 → 上游節點扇給多個邊緣聚合節點，再各自扇給觀眾（樹狀放大）。</li>
+    <li><strong>觀看人數</strong>：精確計數成本高 → 用心跳 + TTL 維護 presence，顯示時走<strong>近似計數</strong>（HyperLogLog / 抽樣），不阻塞播放。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸（百萬同時觀看）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>攝入單點</td><td>主播這條鏈一斷整場黑掉</td><td>主備攝入點 + SRT 抗丟包 + 自動切換</td></tr>
+    <tr><td>即時轉碼算力</td><td>GPU/CPU 跟不上輸入速率 → 卡頓</td><td>每流獨立轉碼 worker + GPU 加速 + 動態調整 ABR 檔數</td></tr>
+    <tr><td>出向頻寬</td><td>單場 Tbps 級、源站撐不住</td><td>CDN 卸載 99%+，segment 邊緣快取（短 TTL）；源站只服務回源 miss</td></tr>
+    <tr><td>聊天 fan-out</td><td>訊息數 × 觀眾數 爆炸放大</td><td>分房 + 階層式廣播 + 訊息合批 / 限流 / 抽樣顯示</td></tr>
+    <tr><td>同時在線計數</td><td>百萬連線精確計數昂貴</td><td>心跳 + TTL presence + 近似計數（HLL）</td></tr>
+    <tr><td>全球延遲</td><td>跨洲 RTT 進關鍵路徑</td><td>多區域邊緣攝入 + 就近轉碼 + CDN 就近拉流</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>延遲 vs 穩定（最核心取捨）</strong>：低延遲（小 segment、小緩衝）→ 觀眾互動好，但抗網路抖動差、易卡頓；高延遲（大 segment、大緩衝）→ 穩定流暢但互動延遲大。<em>互動直播選低延遲，賽事 / 演唱會可容忍稍高換穩定</em>。</li>
+    <li><strong>HLS vs WebRTC</strong>：HLS / LL-HLS 靠 CDN 天然可擴展到百萬觀眾，延遲秒級；WebRTC 亞秒但點對點擴展成本高 → 大型直播用 HLS，連麥 / 小範圍互動用 WebRTC。</li>
+    <li><strong>直播 vs VOD（對照 ⑩ YouTube）</strong>：VOD 可<em>預轉碼、完整 manifest、永久保存、播放可任意 seek</em>；直播<em>邊轉邊切、滑動視窗 manifest、只留 live edge、無法倒帶</em>。同一套 CDN/HLS 基建，但管線方向相反。</li>
+    <li><strong>segment 長度</strong>：短段（1～2s）延遲低、切換快，但 manifest 更新頻繁、overhead 高；長段（6～10s）反之。直播偏短段，LL-HLS 再切 partial。</li>
+    <li><strong>強一致 vs 最終一致</strong>：manifest / live edge 需即時推進（落後就追不上）；觀看人數、聊天歷史可最終一致 / 近似。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>觀眾網路慢怎麼辦？→ ABR 自動降碼率；落後 live edge 太多就跳回邊緣（追直播）。</li>
+        <li>主播斷線怎麼辦？→ 攝入備援 + 重連寬限；超時則收播。</li>
+        <li>百萬人聊天室怎麼扛？→ 分房 + 階層 fan-out + 訊息抽樣 / 限流（不是每則都推給每個人）。</li>
+        <li>要不要存回放？→ 開錄製把 segment 拼成完整 manifest 落物件儲存 → 退化成 VOD（⑩ 題）。</li>
+        <li>怎麼降啟播延遲？→ 觀眾加入時直接從 live edge 前數段開始拉，預連線 + 首段預熱。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>低延遲 HLS 滑動視窗 manifest ＋ 聊天 fan-out</strong>（面試真正的考點，不是 CRUD），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/IngestService.php</code>　開始 / 結束直播；模擬攝入時不斷「產生新 segment」，每段有遞增的全域 sequence（對應主播推流被切片）。</li>
+    <li><code>src/HlsPackager.php</code>　維護<strong>直播 manifest</strong>：滑動視窗只保留最近 N 個 segment、<code>EXT-X-MEDIA-SEQUENCE</code> 隨舊段滾掉而遞增、無 <code>ENDLIST</code>（產出 <code>.m3u8</code> 文字）→ 呈現觀眾只能看到 live edge 附近。</li>
+    <li><code>src/ChatRoom.php</code>　聊天訊息 fan-out 給房間觀眾（依 stream_id 分房）；內含 <code>ViewerCounter</code> 維護同時在線人數。</li>
+    <li><code>public/index.php</code>　路由：開播 / 產生 segment / 取 manifest / 加入 / 送聊天（fan-out）/ 收播，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8021 -t public
+# 瀏覽器開 http://localhost:8021
+# 流程：開始直播 → 多次「產生 segment」→ 取直播 manifest（只列最近 N 個、media sequence 遞增、舊的滾掉）
+#       → 觀眾加入看人數 → 送聊天訊息 fan-out → 結束直播</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo <strong>不做真正的 RTMP 攝入或 ffmpeg 編碼</strong>：segment 內容是<em>佔位文字</em>而非真正的 H.264 切片，也沒有真的 CDN。
+    但<strong>滑動視窗 manifest（只留最近 N 段、MEDIA-SEQUENCE 遞增、無 ENDLIST）與聊天 fan-out（分房廣播 + 同時在線計數）是真實可執行的系統邏輯</strong>。
+    真實系統用 <code>RTMP/SRT/WebRTC</code> 攝入、<code>ffmpeg</code> 即時轉碼切片、<code>CDN</code> 全球分發、<code>WebSocket</code> 做聊天推播 — 詳見 <code>demo/README.md</code>。
+  </div>
+
+  <footer>㉑ 直播平台 · D 串流計算/儲存分發 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

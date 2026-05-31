@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑲ 分散式限流器 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑲ 分散式限流器：保護後端不被打爆</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag time">建議 35 分鐘</span>
+    <span class="tag">Design a Distributed Rate Limiter</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>在每個 key（user / IP / API key）的時間窗上，原子地計數並決定放行或拒絕</strong>」的問題。
+    單機限流是一行 <code>if (count++ > limit)</code>；面試真正考的是 <em>多台機器共享同一份計數</em> 如何做到既<strong>原子</strong>、又<strong>低延遲</strong>、還能<strong>大規模水平擴展</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入（演算法對比）</a></li>
+      <li><a href="#scale">擴展與瓶頸（分散式共享狀態）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>對每個 <strong>key</strong>（user id / IP / API key / endpoint）施加速率上限，如「每 10 秒 5 次」。</li>
+    <li>超出上限時<strong>拒絕</strong>請求，回 <code>429 Too Many Requests</code> 並附 <code>Retry-After</code>。</li>
+    <li>規則可設定且可分層：全域、租戶、單一 API、單一使用者各有不同上限。</li>
+    <li>限流決策需<strong>快</strong>，且本身不能成為新的瓶頸或單點故障。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：限流檢查在關鍵路徑上，每請求只能加 &lt; 1~2ms。</li>
+    <li><strong>高可用</strong>：限流器掛掉時要有 fail-open / fail-close 策略，不能拖垮整站。</li>
+    <li><strong>可擴展</strong>：限流節點通常有數十到數百台，需共享同一份計數狀態。</li>
+    <li><strong>準確度可協商</strong>：多數場景<strong>近似</strong>即可（少放行幾個沒事），不需強一致。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「要<strong>精確</strong>還是<strong>近似</strong>？」與「限流放在<strong>哪一層</strong>（API Gateway / Sidecar / 應用內）？」這兩問決定整題走向。
+    多數真實系統選「近似 + 放在 Gateway」，因為精確全域計數的協調成本極高、且通常不值得。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>總流量</td><td>1 億請求/日</td><td>~1.2k QPS（峰值 ×5 ≈ 6k QPS）</td></tr>
+    <tr><td>限流節點</td><td>每節點 2k QPS</td><td>峰值需 ~3~5 個節點，全要看到同一份計數</td></tr>
+    <tr><td>計數狀態</td><td>每 key 一個計數器 + TTL</td><td>1 千萬活躍 key × ~100B ≈ <strong>1 GB</strong>，輕鬆放進 Redis 記憶體</td></tr>
+    <tr><td>Redis 負載</td><td>每請求 1 次原子操作</td><td>6k QPS 對單一 Redis 主節點是小菜；熱點 key 才需要分散</td></tr>
+    <tr><td>延遲預算</td><td>同機房 Redis RTT</td><td>~0.2~0.5ms，符合 &lt; 1~2ms 的關鍵路徑要求</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>狀態量很小（GB 級）、但<strong>存取頻率極高且必須原子</strong> → 設計圍繞「<strong>原子計數操作</strong>」與「<strong>熱點 key 分散</strong>」，而非容量。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 限流器對外其實沒有「業務 API」，它是中介層（middleware）。
+# 對上游業務服務暴露的是一個決策介面：
+
+allow(key, rule) -> { allowed: bool, remaining: int, retry_after: int }
+
+# 被限流時，Gateway 直接回給客戶端：
+HTTP/1.1 429 Too Many Requests
+Retry-After: 3                      # 幾秒後可重試
+X-RateLimit-Limit: 5                # 視窗上限
+X-RateLimit-Remaining: 0            # 本視窗剩餘
+X-RateLimit-Reset: 1717142400      # 視窗重置的 epoch 秒
+
+# 規則設定（管理面 API）
+PUT /admin/rules/{scope}
+Body: { "key_by": "api_key", "limit": 1000, "window_sec": 60, "algo": "token_bucket" }
+</code></pre>
+  <div class="box"><span class="label">為何回 Retry-After</span>讓行為良好的客戶端知道<strong>確切該等多久</strong>，避免它無腦重試把你打更慘（驚群效應）。這是限流器「友善」與否的分水嶺。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># Redis 中的計數狀態（per-key），靠 TTL 自動回收
+# ---- 固定/滑動視窗計數器 ----
+KEY  ratelimit:{key}:{window_id}    -> INTEGER   (該視窗的請求數)
+     TTL = window_sec * 2           # 兩個視窗後自動過期
+
+# ---- 令牌桶（token bucket）----
+HASH ratelimit:{key}                -> { tokens: 4.2, last_refill: 1717142399.812 }
+     # tokens 為浮點：依「現在 - last_refill」乘補充速率算出新增的 token
+
+規則設定表（變動少，可全量快取在各節點記憶體）
+  scope, key_by(user|ip|api_key), limit, window_sec, algo, fail_mode</code></pre>
+  <div class="box"><span class="label">為何用 TTL</span>限流計數是<strong>有時效</strong>的，過期即無意義。靠 Redis 的 TTL 自動回收，省去掃描清理；key 設計把 window_id 編進去，舊視窗自然被淘汰。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code>                              ┌──────────────────┐
+                              │  限流規則設定 (黃) │
+                              └─────────┬────────┘
+                                        │ 載入規則
+                                        ▼
+ 客戶端 ──請求(藍)──▶ API Gateway (限流中介) ──原子計數──▶ Redis (令牌桶/計數)
+                            │                                   │
+            放行(綠) ◀──────┤◀─────────── allowed? ────────────┘
+                            │
+                            ├──放行(綠)──▶ 後端服務
+                            │
+                            └──超限──▶ 429 Too Many Requests + Retry-After</code></pre>
+  <ol>
+    <li><strong>API Gateway（限流中介）</strong>：每請求先解出 key，套用規則，呼叫 Redis 原子操作拿到放行決策。</li>
+    <li><strong>Redis（共享狀態）</strong>：所有 Gateway 節點共用，用 <code>INCR</code>/<code>EXPIRE</code> 或 Lua 腳本做<strong>原子</strong>計數，避免多節點各算各的。</li>
+    <li><strong>決策分流</strong>：allowed → 轉發後端；超限 → 立刻回 429，<strong>不打到後端</strong>（這就是限流的價值）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入（演算法對比）</h2>
+  <table>
+    <tr><th>演算法</th><th>原理</th><th>取捨 / 邊界突刺</th></tr>
+    <tr><td><strong>固定視窗計數</strong><br>Fixed Window</td><td>把時間切成固定窗（如每分鐘），窗內計數，過窗歸零。</td><td>最省（一個整數）；但<strong>視窗邊界突刺</strong>：窗末與下窗初各打滿可在 1 秒內過 2 倍量。</td></tr>
+    <tr><td><strong>滑動視窗日誌</strong><br>Sliding Log</td><td>記下每次請求的時間戳，算「最近 N 秒」內有幾筆。</td><td>最<strong>精確</strong>、無邊界突刺；但要存每筆時間戳，<strong>記憶體與計算成本高</strong>，高 QPS 下昂貴。</td></tr>
+    <tr><td><strong>滑動視窗計數器</strong><br>Sliding Window Counter</td><td>當前窗計數 + 前一窗計數 <em>按重疊比例加權</em> 估算。</td><td>近似但<strong>大幅平滑邊界突刺</strong>，記憶體僅兩個計數器 → <strong>業界最常用的折衷</strong>。</td></tr>
+    <tr><td><strong>令牌桶</strong><br>Token Bucket</td><td>桶容量固定，依速率持續補 token；每請求耗 1 token，無 token 則拒。</td><td>允許<strong>突發</strong>（攢著的 token 可一次用掉），平均速率受控 → API 限流首選。</td></tr>
+    <tr><td><strong>漏桶</strong><br>Leaky Bucket</td><td>請求進佇列，以固定速率「漏出」處理；滿則丟棄。</td><td>輸出<strong>絕對平滑</strong>（整流），但<strong>不允許突發</strong>、且請求被排隊會增加延遲。</td></tr>
+  </table>
+
+  <h3>令牌桶 vs 漏桶：一句話分清</h3>
+  <p>令牌桶限制的是「<strong>平均速率，但容許短時突發</strong>」；漏桶限制的是「<strong>瞬時輸出速率，絕不突發</strong>」。對外 API 通常要對用戶友善 → 令牌桶；對下游脆弱服務做整流（如寫 DB） → 漏桶。</p>
+
+  <h3>邊界突刺問題（面試愛問）</h3>
+  <pre><code>固定視窗（每分鐘 100 次）：
+  10:00:59  打 100 次  ✅（這分鐘的窗）
+  10:01:00  打 100 次  ✅（下一分鐘的窗）
+  → 在 1 秒內實際放行 200 次，是上限的 2 倍！
+
+滑動視窗計數器修正：
+  estimate = 當前窗計數 + 前一窗計數 × (前一窗未過去的比例)
+  例：剛進新窗 10%，前窗 100 → 100×0.9 + 當前 10 ≈ 100，超限即擋。</code></pre>
+
+  <h3>分散式下如何共享狀態？</h3>
+  <ul>
+    <li><strong>Redis 原子操作</strong>：<code>INCR key</code> 回傳遞增後的值，搭配第一次 <code>EXPIRE</code> 設窗 TTL。INCR 本身原子，多節點併發無 race。</li>
+    <li><strong>Lua 腳本原子化</strong>：令牌桶要「讀 token + 算補充 + 扣減 + 寫回」多步，必須包成 <strong>Lua 腳本</strong>由 Redis 單執行緒原子執行，杜絕 read-modify-write 競態。</li>
+    <li><strong>近似而非精確</strong>：節點本地先攢一小批再回報，或容忍少量誤差，換取更低的 Redis 往返。多數場景「偶爾多放行幾個」完全可接受。</li>
+  </ul>
+  <div class="box danger"><span class="label">常見陷阱</span>用 <code>GET → 判斷 → SET</code> 三步做計數，在多節點/多連線下會有 <strong>race condition</strong> 導致超賣放行。一定要用 <code>INCR</code> 或 Lua 把它變成<strong>單一原子操作</strong>。</div>
+
+  <h2 id="scale">7. 擴展與瓶頸（分散式共享狀態）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機限流</td><td>多台 Gateway 各算各的，總量失控</td><td>把計數移到<strong>共享 Redis</strong>，所有節點看同一份</td></tr>
+    <tr><td>Redis 往返</td><td>每請求一次 RTT 加延遲</td><td>放<strong>同機房</strong>；本地攢批近似上報；pipeline 合併</td></tr>
+    <tr><td>熱點 key</td><td>單一爆紅 key 打爆單一 Redis 分片</td><td>對熱點 key <strong>分桶</strong>（key#0..N 分散到多分片，各分 limit/N），或本地令牌桶降級</td></tr>
+    <tr><td>Redis 單點</td><td>Redis 掛了限流失效</td><td>主從 + 哨兵/Cluster；明確 <strong>fail-open</strong>（放行保可用）或 fail-close（拒絕保後端）</td></tr>
+    <tr><td>全球多區</td><td>跨洲同步計數延遲高</td><td>各區<strong>獨立限流</strong>（區域配額），不追求全球精確一致</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>精確 vs 近似</strong>：精確全域計數要強一致協調，成本高；近似（滑動視窗計數器 / 本地攢批）便宜且夠用 → <strong>絕大多數選近似</strong>。</li>
+    <li><strong>放哪一層</strong>：API Gateway 集中管理、易觀測但多一跳；Sidecar（每服務旁）延遲低、隔離好但運維重；應用內最省但難統一治理。</li>
+    <li><strong>per-key 維度</strong>：按 user 防單用戶濫用、按 IP 防爬蟲/DDoS（但 NAT 會誤傷）、按 API key 做計費分級。常<strong>多維疊加</strong>。</li>
+    <li><strong>fail-open vs fail-close</strong>：限流器/Redis 故障時——對外 API 多選 fail-open（寧可放行也別全站 503），對脆弱寫入路徑可能 fail-close。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>怎麼防邊界突刺？→ 滑動視窗計數器或令牌桶，別用裸固定視窗。</li>
+        <li>多節點計數怎麼不打架？→ Redis <code>INCR</code> / Lua 腳本原子化。</li>
+        <li>Redis 掛了怎麼辦？→ 預先定義 fail 模式 + 本地降級令牌桶兜底。</li>
+        <li>怎麼告訴客戶端？→ 429 + <code>Retry-After</code> + <code>X-RateLimit-*</code> 標頭。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>限流的核心放行/拒絕邏輯</strong>（也是面試真正考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/TokenBucket.php</code>　令牌桶：容量 + 補充速率，依經過時間補 token，<code>tryConsume</code> 成功放行否則拒。</li>
+    <li><code>src/SlidingWindowCounter.php</code>　滑動視窗計數器：當前視窗 + 前一視窗加權估計，平滑邊界突刺。</li>
+    <li><code>src/RateLimiter.php</code>　per-key 狀態管理，提供 <code>allow(key)</code> 介面，可切換演算法；用<strong>檔案鎖原子更新</strong>模擬 Redis 的原子操作。</li>
+    <li><code>public/index.php</code>　路由：設定限制 / 連打測試 / 重置，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8019 -t public
+# 瀏覽器開 http://localhost:8019
+# 設定「每 10 秒 5 次」→ 連續快打看前幾次放行、超出被拒(429)
+# 等待數秒後再打 → 看 token 補回 / 視窗滑動恢復放行</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 <strong>檔案鎖（flock）做原子讀-改-寫</strong>，模擬真實系統裡 <code>Redis INCR / Lua 腳本</code> 的原子性；單機示意、非真正分散式。令牌桶補充、滑動視窗加權、per-key 隔離、429 + Retry-After 等<strong>限流邏輯為真實可執行</strong>。要上線只需把檔案鎖換成 Redis 原子操作，演算法邏輯完全不變。
+  </div>
+
+  <footer>⑲ Distributed Rate Limiter · H 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

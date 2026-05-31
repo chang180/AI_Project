@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑱ 附近的人 / 地點 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑱ 附近的人 / 地點：地理空間搜尋（Proximity / Yelp Nearby）</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag time">建議 42 分鐘</span>
+    <span class="tag">Design a Proximity Service</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把二維地理座標變成可索引的一維鍵，做半徑 / 最近 K 查詢</strong>」。
+    難點不是查詢本身，而是<em>如何索引連續的經緯度</em>——B-Tree 對單一欄位有效，但「同時靠近某經度 <strong>且</strong> 某緯度」是二維問題，
+    這就是 Geohash / QuadTree / S2 / PostGIS 存在的原因。讀多寫少（商家座標幾乎不變）讓快取與讀副本成為主力。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>給定座標 <code>(lat, lng)</code> 與半徑，回傳半徑內的地點，<strong>依距離由近到遠排序</strong>。</li>
+    <li>「最近 K 個」查詢（即使半徑外也要找到最近的幾個）。</li>
+    <li>結合<strong>屬性過濾</strong>：類別（餐廳/景點…）、最低評分、營業中等。</li>
+    <li>分頁（前端地圖捲動 / 下拉載入更多）。</li>
+    <li>地點 CRUD（新增/更新商家座標、屬性）——但這是低頻寫。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>讀多寫少</strong>：商家地點是近乎靜態資料（座標開店後幾乎不變），查詢量遠大於更新量。</li>
+    <li><strong>低延遲</strong>：附近搜尋 &lt; 100ms（p99），使用者在地圖上即時互動。</li>
+    <li><strong>高可用</strong>：搜尋是核心體驗，需可水平擴展。</li>
+    <li><strong>結果正確</strong>：不能因索引邊界而漏掉明明很近的地點（見 §6 邊界問題）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「地點是<strong>靜態</strong>（商家，本題）還是<strong>高頻移動</strong>（即時找附近的人 / 叫車）？」
+    靜態 → 重點在搜尋索引、快取、讀副本（本筆記主軸）；移動 → 重點在高頻位置更新與 TTL（那是 Robotaxi / 即時媒合題的走向）。
+    再問：要<strong>精確</strong>半徑還是<strong>近似</strong>即可？地圖類通常近似（先填滿畫面）即可。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>地點總數</td><td>全球商家</td><td>~2 億筆</td></tr>
+    <tr><td>每筆中繼資料</td><td>名稱/類別/評分/座標 ~1KB</td><td>2億 × 1KB ≈ <strong>200 GB</strong>（單機記憶體可放索引）</td></tr>
+    <tr><td>搜尋（讀）</td><td>5000 萬 DAU，每人 10 次附近搜尋</td><td>5 億/日 ≈ ~5.8k QPS（峰值 ×5 ≈ 30k）</td></tr>
+    <tr><td>地點更新（寫）</td><td>商家偶爾改資料</td><td>&lt; 100 寫 QPS（<strong>讀寫比 &gt; 100:1</strong>）</td></tr>
+    <tr><td>geohash 精度 6</td><td>格子 ≈ 1.2km × 0.6km</td><td>市區一格內數十～數百家，適合粗篩</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>資料量小（索引可全進記憶體）、讀寫極不對稱 → 設計圍繞「<strong>記憶體內空間索引 + 快取熱門查詢 + 讀副本擴展讀</strong>」，寫路徑相對輕鬆。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 半徑查詢（讀，超高頻）
+GET /api/v1/places/nearby?lat=25.0339&lng=121.5645&radius=2km
+        &category=restaurant&min_rating=4.0&limit=20&offset=0
+→ 200 { "results": [ { "id":"p1", "name":"...", "distance_km":0.11, ... } ],
+        "total_matched": 37, "next_offset": 20 }
+
+# 最近 K 個（不限半徑）
+GET /api/v1/places/nearest?lat=..&lng=..&k=5&category=cafe
+
+# 新增 / 更新地點（寫，低頻）
+POST  /api/v1/places   Body: { "name":"...", "category":"...", "rating":4.5, "lat":.., "lng":.. }
+PATCH /api/v1/places/{id}   Body: { "rating": 4.7 }     # 更新需重算 geohash 桶 + 失效快取
+</code></pre>
+  <div class="box"><span class="label">設計細節</span>半徑用 <code>radius</code> 帶單位；分頁用 <code>offset/limit</code>（或地圖類常用 bounding-box <code>?sw=&ne=</code> 直接給可視範圍四角）。回傳 <code>distance_km</code> 讓前端標距離。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>places  (主庫：讀多寫少，可大量讀副本 + Redis 快取)
+  id          BIGINT PRIMARY KEY
+  name        TEXT
+  category    VARCHAR        -- 屬性過濾
+  rating      DECIMAL(2,1)   -- 屬性過濾
+  lat, lng    DOUBLE
+  geohash     CHAR(8)        -- 預先算好的索引鍵（精度可多存幾層）
+  INDEX (geohash)            -- 前綴查詢靠它；或交給 PostGIS GiST / S2
+
+# 空間索引（記憶體 / Redis）
+geohash 桶 → [place_id, ...]      # 同前綴 = 地理鄰近
+# Redis GEO：ZADD places lng lat member（底層即 geohash 排序集）</code></pre>
+  <div class="box"><span class="label">為何預存 geohash</span>把座標在<strong>寫入時</strong>就編成 geohash 字串並建索引，查詢就退化成「字串前綴比對」——可直接用一般 B-Tree / 排序集，不需要特殊空間資料庫。屬性（評分/類別）留在同一列，過濾時順手做掉。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 寫(低頻) ─▶ 地點寫入服務 ─▶ 算 geohash ─▶ 地點DB(主) ─┐
+                                  │                      ├─▶ 索引更新(桶)
+                                  └──────────────────────┘
+ 讀(高頻) ─▶ 查詢服務 ─(查快取命中?)─▶ 快取(熱門查詢) ─┐
+               │ (miss)                                  │
+               ▼                                         ▼
+       空間索引(geohash 分桶: 中心格+8鄰格) ─▶ 地點DB讀副本 ─▶ haversine 精算+過濾+排序</code></pre>
+  <ol>
+    <li><strong>查詢服務</strong>：無狀態、可水平擴展；先打快取，未命中走空間索引粗篩 + 精算。</li>
+    <li><strong>空間索引</strong>：以 geohash 前綴分桶；查詢取<strong>中心格 + 周圍 8 鄰格</strong>共 9 桶（解決邊界）。</li>
+    <li><strong>地點 DB</strong>：讀多寫少 → 多個讀副本擴展讀；寫入時算 geohash 並更新索引。</li>
+    <li><strong>快取</strong>：熱門查詢（熱門商圈座標 + 常見半徑/類別）結果快取，命中率高（查詢集中在熱點區）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>空間索引方案對比</h3>
+  <table>
+    <tr><th>方案</th><th>原理</th><th>優點</th><th>缺點 / 適用</th></tr>
+    <tr><td><strong>Geohash 前綴</strong></td><td>交錯二分經緯度編成 base32 字串，共同前綴越長越近</td><td>實作簡單、可用普通字串索引 / Redis GEO；前綴查詢快</td><td>邊界問題（需查 8 鄰格）；格子大小固定不隨密度調整</td></tr>
+    <tr><td><strong>QuadTree</strong></td><td>遞迴把區域切四象限，密集處切更細</td><td>密度自適應（市區切細、海上不切）；查詢效率高</td><td>需建樹、再平衡較麻煩；多在記憶體</td></tr>
+    <tr><td><strong>Google S2</strong></td><td>把球面投到立方體再用 Hilbert 曲線編 cell id</td><td>球面失真小、cell 大小均勻、鄰格運算精確</td><td>概念複雜、需函式庫；Google Maps / Foursquare 採用</td></tr>
+    <tr><td><strong>PostGIS</strong></td><td>關聯式 DB 的地理擴充，GiST 索引 + <code>ST_DWithin</code></td><td>直接 SQL、精確、功能完整（多邊形/路網）</td><td>單庫擴展受限；超大規模需分片</td></tr>
+  </table>
+
+  <h3>Geohash 邊界問題（最常被追問）</h3>
+  <p>geohash 把連續座標離散成格子，<strong>共同前綴越長 = 越接近</strong>。但格子有硬邊界：兩個物理上只差幾公尺的點，可能剛好落在相鄰格子（前綴不同）。
+  若只查中心格，會漏掉貼著邊界的鄰近地點。</p>
+  <pre><code>          ┌──────┬──────┬──────┐
+          │ NW   │  N   │  NE  │   查詢點若靠近中心格右緣，
+          ├──────┼──────┼──────┤   真正最近的店可能在 E 格！
+          │  W   │ 中心 │  E   │   → 一律取「中心格 + 8 鄰格」共 9 桶
+          ├──────┼──────┼──────┤      做粗篩，再用 haversine 精算過濾。
+          │ SW   │  S   │  SE  │
+          └──────┴──────┴──────┘</code></pre>
+  <div class="box warn"><span class="label">面試金句</span>「我會查中心格<strong>加周圍 8 個鄰格</strong>，避免邊界遺漏；這 9 桶是<em>粗篩（candidate set）</em>，縮小範圍後再用 haversine 球面距離<em>精算</em>過濾掉半徑外的、並依距離排序。」</div>
+
+  <h3>geohash 精度 vs 格子大小</h3>
+  <table>
+    <tr><th>精度（字元數）</th><th>格子寬 × 高（約）</th><th>適用</th></tr>
+    <tr><td>4</td><td>~39km × 19km</td><td>城市級</td></tr>
+    <tr><td>5</td><td>~4.9km × 4.9km</td><td>行政區 / 大商圈</td></tr>
+    <tr><td>6</td><td>~1.2km × 0.6km</td><td><strong>市區附近搜尋（本 demo 採用）</strong></td></tr>
+    <tr><td>7</td><td>~153m × 153m</td><td>街區級 / 步行範圍</td></tr>
+    <tr><td>8</td><td>~38m × 19m</td><td>建物級</td></tr>
+  </table>
+  <p>精度要配合查詢半徑：半徑遠大於格子，要查的鄰格就不只 8 個（得擴大環形掃描）；半徑遠小於格子，9 桶內候選太多浪費精算。<strong>讓格子大小 ≈ 常見查詢半徑</strong>最省。</p>
+
+  <h3>最近 K 個：候選不足時放大範圍</h3>
+  <p>若 9 桶內地點數 &lt; K（例如郊區很稀疏），就<strong>縮短 geohash 前綴（放大格子）</strong>重查，逐步擴大搜尋環，直到湊滿 K 個。實作即「先精度 6，不夠降到 5、4…」。
+
+  <h3>讀多寫少 → 快取與讀副本</h3>
+  <ul>
+    <li>商家座標近乎靜態 → 查詢結果<strong>可大膽快取</strong>（熱門商圈 + 常見半徑/類別組合，命中率高）。</li>
+    <li>讀流量靠<strong>讀副本</strong>水平擴展；空間索引可整份放記憶體（資料量僅數百 GB）。</li>
+    <li>寫入（改評分/座標）時：重算 geohash 桶歸屬 + <strong>失效相關快取</strong>（讀自己的寫）。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機</td><td>CPU / 記憶體</td><td>無狀態查詢服務 + 負載均衡；索引整份進記憶體</td></tr>
+    <tr><td>讀爆</td><td>熱門商圈查詢打 DB</td><td>快取熱門查詢結果 + 多讀副本</td></tr>
+    <tr><td>熱點分布不均</td><td>市區桶超大、海上桶空</td><td>改用 QuadTree / S2 等密度自適應索引；或市區用更高精度</td></tr>
+    <tr><td>全球延遲</td><td>跨洲 RTT</td><td>依地理分區部署，就近服務 + 就近快取</td></tr>
+    <tr><td>索引更新</td><td>批量匯入新地點</td><td>低頻寫，可離線重建索引 + 灰度切換</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>Geohash vs QuadTree/S2</strong>：geohash 簡單（普通索引就能跑）但格子固定、有邊界問題；QuadTree/S2 密度自適應、邊界處理好，但複雜。面試先講 geohash（好寫好答），再加一句「資料密度極不均時改 QuadTree/S2」。</li>
+    <li><strong>精確 vs 近似</strong>：地圖類通常先填滿畫面即可（近似），不必嚴格半徑；嚴格半徑才要 haversine 精算每一筆。</li>
+    <li><strong>讀路徑快取一致性</strong>：商家更新少 → 快取 TTL 可長；更新時主動失效。評分/排序若摻即時人氣，快取需更短 TTL。</li>
+    <li><strong>距離公式</strong>：haversine（球面）夠用；要更準用 Vincenty（橢球），但成本高、附近搜尋無必要。</li>
+    <li><strong>常見追問</strong>：① 半徑遠大於格子怎辦？→ 擴大環形掃描或降精度。② 如何排序？→ 距離為主，可混合評分/人氣加權。③ 移動的「附近的人」？→ 改高頻位置更新 + 短 TTL（轉成即時題）。④ 為何不用兩個 B-Tree（lat 一個、lng 一個）？→ 二維交集效率差，無法直接「同時靠近」。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>空間索引的核心邏輯</strong>（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/GeoHash.php</code>　經緯度 ↔ base32 geohash 編解碼，並提供 <code>neighbors()</code> 算出中心格 + 8 鄰格（解決邊界）。</li>
+    <li><code>src/SpatialIndex.php</code>　以 geohash 前綴分桶；半徑查詢取 9 桶粗篩 → haversine 精算 → 屬性過濾（類別/評分）→ 排序 → 分頁；含最近 K（候選不足自動降精度放大範圍）。</li>
+    <li><code>src/PlaceStore.php</code>　地點資料（JSON 檔模擬讀多寫少的 DB）+ 行內快取與命中統計。</li>
+    <li><code>public/index.php</code>　路由：建立/塞資料、半徑查詢、最近 K、桶檢視，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8018 -t public
+# 瀏覽器開 http://localhost:8018 → 先「塞入示範地點」→ 做半徑 / 最近 K 查詢
+# 回應的 buckets_scanned 即實際掃描的 9 個 geohash 桶（含 8 鄰格）</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的「DB」是 JSON 檔、「快取」是 process-local 陣列、索引每次請求重建（<strong>示意簡化</strong>）；
+    但 <strong>geohash 編解碼、鄰格計算、前綴分桶、半徑/最近K查詢、haversine 精算、類別/評分過濾、分頁</strong>等<strong>空間索引邏輯為真實可執行</strong>。
+    本機 PHP 未載入 mbstring，程式全程只用 <code>strlen</code>/<code>substr</code>（geohash 皆 ASCII）。
+    要換成生產級索引（PostGIS / Redis GEO / S2），只需替換 <code>SpatialIndex</code> 內部實作，介面與呼叫端不變。
+  </div>
+
+  <footer>⑱ 附近的人 / 地點 · G 搜尋/索引/地理空間 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉒ 廣告點擊聚合 / 計費 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉒ 廣告點擊聚合 / 計費：海量事件下的 exactly-once 計費</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design an Ad Click Aggregation / Counting System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>海量點擊事件串流 → 冪等去重達 exactly-once 計費 → 防點擊欺詐 → 視窗聚合 → OLAP 對帳</strong>」的串流計算題。
+    點擊計數聽起來像 <code>COUNT(*)</code>，但這題真正考的是：事件管線只能保證 <em>at-least-once</em>（重複難免），
+    而每一次計費都直接等於<strong>錢</strong>，所以核心是<em>如何把 at-least-once 收斂成 exactly-once、如何擋掉欺詐點擊、如何在亂序/遲到下做正確的視窗聚合</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（海量點擊）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>使用者點擊廣告 → 產生海量「點擊事件」串流（click_id, ad_id, user_id, ip, ts, ...）。</li>
+    <li><strong>點擊計數與計費</strong>：每個廣告（每個廣告主）在每個時間視窗（每分鐘 / 每小時 / 每日）有多少次<em>可計費</em>點擊。</li>
+    <li><strong>去重 exactly-once</strong>：同一次真實點擊不論被投遞幾次，只能計費一次。</li>
+    <li><strong>防點擊欺詐</strong>：同 IP/裝置短時間異常洪水點擊、bot、惡意消耗預算的流量需被剔除、不計費。</li>
+    <li><strong>查詢與報表</strong>：廣告主即時看花了多少錢；月底須與精確值<em>對帳</em>。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高吞吐寫</strong>：點擊事件量巨大（數十萬～百萬 events/sec），必須水平擴展、<strong>不丟事件</strong>（至少一次）。</li>
+    <li><strong>計費正確性 = 錢</strong>：少算 → 平台虧；多算 → 廣告主被多扣、信任崩。<em>exactly-once 是硬需求</em>。</li>
+    <li><strong>讀（報表）低延遲</strong>：儀表板查詢 &lt; 100ms（p99），由聚合結果/OLAP 直接服務。</li>
+    <li><strong>新鮮度可放寬</strong>：即時數字可落後數秒～分鐘（最終一致）；但<em>對帳數字必須最終精確</em>。</li>
+    <li><strong>容錯</strong>：聚合管線崩潰重啟後，計費結果不能因為重放事件而翻倍。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「<strong>即時近似</strong>夠用，還是要<strong>最終精確對帳</strong>？」「容許多少<strong>計費誤差</strong>？」「<strong>去重保證</strong>要 at-least-once + 去重，還是要端到端 exactly-once？」
+    這三題決定架構走向：純即時 → 一條近似串流；要對帳 → <strong>Lambda（即時近似 + 批次精確）</strong> 或 Kappa（同一條串流可重放重算），本筆記主軸。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>點擊事件（寫）</td><td>每日 50 億次點擊</td><td>≈ <strong>5.8 萬 events/sec</strong>（峰值 ×5 ≈ 29 萬/s）</td></tr>
+    <tr><td>事件大小</td><td>每筆 ~200 bytes（含 click_id/ad_id/ip/ts/ua）</td><td>50 億 × 200B ≈ <strong>1 TB / 日</strong>原始事件</td></tr>
+    <tr><td>去重狀態</td><td>記住近 N 小時的 click_id（16B/筆）</td><td>1 小時 ≈ 2 億筆 × 16B ≈ <strong>3.2 GB</strong>（需設 TTL，不可無限長）</td></tr>
+    <tr><td>聚合結果（每分鐘 × 每廣告）</td><td>1000 萬個活躍廣告 × 1440 分鐘</td><td>每日 ~144 億列聚合 → 走列式 OLAP 壓縮儲存</td></tr>
+    <tr><td>報表讀</td><td>廣告主看儀表板</td><td>數千～數萬讀 QPS，全由聚合結果/快取服務</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>原始事件 TB 級不可能逐筆同步寫 OLTP；整個設計圍繞「<strong>Kafka 緩衝削峰 → 串流去重/風控/聚合 → 只把已算好的視窗計數物化進 OLAP</strong>」。去重狀態會隨時間線性成長 → <strong>必須設 TTL</strong>，這是常被忽略的重點。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 寫：上報點擊事件（高頻，進 Kafka，立即回 202，不等聚合）
+POST /api/v1/clicks
+Body: { "click_id": "ck_9f2a...", "ad_id": "ad_8821", "user_id": 421,
+        "ip": "203.0.113.7", "ts": 1717200000, "ua": "..." }
+→ 202 Accepted    （click_id 由前端/SDK 產生，作為冪等鍵）
+
+# 讀：某廣告分視窗計費（由聚合結果 / OLAP 服務）
+GET /api/v1/ads/{ad_id}/clicks?from=...&to=...&granularity=1m
+→ 200 { "ad_id":"ad_8821", "granularity":"1m",
+        "windows":[ { "window_start":1717200000, "billable":1832 }, ... ],
+        "total": 1832450 }
+
+# 讀：廣告主帳務彙總（即時近似 vs 對帳後精確）
+GET /api/v1/advertisers/{id}/billing?date=2026-05-31
+→ 200 { "approx": 12044.50, "reconciled": 12039.80, "currency":"USD",
+        "reconciled_at":"..." }
+</code></pre>
+  <div class="box"><span class="label">為何 click_id 由上游帶</span>冪等鍵必須在「<strong>點擊發生的當下</strong>」就決定（SDK/前端產生），這樣不論事件被重送幾次，都帶同一個 click_id，下游才能去重。若等到伺服器端才生 ID，重送就會變成兩個不同 ID，去重失效。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>click_events （Kafka topic，append-only，依 ad_id 分區）
+  click_id, ad_id, user_id, ip, ts, ua, country   -- 高頻寫入串流，不進 OLTP 主庫
+
+# 串流處理器（Flink）狀態，非傳統資料表：
+dedup_state    key=click_id → seen (RocksDB/Redis，設 TTL，去重用)
+fraud_state    key=ip/device → 近期點擊時間視窗（速率/洪水偵測）
+window_agg     key=(ad_id, window_start) → billable_count （滾動視窗累加）
+
+# 對外物化的計費結果（最終一致 / 對帳後精確）：
+billing_olap （列式 OLAP，如 ClickHouse / Druid）
+  ad_id, advertiser_id, window_start, granularity, billable_count, revenue
+  -- 即時近似先寫入，批次對帳後覆蓋為精確值（speed 層 vs batch 層）</code></pre>
+  <div class="box"><span class="label">為何分三套狀態</span>去重、風控、聚合是管線中<strong>三個獨立關卡</strong>，各自有不同的 key（click_id / ip / ad_id+window）與不同的生命週期（去重狀態短 TTL、聚合結果長存）。混在一起會讓任一個爆掉時拖垮全部。原始事件另存物件儲存供批次層重算對帳。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 點擊(寫) ─▶ 收集服務 ─▶ Kafka(依 ad_id 分區) ─▶ 去重(click_id 冪等)
+                                                    │
+                                                    ▼
+                                              欺詐過濾(同 IP/裝置洪水/bot)
+                                                    │
+                                                    ▼
+                                       視窗聚合(tumbling window 每分鐘每 ad_id)
+                                                    │ 即時近似物化
+                                                    ▼
+ 報表(讀) ◀──────────  聚合庫 / OLAP(計費、報表) ◀── 批次精確對帳(重放原始事件)</code></pre>
+  <ol>
+    <li><strong>收集服務</strong>：無狀態，收到點擊立刻丟 Kafka 並回 202；點擊體驗不被下游阻塞（at-least-once：寧可重送也不丟）。</li>
+    <li><strong>Kafka</strong>：依 <code>ad_id</code> 分區，保證同一廣告的事件落到同一聚合算子，計數不需跨節點合併。</li>
+    <li><strong>去重</strong>：以 <code>click_id</code> 查 seen-state，重複者丟棄 → 把 at-least-once 收斂為 exactly-once 計費。</li>
+    <li><strong>欺詐過濾</strong>：同 IP/裝置短視窗超門檻、黑名單、bot 特徵 → 剔除不計費。</li>
+    <li><strong>視窗聚合</strong>：每 ad_id 每分鐘 tumbling window 累加可計費點擊，視窗收尾即輸出一列。</li>
+    <li><strong>Lambda 雙層</strong>：speed 層即時出近似數字供儀表板；batch 層離線重放原始事件做精確對帳，覆蓋計費值。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>為何「at-least-once + 去重」而非追求端到端 exactly-once？</h3>
+  <ul>
+    <li>分散式訊息系統要保證<strong>恰好一次投遞</strong>極難且昂貴（需跨系統的事務協調）。業界務實作法是：傳輸層只保證 <strong>at-least-once</strong>（不丟，但可能重送），把「恰好一次」的責任下推到<strong>消費端的冪等去重</strong>。</li>
+    <li><strong>去重鍵</strong>：上游在點擊當下產生唯一 <code>click_id</code>。下游維護 seen-set，<code>click_id</code> 已見過就丟棄。如此重送 N 次也只計一次 → <em>effectively exactly-once</em>。</li>
+    <li><strong>去重狀態不能無限長</strong>：必須設 TTL（如保留近數小時～1 天）。TTL 要 ≥ 上游最大可能的重送延遲，否則遲到的重複會漏掉去重。這是去重大小與正確性的取捨。</li>
+  </ul>
+  <h3>防點擊欺詐</h3>
+  <ul>
+    <li><strong>速率/洪水偵測</strong>：同一 IP/裝置指紋在短滑動視窗內點擊數超門檻 → 後續判可疑剔除（本 demo 實作這一層）。</li>
+    <li><strong>多層信號</strong>：IP/UA 黑名單、資料中心 IP、無頭瀏覽器特徵、點擊到轉換的時間分布異常、ML 評分。</li>
+    <li><strong>去重 ≠ 反欺詐</strong>：欺詐點擊的 <code>click_id</code> 各不相同（騙得過去重），所以反欺詐是<strong>獨立關卡</strong>，看的是<em>行為模式</em>而非冪等鍵。</li>
+  </ul>
+  <h3>視窗聚合與亂序 / 遲到事件</h3>
+  <ul>
+    <li><strong>tumbling vs sliding</strong>：計費用<em>滾動視窗（tumbling）</em>——固定長度、不重疊（每分鐘一桶），每筆事件只屬於一個桶，計費不重複；<em>滑動視窗（sliding）</em>桶會重疊，適合「近 5 分鐘移動平均」這類監控指標。</li>
+    <li><strong>event-time vs processing-time</strong>：必須用<strong>事件時間</strong>（點擊發生的 ts）歸桶，否則網路延遲會把事件算到錯的分鐘 → 計費錯帳。</li>
+    <li><strong>watermark（水位線）</strong>：串流如何知道「某分鐘的事件都到齊、可以收尾結算了」？用 watermark——一個「事件時間已推進到此」的保證。watermark 過了視窗結束 + 容忍延遲，才關閉視窗輸出。遲到超過容忍度的事件進<em>遲到處理</em>（丟棄或在 batch 層補算）。</li>
+  </ul>
+  <h3>Lambda / Kappa：即時近似 + 精確對帳</h3>
+  <p><strong>Lambda</strong>：speed 層（串流，秒級近似，可能漏算遲到事件）+ batch 層（離線重放全部原始事件，精確，覆蓋計費）。兩層維護成本高但對帳鐵實。<strong>Kappa</strong>：只保留一條串流 + 可重放的 Kafka，要重算就把 offset 倒回重跑，省掉維護兩套程式碼。計費場景對<em>精確對帳</em>要求高，常見是「即時出近似、日終跑批次對帳覆蓋」。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（從零到海量點擊）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機</td><td>事件吞吐 / CPU</td><td>無狀態收集層 + 負載均衡，水平加機器，Kafka 緩衝削峰</td></tr>
+    <tr><td>去重狀態爆</td><td>seen-set 隨時間線性成長</td><td>設 <strong>TTL</strong>（保留可能重送的視窗）；放 RocksDB/Redis 分片，按 click_id 雜湊</td></tr>
+    <tr><td>單算子算不完</td><td>所有廣告擠一個聚合器</td><td>Kafka 依 <code>ad_id</code> <strong>分區</strong>並行；熱門廣告再做 key 加鹽打散後合併</td></tr>
+    <tr><td>報表讀爆</td><td>儀表板查詢打聚合器</td><td>物化聚合結果進 <strong>OLAP</strong>（ClickHouse/Druid）+ Redis 快取熱門廣告</td></tr>
+    <tr><td>計費漂移</td><td>即時近似與真實值有差</td><td><strong>batch 層</strong>定期重放原始事件精確對帳，覆蓋 speed 層數字</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>at-least-once + 去重 vs 端到端 exactly-once</strong>：後者昂貴難實現；業界務實做法是前者——傳輸不丟、消費端用 click_id 冪等去重達成 effectively-once。</li>
+    <li><strong>去重 TTL 大小</strong>：太短 → 遲到的重複漏去重（多計費）；太長 → 狀態爆記憶體。需 ≥ 上游最大重送延遲。</li>
+    <li><strong>tumbling vs sliding window</strong>：計費要用不重疊的 tumbling（每筆只計一個桶）；sliding 適合移動平均監控，計費用它會重複算。</li>
+    <li><strong>Lambda vs Kappa</strong>：Lambda 即時+批次兩套程式碼，對帳鐵實但維護重；Kappa 單一串流可重放，省維護但重算要倒 offset 跑全量。</li>
+    <li><strong>近似 vs 精確</strong>：即時可用近似（甚至 HyperLogLog 算 distinct user 防灌量）；但計費對外金額必須能對帳到精確 → 批次層補。</li>
+    <li><strong>常見追問</strong>：去重狀態怎麼不爆？→ TTL + 分片。怎麼防同一人灌點擊？→ 按 distinct user/裝置計（HLL）+ 風控。事件亂序/遲到怎麼算對？→ event-time + watermark，遲到進 batch 層補算。聚合器崩潰重啟會不會重複計費？→ 狀態 checkpoint + 事件 offset，重放時去重關卡擋住重複。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>計費系統真正的考點</strong>：去重 exactly-once + 防欺詐 + 視窗聚合，可實際用 PHP 內建伺服器跑：</p>
+  <ul>
+    <li><code>src/ClickIngest.php</code>　以 <code>click_id</code> 的 seen-set 冪等去重，重複事件丟棄（exactly-once 計費）。</li>
+    <li><code>src/FraudFilter.php</code>　同 IP 在短滑動視窗內超過門檻判洪水點擊，剔除不計費。</li>
+    <li><code>src/Aggregator.php</code>　event-time tumbling window（每 60 秒）每 <code>ad_id</code> 累計可計費點擊，可查分視窗計數與總計費。</li>
+    <li><code>public/index.php</code>　管線路由（去重 → 風控 → 聚合）+ 深色測試頁；一鍵餵範例批次看漏斗。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8022 -t public
+# 瀏覽器開 http://localhost:8022
+# 點「跑範例批次」→ 看「原始事件數 vs 去重後 vs 可計費數」漏斗 + 分視窗聚合</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機單行程</strong>，用 JSON 檔保存管線狀態以示意，並非真的接 Kafka / Flink / OLAP 叢集；但
+    <strong>click_id 冪等去重（exactly-once 計費）、同 IP 滑動視窗洪水偵測、event-time tumbling window 聚合皆為真實可執行的邏輯</strong>，
+    且頁面會把 <em>原始事件數 → 去重後 → 欺詐剔除 → 最終可計費</em> 的漏斗直接呈現出來，讓你看到 at-least-once 如何被收斂成乾淨的計費。
+  </div>
+
+  <footer>㉒ 廣告點擊聚合 / 計費 · D 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

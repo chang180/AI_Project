@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑮ News Feed 動態牆 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅵 社交/Feed 分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑮ News Feed 動態牆：推、拉與 Hybrid Fan-out</h1>
+  <p class="subtitle">
+    <span class="tag group">F 社交/Feed</span>
+    <span class="tag time">建議 50 分鐘</span>
+    <span class="tag">Design a News Feed / Timeline</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>追蹤關係上的扇出（fan-out）分發</strong>」問題。產生內容很容易；面試真正考的是
+    <em>發文時把貼文寫進每個追蹤者的 feed（推 / fan-out on write）</em> 還是
+    <em>讀 feed 時即時聚合所有追蹤對象（拉 / fan-out on read）</em>，以及<strong>名人（百萬粉絲）把推模型推爆</strong>後如何用 hybrid 解決。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算（讀寫放大）</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入（推 / 拉 / hybrid）</a></li>
+      <li><a href="#scale">擴展與瓶頸（名人問題）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>使用者可<strong>追蹤（follow）</strong>其他使用者；發文（post）。</li>
+    <li>讀取自己的 <strong>News Feed</strong>：所有追蹤對象的貼文，依時間（或排序分數）合併。</li>
+    <li>分頁載入（無限下拉），通常只取最新 N 筆。</li>
+    <li>（進階）排序：時間序 → 演算法排序（互動分數、相關性）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>讀延遲低</strong>：打開 App 就要看到 feed，p99 &lt; 200ms → feed 必須預先算好或可快速聚合。</li>
+    <li><strong>讀遠多於寫</strong>：刷 feed 的次數遠大於發文（讀寫比常達 100:1）。</li>
+    <li><strong>高可用</strong>：feed 可接受<strong>最終一致</strong>（晚幾秒看到新貼文沒關係），不需強一致。</li>
+    <li><strong>可擴展</strong>：使用者數與追蹤關係皆可達數億；單一名人粉絲可破千萬。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「feed 是<strong>時間序還是演算法排序</strong>？」「要不要支援<strong>名人（super-user）</strong>？」這兩點決定整題走向。
+    時間序純合併最單純；一旦有百萬粉絲名人，推模型（fan-out on write）就會被「一次發文 → 千萬次寫入」推爆，整題核心就轉向 hybrid。
+  </div>
+
+  <h2 id="estimate">2. 規模估算（讀寫放大）</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>日活（DAU）</td><td>2 億</td><td>—</td></tr>
+    <tr><td>發文（寫）</td><td>每人每日 0.1 篇</td><td>2000 萬/日 ≈ 230 寫 QPS</td></tr>
+    <tr><td>讀 feed（讀）</td><td>每人每日刷 10 次</td><td>20 億/日 ≈ 23k 讀 QPS（峰值 ×3 ≈ 70k）</td></tr>
+    <tr><td>平均追蹤者數</td><td>每人 ~200 粉絲</td><td>推模型：1 次發文 → <strong>~200 次 feed 寫入</strong>（寫放大 200×）</td></tr>
+    <tr><td>名人粉絲數</td><td>頂級帳號 5000 萬</td><td>推模型：1 次發文 → <strong>5000 萬次寫入</strong>（會推爆，必須改拉）</td></tr>
+    <tr><td>feed 快取容量</td><td>每人存最新 ~800 筆貼文 id</td><td>2億 × 800 × 8B ≈ <strong>1.3 TB</strong>（純 id，放 Redis 列表）</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>讀寫極不對稱 → 預設用<strong>推模型</strong>把成本搬到寫端（讀只需 O(1) 取自己 feed 快取）；但<strong>寫放大</strong>會隨追蹤者數爆炸，名人是這個策略的致命例外。整題的張力就在這條「寫放大 vs 讀放大」的天平上。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 追蹤 / 取消追蹤（寫，改變社交圖）
+POST   /api/v1/follow      Body: { "follower_id": 1, "followee_id": 9 }
+DELETE /api/v1/follow      Body: { "follower_id": 1, "followee_id": 9 }
+
+# 發文（寫，觸發 fan-out）
+POST   /api/v1/posts       Body: { "author_id": 9, "text": "..." }
+→ 201 { "post_id": "p_123", "fanout": "push"|"pull" }   # 依作者是否名人決定
+
+# 讀 News Feed（讀，超高頻，關鍵路徑）
+GET    /api/v1/feed?user_id=1&limit=20&cursor=...
+→ 200 { "items": [ {post_id, author_id, text, ts, source:"push"|"pull"} ],
+        "next_cursor": "..." }
+</code></pre>
+  <div class="box"><span class="label">注意</span><code>source</code> 欄位在正式系統不會回傳，這裡刻意暴露「這筆是<strong>推來的</strong>還是<strong>即時拉的</strong>」，正是本題 demo 要呈現的核心。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>users
+  user_id      BIGINT PK
+  is_celebrity BOOL            -- 粉絲數超過門檻自動標記（影響 fan-out 策略）
+
+follows  (社交圖，雙向各建索引)
+  follower_id  BIGINT          -- 我追蹤誰（拉模型讀此）
+  followee_id  BIGINT          -- 我的粉絲是誰（推模型寫此）
+  PRIMARY KEY (follower_id, followee_id)
+
+posts  (貼文庫，真相來源)
+  post_id      BIGINT PK
+  author_id    BIGINT
+  text         TEXT
+  created_at   TIMESTAMP
+
+feed_cache  (每使用者的預算 feed，推模型寫入處 → Redis 列表)
+  user_id → [ post_id, post_id, ... ]   -- 只存 id，依 ts/score 排序，截斷保留最新 N 筆</code></pre>
+  <div class="box"><span class="label">為何 feed 只存 id</span>貼文內容是<strong>單一真相來源（posts 庫）</strong>；feed 快取只存 post_id 列表，讀時再批次回填內容（hydrate）。這樣同一貼文不會在千萬份 feed 裡複製內文，省儲存、且改貼文只改一處。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 發文(寫) ─▶ Post Service ─▶ 貼文庫(posts)
+                 │
+                 ▼  查作者是否名人？
+            ┌────────────┐
+            │ Fan-out     │  一般作者：推 ─▶ 對每個粉絲寫 feed 快取
+            │ Worker      │  名人作者：不推（標記，留待讀時拉）
+            └────────────┘
+                                          ┌─────────────┐
+ 讀 feed(讀) ─▶ Feed Service ─┬─(推來的)─▶│ Feed 快取    │ 取自己的預算 feed
+                              │           └─────────────┘
+                              └─(即時拉)─▶ 社交圖找出我追的名人 ─▶ 貼文庫取其最新貼文
+                                          ─▶ 兩者合併、依時間排序、回傳</code></pre>
+  <ol>
+    <li><strong>Post Service</strong>：寫入貼文庫，發 fan-out 事件（真實系統走 Kafka 給 worker 非同步處理）。</li>
+    <li><strong>Fan-out Worker</strong>：一般作者 → 對每個粉絲的 feed 快取 push 該 post_id；名人 → 跳過（避免寫爆）。</li>
+    <li><strong>Feed Service</strong>：讀時把「已推進快取的內容」與「即時從名人貼文拉來的內容」<strong>合併排序</strong>後回傳。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入（推 / 拉 / hybrid）</h2>
+  <h3>Fan-out on write（推模型 / Push）</h3>
+  <ul>
+    <li>發文當下，<strong>對作者的每個粉絲</strong>把 post_id 寫進其 feed 快取。</li>
+    <li><strong>讀超快</strong>：讀 feed = O(1) 取自己那份預算好的列表，不必聚合。</li>
+    <li><strong>缺點：寫放大</strong>。粉絲越多寫越多次；名人發一篇 → 千萬次寫入、延遲與成本爆炸；殭屍粉（不活躍者）的 feed 也白寫。</li>
+  </ul>
+  <h3>Fan-out on read（拉模型 / Pull）</h3>
+  <ul>
+    <li>不預先寫；<strong>讀 feed 時</strong>才查「我追蹤了誰」，去各人貼文取最新，當場合併排序。</li>
+    <li><strong>寫超輕</strong>：發文只寫貼文庫一次，無寫放大。</li>
+    <li><strong>缺點：讀放大</strong>。追蹤上千人時，每次讀都要聚合上千個來源，讀延遲高、難快取。</li>
+  </ul>
+  <h3>Hybrid（混合，業界實際做法）</h3>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    依作者類型分流：<strong>一般使用者用推</strong>（讀快，寫放大可控）；<strong>名人用拉</strong>（避免一次發文寫爆千萬份 feed）。
+    讀 feed 時＝<em>已推進快取的內容</em> ＋ <em>即時拉取「我追的名人」的最新貼文</em>，兩者合併依時間排序。名人數量少、其貼文可額外快取，拉的成本被攤平。
+  </div>
+  <h3>合併與排序</h3>
+  <ul>
+    <li>每個來源各自已依時間有序 → 用 <strong>k 路歸併（k-way merge）</strong>取全域最新 N 筆，類似合併多個有序列表。</li>
+    <li>排序鍵：純時間序最單純；演算法 feed 改用<strong>排序分數</strong>（時間衰減 × 互動率 × 親密度），但合併框架不變。</li>
+  </ul>
+  <h3>讀寫放大分析</h3>
+  <table>
+    <tr><th>策略</th><th>寫成本（發 1 篇）</th><th>讀成本（讀 1 次 feed）</th><th>適合</th></tr>
+    <tr><td>純推</td><td>O(粉絲數)　← 名人爆</td><td>O(1)</td><td>一般使用者</td></tr>
+    <tr><td>純拉</td><td>O(1)</td><td>O(追蹤數)　← 重度使用者慢</td><td>名人 / 不活躍讀者</td></tr>
+    <tr><td><strong>Hybrid</strong></td><td>O(非名人粉絲數)</td><td>O(1 + 我追的名人數)</td><td><strong>正解</strong></td></tr>
+  </table>
+
+  <h2 id="scale">7. 擴展與瓶頸（名人問題）</h2>
+  <table>
+    <tr><th>階段 / 瓶頸</th><th>問題</th><th>對策</th></tr>
+    <tr><td>名人發文（寫熱點）</td><td>純推 → 一次發文千萬寫入，fan-out 塞爆</td><td><strong>Hybrid</strong>：名人改拉，不推；其貼文額外快取讓讀端共用</td></tr>
+    <tr><td>Fan-out 延遲</td><td>同步推會拖慢發文 API</td><td>發文只寫貼文庫＋丟 Kafka；fan-out worker <strong>非同步</strong>背景推，最終一致</td></tr>
+    <tr><td>讀放大（重度追蹤者）</td><td>追上千人，純拉每次聚合太慢</td><td>非名人部分走推（已預算好），只即時拉少量名人</td></tr>
+    <tr><td>feed 快取容量</td><td>每人存全部歷史貼文 id 爆量</td><td>只保留最新 N 筆（截斷）；更舊的退化成拉模型回補</td></tr>
+    <tr><td>不活躍使用者</td><td>推給長期不上線者＝白寫</td><td>對不活躍者改拉（登入時才聚合），省下大量無效寫入</td></tr>
+    <tr><td>熱點貼文 hydrate</td><td>同一名人貼文被大量 feed 引用</td><td>貼文內容單獨快取（內容快取），feed 只存 id 再批次回填</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>推 vs 拉</strong>：推＝成本搬到寫端、讀 O(1)；拉＝寫端輕、讀要聚合。核心是把「讀寫不對稱」往便宜的一側壓。</li>
+    <li><strong>為何要 hybrid</strong>：純推被名人寫放大擊穿，純拉被重度追蹤者讀放大拖垮 → 依作者粉絲數門檻分流，取兩者之長。</li>
+    <li><strong>一致性</strong>：feed 可<strong>最終一致</strong>（非同步 fan-out、晚幾秒看到新貼文可接受），不需強一致 → 換來高可用與吞吐。</li>
+    <li><strong>feed 存 id 還是存內容</strong>：存 id（避免內文複製千萬份、改貼文只改一處），讀時 hydrate；代價是多一次批次回填查詢。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>名人門檻怎麼定？→ 以粉絲數（如 &gt; 1 萬）或推一次的成本動態判定，可隨負載調整。</li>
+        <li>使用者「剛追蹤名人」怎麼立刻看到舊文？→ 拉模型天然解決（讀時即時聚合），推模型則需回填。</li>
+        <li>如何分頁？→ 用 cursor（以 post_id / ts 為游標），避免 offset 在變動列表上錯位。</li>
+        <li>演算法排序與時間序差異？→ 合併框架相同，只換排序鍵；排序分數通常離線預算再寫入。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>推 / 拉 / hybrid fan-out 的取捨</strong>（百萬級 feed 真正的考點），不是 CRUD。可用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/SocialGraph.php</code>　追蹤 / 粉絲關係（社交圖），並依粉絲數門檻判定<strong>名人</strong>。</li>
+    <li><code>src/FeedStore.php</code>　每使用者的 feed 快取（<strong>推模型</strong>的寫入處），JSON 檔模擬 Redis 列表。</li>
+    <li><code>src/FeedService.php</code>　發文 → 對「一般追蹤者」<strong>fan-out on write</strong>；名人貼文不推、讀時<strong>即時拉</strong>；讀 feed＝合併推來的＋拉名人的，依時間排序，並標記每筆來源。</li>
+    <li><code>public/index.php</code>　路由 + 深色測試頁，可視覺化每位作者被判定<strong>推 or 拉</strong>、每筆 feed 的來源。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8015 -t public
+# 瀏覽器開 http://localhost:8015
+# 流程：建立追蹤關係（含一個高粉絲名人）→ 數人發文 → 看某使用者讀 feed
+#       哪些是「推來的」哪些是「即時拉的」、合併排序結果</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 JSON 檔模擬資料庫與 Redis、用同步函式呼叫模擬 Kafka 非同步 fan-out（標註於程式碼）；但<strong>推 / 拉判定、fan-out on write 寫入、讀時即時拉名人、k 路合併排序、來源標記等系統邏輯為真實可執行</strong>。要上正式環境，把 <code>FeedStore</code> 換成 Redis、把 fan-out 改丟訊息佇列即可，核心邏輯不變。
+  </div>
+
+  <footer>⑮ News Feed 動態牆 · F 社交/Feed 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

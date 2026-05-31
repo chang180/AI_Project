@@ -3,7 +3,7 @@
 > 換電腦後先讀這份。所有進度都在 git，`git clone`/`git pull` 即可接續。
 
 ## 專案是什麼
-14 題系統設計學習專案。每題產出：`notes.html`（9 段式筆記）+ `diagram.excalidraw`（架構圖）+ `demo/`（PHP，`php -S` 可跑）。全繁體中文。
+22 題系統設計學習專案（原 14 題核心 + 8 題進階補充）。每題產出：`notes.html`（9 段式筆記）+ `diagram.excalidraw`（架構圖）+ `demo/`（PHP，`php -S` 可跑）。全繁體中文。
 
 - 入口：瀏覽器開 `index.html`
 - 框架小抄：`framework.html`（每次練習前看）
@@ -13,11 +13,14 @@
 ## 分組（按共通模式）
 - A 通知/Fan-out：② 地震 ④ 價格追蹤 ⑧ Webhook
 - B 即時連線：⑤ RoboTaxi ⑦ Messenger ⑨ Google Docs
-- C 一致性/交易：③ Polymarket ⑫ Bookings
-- D 串流/儲存分發：① QR Code ⑥ Spotify ⑩ YouTube
+- C 一致性/交易：③ Polymarket ⑫ Bookings ⑰ 數位錢包/支付
+- D 串流/儲存分發：① QR Code ⑥ Spotify ⑩ YouTube ⑳ Dropbox ㉑ 直播 ㉒ 廣告聚合
 - E AI/LLM：⑪ ChatGPT Tasks ⑬ Agoda RAG ⑭ LLM 推論
+- F 社交/Feed：⑮ News Feed（新組）
+- G 搜尋/索引/地理空間：⑯ Typeahead ⑱ 附近的人 Yelp（新組）
+- H 基礎設施/平台元件：⑲ 分散式限流器（新組）
 
-## 已完成 ✅ 全部 14 題
+## 已完成 ✅ 全部 22 題
 每題皆含 notes.html（9 段式）+ diagram.excalidraw + 可跑 PHP demo，並通過 `php -l` 與實跑驗證。各 demo 的核心邏輯重點：
 
 | # | 題目 | demo 核心考點（非 CRUD） | 埠 |
@@ -36,8 +39,18 @@
 | ⑫ | Bookings | 區間原子扣減防超賣 + 悲觀/樂觀鎖 + hold/TTL | 8012 |
 | ⑬ | Agoda RAG | RAG 檢索帶引用 + Agent 工具呼叫 + 退款護欄/冪等 | 8013 |
 | ⑭ | LLM 推論 | continuous batching 動態填補 GPU 槽位 | 8014 |
+| ⑮ | News Feed | 推/拉/hybrid fan-out + 名人問題 + 時間線合併 | 8015 |
+| ⑯ | Typeahead | Trie + 每前綴 Top-K 預存 + 頻率更新 | 8016 |
+| ⑰ | 數位錢包/支付 | 雙分錄帳本 + 冪等扣款 + 防透支 + 對帳守恆 | 8017 |
+| ⑱ | 附近的人 Yelp | geohash 空間索引 + 鄰格邊界 + 半徑/最近K | 8018 |
+| ⑲ | 分散式限流器 | 令牌桶 + 滑動視窗 + per-key 原子計數 | 8019 |
+| ⑳ | Dropbox 同步 | 分塊去重 + 增量 delta + 衝突副本 | 8020 |
+| ㉑ | 直播 Twitch | 低延遲 HLS 滑動視窗 manifest + 聊天 fan-out | 8021 |
+| ㉒ | 廣告點擊聚合 | 去重 exactly-once + 防欺詐 + tumbling window | 8022 |
 
 啟動任一 demo：`cd <題目>/demo && php -S localhost:<埠> -t public`
+
+> 8 題進階補充題的推薦理由與其餘未做題目清單，見對話紀錄（涵蓋搜尋/金流/地理/基建/社交/即時媒體/大數據等維度）。
 
 ## 待辦
 - [ ] （可選）把各 demo 的「示意」元件換成真套件：QR 換 `endroid/qr-code`、RAG 換真向量嵌入、LLM 換真模型；系統邏輯不需改。

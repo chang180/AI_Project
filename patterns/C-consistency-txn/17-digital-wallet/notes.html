@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑰ 數位錢包 / 支付系統 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅲 一致性/交易</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑰ 數位錢包 / 支付系統：雙分錄帳本與冪等付款</h1>
+  <p class="subtitle">
+    <span class="tag group">C 一致性/交易</span>
+    <span class="tag time">建議 50 分鐘</span>
+    <span class="tag">Design a Digital Wallet / Payment System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>雙分錄記帳帳本（double-entry ledger）+ 冪等付款 + 原子轉帳</strong>」。
+    錢包不是「在 users 表上加一個 balance 欄位」這種 CRUD；面試真正考的是
+    <em>錢一分都不能多、不能少、不能憑空消失</em> —— 重送不重複扣款、餘額不可透支、每筆動帳借貸恆等、整本帳隨時可對帳。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>儲值錢包</strong>：使用者有帳戶與餘額，可儲值（top-up）、提領（withdraw）。</li>
+    <li><strong>P2P 轉帳</strong>：A 轉 B 一筆金額，A 餘額減、B 餘額加，<em>原子完成</em>（全成或全敗）。</li>
+    <li><strong>付款</strong>：對商家付款（本質也是一筆轉帳：使用者 → 商家帳戶）。</li>
+    <li><strong>交易歷史 / 對帳單</strong>：列出每筆動帳，可追溯、可審計。</li>
+    <li><strong>冪等付款</strong>：用戶端帶 <code>idempotency key</code>；網路重試/重複點擊只扣一次，重送回<em>同一結果</em>。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>正確性凌駕一切</strong>：涉及金錢，<em>不可透支（餘額不為負）、不可雙花、不可重複扣款</em>，整本帳隨時守恆。</li>
+    <li><strong>強一致 + ACID</strong>：一筆轉帳的雙邊過帳必須在同一交易內原子完成；同帳戶並發轉帳不可產生競態。</li>
+    <li><strong>可審計 / 不可竄改</strong>：帳本 <strong>append-only</strong>，只追加分錄、永不就地改/刪；每一塊錢的來去都可回溯。</li>
+    <li><strong>exactly-once 語意</strong>：對「扣款」這個副作用，重送不得重複生效（靠冪等鍵達成 effectively-once）。</li>
+    <li><strong>高可用 + 低延遲</strong>：付款是關鍵路徑，p99 &lt; 200ms；崩潰後可由帳本重建餘額。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「餘額是<strong>欄位</strong>還是<strong>由帳本推導</strong>？」這決定了整題的正確性地基。
+    把 balance 當可隨意 UPDATE 的欄位，並發下極易算錯且無法稽核；
+    正解是 <strong>append-only 雙分錄帳本為真相來源</strong>，餘額是分錄的彙總（可物化快取以加速讀取）。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>付款 / 轉帳（寫）</td><td>1 億筆/日</td><td>~1.16k 寫 TPS（峰值 ×10 ≈ 1.2 萬）</td></tr>
+    <tr><td>分錄量（雙分錄）</td><td>每筆交易 ≥ 2 筆分錄</td><td>≥ 2 億筆分錄/日</td></tr>
+    <tr><td>帳本儲存</td><td>每分錄 ~200 bytes，永久保存</td><td>2億×365×200B ≈ <strong>14.6 TB/年</strong>（冷熱分層）</td></tr>
+    <tr><td>餘額查詢（讀）</td><td>讀遠多於寫</td><td>讀:寫可達 50:1 → 餘額快取/物化</td></tr>
+    <tr><td>冪等鍵庫</td><td>保留 24h~30d 去重</td><td>TTL 過期回收，量可控（Redis/KV）</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>金額一律用<strong>整數最小貨幣單位（分 / cents）</strong>儲存與運算，<em>永不用浮點數</em>（0.1+0.2≠0.3 會吃掉錢）。寫路徑保證正確與冪等，讀路徑靠餘額物化/快取加速。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 轉帳 / 付款（寫，核心入口，必帶冪等鍵）
+POST /api/v1/transfers
+Idempotency-Key: 9f1c2e7a-...          # 用戶端產生的唯一鍵
+Body: { "from": "acct_A", "to": "acct_B", "amount": 1500, "currency": "TWD" }
+                                        # amount = 1500 分 = 15.00 元
+→ 201 { "transfer_id": "txn_123", "status": "posted",
+        "entries": [ {"acct":"acct_A","delta":-1500},
+                     {"acct":"acct_B","delta":+1500} ] }
+# 同鍵重送 → 200 回「同一個 transfer_id 與結果」，不再扣款
+
+# 儲值 / 提領（也是轉帳：系統金庫 ↔ 使用者）
+POST /api/v1/topups        Body: { "to":"acct_A", "amount":10000 }
+POST /api/v1/withdrawals   Body: { "from":"acct_A", "amount":3000 }
+
+# 查餘額（讀，高頻 → 餘額物化/快取）
+GET  /api/v1/accounts/{id}/balance   → { "available": 8500, "currency":"TWD" }
+
+# 對帳單 / 帳本分錄（append-only，可審計）
+GET  /api/v1/accounts/{id}/ledger    → { "entries":[ ... ] }
+</code></pre>
+  <div class="box"><span class="label">冪等鍵語意</span><code>Idempotency-Key</code> 必須涵蓋「請求語意」：同鍵但 body 不同應視為衝突（回 409），避免用同一鍵冒充不同交易。鍵→結果的對映持久化，重送直接回放存好的回應。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>accounts (帳戶；balance 為物化快取，可由 entries 重算)
+  account_id   VARCHAR PK
+  balance      BIGINT          -- 最小貨幣單位（分），由帳本推導後物化
+  currency     CHAR(3)
+  version      BIGINT          -- 樂觀鎖（CAS）
+
+ledger_entries (帳本分錄，append-only，不可變，真相來源)
+  entry_id     BIGINT PK
+  transfer_id  VARCHAR         -- 同一筆轉帳的借貸共用此 id
+  account_id   VARCHAR
+  direction    CHAR(1)         -- 'D' 借(debit) / 'C' 貸(credit)
+  amount       BIGINT          -- 永遠為正；方向決定加減
+  created_at   TIMESTAMP
+  -- 不變式：同一 transfer_id 的所有分錄，Σ(借) = Σ(貸)，淨額為 0
+
+idempotency_keys (冪等去重)
+  key          VARCHAR PK
+  request_hash VARCHAR         -- 防同鍵不同 body
+  transfer_id  VARCHAR         -- 已完成則回放此結果
+  status       ENUM(in_progress|done)
+  expires_at   TIMESTAMP</code></pre>
+  <div class="box"><span class="label">為何雙分錄</span>每筆轉帳寫成<strong>成對</strong>的分錄：一筆 <em>debit</em>（誰出錢）、一筆 <em>credit</em>（誰收錢），金額相等、方向相反，<strong>系統總額恆守恆</strong>（Σ全帳 = 0 或常數）。錢不會憑空生出或消失，對帳時只要驗證借貸平衡即可抓出任何漏洞。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code>            ┌──────────┐   冪等鍵
+ 使用者 ─付款▶│ 支付 API  │──查/寫──▶ 冪等鍵庫(去重)
+            └────┬─────┘
+                 │ (新請求)
+                 ▼
+            交易服務 ──同一 DB 交易內──▶ 雙分錄帳本(append-only)
+                 │  (條件更新防透支)            │
+                 ▼                              ▼
+            餘額(物化/快取) ◀──彙總分錄──── 對帳 Job(定期重算比對)
+                 │
+                 └──▶ 通知(付款成功/失敗)</code></pre>
+  <ol>
+    <li><strong>支付 API</strong>：驗證、<strong>冪等去重</strong>（先查冪等鍵庫，命中已完成則回放結果，不再執行）。</li>
+    <li><strong>交易服務</strong>：在<strong>單一 DB 交易</strong>內，原子寫入借/貸兩筆分錄並更新雙方餘額；扣款走<strong>條件更新防透支</strong>。</li>
+    <li><strong>雙分錄帳本</strong>：append-only，是資金真相來源；崩潰後可由它重建任何帳戶餘額。</li>
+    <li><strong>餘額物化 / 快取</strong>：讀路徑加速（最終一致地由帳本彙總得到，或寫時同步維護）。</li>
+    <li><strong>對帳 Job</strong>：定期重放帳本重算餘額，與物化值比對 + 驗證全域借貸平衡，抓出任何不一致。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>雙分錄記帳：每筆動帳借貸恆等（本題靈魂）</h3>
+  <ul>
+    <li>A 轉 B 1500 分，寫成兩筆不可變分錄：<code>{A, D, 1500}</code> 與 <code>{B, C, 1500}</code>，共用同一 <code>transfer_id</code>。</li>
+    <li><strong>不變式</strong>：任一 transfer 的 Σ借 = Σ貸；全系統所有分錄淨額守恆。任何違反即代表 bug 或竄改。</li>
+    <li>帳本 <strong>append-only</strong>：永不就地修改或刪除分錄，要更正只能再追加一筆<em>沖正（reversal）</em>分錄 —— 完整保留歷史，天然可審計。</li>
+  </ul>
+  <h3>冪等付款：重送不重複扣款</h3>
+  <ul>
+    <li>用戶端為每筆付款產生唯一 <code>idempotency key</code>，重試沿用同鍵。</li>
+    <li>服務端：交易前先<strong>原子佔位</strong>（key 不存在才插入 in_progress；存在 done 則直接回放結果）。已完成的同鍵重送→回<strong>同一個 transfer_id</strong>，<em>不再執行扣款</em>。</li>
+    <li>達成 <strong>exactly-once 副作用</strong>（嚴格說是 effectively-once）：底層投遞可能 at-least-once，但「扣款」這個效果只生效一次。</li>
+  </ul>
+  <h3>原子轉帳 + 防透支 / 防雙花</h3>
+  <ul>
+    <li><strong>原子性</strong>：借、貸兩筆分錄 + 雙方餘額更新，包在<strong>同一個 DB 交易</strong>，全成或全敗 —— 絕不會「A 扣了 B 沒加」。</li>
+    <li><strong>防透支</strong>：扣款走<strong>條件更新</strong> <code>UPDATE accounts SET balance = balance - ? WHERE balance &gt;= ?</code>，受影響列數=0 即拒絕（餘額不足）→ 餘額<strong>永不為負</strong>。</li>
+    <li><strong>防並發競態 / 雙花</strong>：同帳戶兩筆轉帳同時想花同一筆錢 → 條件更新讓第二筆扣款失敗被拒；或用 <code>SELECT … FOR UPDATE</code>（悲觀）/ version CAS（樂觀）序列化。</li>
+  </ul>
+  <h3>餘額：推導 vs 物化</h3>
+  <p>餘額的<strong>真相</strong>是「帳本所有分錄的彙總」（可隨時重算驗證）；但每次讀都掃全帳太慢，因此<strong>物化</strong>一份 balance 快取，寫入時同步維護。最終一致的物化方案則由背景彙總更新，讀稍有延遲但寫吞吐更高 —— 取捨見 §8。</p>
+  <h3>對帳 reconciliation</h3>
+  <p>金融系統的安全網：定期<strong>重放帳本重算</strong>每個帳戶餘額，與物化值逐一比對，並驗證全域 Σ借=Σ貸。任何差異立即告警 —— 這是「跑得快又賠得起」的底氣。對外（銀行/金流商）則拉對方流水做<em>外部對帳</em>。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單庫寫上限</td><td>帳本/餘額寫 TPS 撞頂</td><td>依 <strong>account_id 分片</strong>；熱帳戶獨立分片</td></tr>
+    <tr><td>熱帳戶寫熱點</td><td>金庫/熱門商家被同時扣加</td><td>分桶累加（sharded counter）+ 批次彙總；非同步入帳</td></tr>
+    <tr><td>跨分片轉帳</td><td>A、B 不在同一分片，無法單機交易</td><td><strong>Saga / TCC</strong>（Try-Confirm-Cancel）兩階段補償；或 2PC</td></tr>
+    <tr><td>餘額讀爆</td><td>大量查餘額打主庫</td><td>餘額物化 + Redis 快取；讀寫解耦</td></tr>
+    <tr><td>帳本容量</td><td>分錄無限增長</td><td>冷熱分層、定期 <strong>快照</strong>（snapshot 餘額）縮短重算範圍</td></tr>
+    <tr><td>冪等鍵庫</td><td>去重鍵無限累積</td><td>TTL 過期回收（保留 ≥ 重試窗口即可）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>餘額欄位 vs 雙分錄帳本</strong>：單欄位簡單但無法稽核、並發易錯；雙分錄帳本可審計、守恆、可重建，是金融標準。本題務必選後者。</li>
+    <li><strong>餘額同步物化 vs 最終一致</strong>：寫時同步更新 balance → 讀自己的寫、強一致但寫較重；背景彙總 → 寫快但讀有延遲。錢包多選同步物化（用戶要立刻看到正確餘額）。</li>
+    <li><strong>悲觀鎖 vs 樂觀鎖</strong>：同帳戶高衝突用 <code>FOR UPDATE</code>；低衝突用 version CAS 提吞吐。本題 demo 用檔案鎖模擬序列化交易。</li>
+    <li><strong>單庫 ACID vs 跨服務 Saga</strong>：同庫轉帳一個 DB 交易最簡單最安全；跨庫/跨服務只能 Saga（補償）或 TCC，需冪等 + 對帳兜底。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>付款 API 逾時、用戶重按怎麼辦？→ <strong>冪等鍵</strong>去重，回放同一結果，只扣一次。</li>
+        <li>扣了款但對方系統沒收到？→ at-least-once 投遞 + 冪等消費 + 對帳補償（沖正）。</li>
+        <li>同帳戶兩筆轉帳同時想花同一筆錢？→ 條件更新/鎖序列化，第二筆透支被拒（防雙花）。</li>
+        <li>系統崩潰後餘額會不會錯？→ 帳本是真相，<strong>重放/快照重建</strong>餘額；物化只是快取。</li>
+        <li>如何證明錢沒少？→ 對帳：驗證全域 Σ借=Σ貸，重算餘額比對物化值。</li>
+        <li>為何不用 float？→ 浮點誤差會吃錢，一律整數分。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>系統核心邏輯</strong>（也是面試真正的考點：雙分錄帳本 + 冪等 + 防透支），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Ledger.php</code>　<strong>append-only 雙分錄帳本</strong>：每筆 transfer 產生 debit + credit 兩筆分錄（總和為零）；餘額由分錄推導並物化快取；提供借貸平衡/總額守恆檢查。</li>
+    <li><code>src/TransferService.php</code>　轉帳服務：A→B 帶 <strong>idempotency key</strong>（同鍵重送回原結果、不重複扣款）；在<strong>鎖內</strong>檢查餘額足夠才原子過帳（<strong>防透支 / 防雙花</strong>）；金額須為正整數（分）。</li>
+    <li><code>public/index.php</code>　路由：開帳戶 / 轉帳 / 列帳本 / 守恆檢查 / 重置，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8017 -t public
+# 瀏覽器開 http://localhost:8017：
+#   開帳戶與初始餘額 → 轉帳 → 用同一冪等鍵重送驗證不重複扣款
+#   → 故意轉超過餘額被拒 → 列帳本驗證借貸平衡、總額守恆</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 <strong>JSON 檔 + 檔案鎖</strong>模擬「DB 交易 / 同帳戶序列化」屬<strong>示意</strong>；而
+    <strong>雙分錄記帳、借貸恆等、append-only 帳本、冪等付款（重送不重扣）、條件更新防透支/防雙花、餘額由帳本推導與守恆檢查</strong>
+    等<strong>系統邏輯為真實可執行</strong>（所有操作後全帳 Σ借=Σ貸、總額守恆，已實測）。金額一律以整數分計，避免浮點誤差。生產級替換方式見 <code>demo/README.md</code>。
+  </div>
+
+  <footer>⑰ 數位錢包 / 支付系統 · C 一致性/交易 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

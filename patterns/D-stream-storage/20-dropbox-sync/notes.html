@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑳ Dropbox / Google Drive 檔案同步 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑳ Dropbox / Google Drive 檔案同步：分塊去重與增量同步</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 46 分鐘</span>
+    <span class="tag">Design a File Sync / Storage Service</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>內容定址的分塊儲存 + 增量同步 + 多裝置一致性</strong>」的綜合題。
+    把整個檔案上傳很簡單；面試真正考的是 <em>只同步「變更的那一小塊」</em>、<em>相同內容只存一份</em>，
+    以及多裝置同時改同一檔案時如何<em>偵測並解決衝突</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（億級檔案）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>使用者在任一裝置新增 / 修改 / 刪除檔案，其他裝置自動同步到最新狀態。</li>
+    <li><strong>增量同步（delta sync）</strong>：改一個大檔的一小段，只上傳變更的區塊，而非整檔重傳。</li>
+    <li><strong>去重（dedup）</strong>：相同內容的區塊在全系統只存一份（同使用者、甚至跨使用者）。</li>
+    <li>多裝置同步通知：某裝置上傳新版本後，其他在線裝置即時收到「該拉取」的通知。</li>
+    <li><strong>斷點續傳</strong>：上傳大檔中途斷線，重連後從未完成的區塊接續，不從頭來。</li>
+    <li>版本歷史與還原；衝突時保留兩方資料（不靜默覆蓋）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>耐久性最高優先</strong>：使用者資料不可遺失（11 個 9 等級），物件儲存多副本 / EC 編碼。</li>
+    <li><strong>頻寬效率</strong>：同步成本應正比於「變更量」而非「檔案大小」。</li>
+    <li><strong>最終一致</strong>：各裝置最終收斂到相同狀態；同步延遲秒級可接受。</li>
+    <li><strong>可擴展</strong>：億級檔案、PB 級資料、千萬裝置長連線。</li>
+    <li><strong>讀寫不對稱</strong>：metadata 操作頻繁且小，blob 傳輸量大但相對低頻。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「同步的最小單位是<strong>整檔還是區塊</strong>？」決定整題走向。整檔同步 = 簡單但頻寬爆炸；
+    區塊級同步（分塊 + 去重 + delta）才是 Dropbox 的精髓，也是這題唯一值得深入的方向。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>使用者</td><td>5 億註冊、5000 萬日活</td><td>平均每人多裝置（手機 + 電腦）</td></tr>
+    <tr><td>檔案數</td><td>每人 5000 檔</td><td>~2.5 兆檔案 → metadata 必須分片</td></tr>
+    <tr><td>分塊大小</td><td>固定 4 MB / chunk</td><td>1 GB 檔 ≈ 256 個 chunk</td></tr>
+    <tr><td>儲存（去重前）</td><td>每人 50 GB</td><td>5 億 × 50 GB ≈ <strong>25 EB</strong></td></tr>
+    <tr><td>去重效益</td><td>跨使用者重複率 30%~50%</td><td>實體儲存可省下近半 → 直接省成本</td></tr>
+    <tr><td>同步通知</td><td>千萬裝置長連線</td><td>長連線 / 推播閘道，非輪詢</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>儲存與頻寬是主要成本 → 設計圍繞「<strong>內容定址去重</strong>」省儲存、「<strong>delta 增量</strong>」省頻寬、「<strong>metadata 與 blob 分離</strong>」讓兩者各自擴展。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 1) 上傳前先問：哪些 chunk 伺服器已經有了？（去重的關鍵一步）
+POST /api/v1/files/{fileId}/chunks:check
+Body: { "hashes": ["sha256:ab12...", "sha256:cd34...", ...] }
+→ 200 { "missing": ["sha256:cd34..."] }   # 只有 missing 的需要上傳
+
+# 2) 上傳缺少的 chunk（內容定址，可平行、可斷點續傳）
+PUT /api/v1/chunks/{hash}          Body: &lt;binary chunk&gt;
+→ 201（已存在則 200，不重複存 = 去重）
+
+# 3) 提交新版本：送出有序 chunk 清單 + 基底版本號
+POST /api/v1/files/{fileId}/commit
+Body: { "baseVersion": 7, "chunks": ["sha256:ab12...", "sha256:cd34..."] }
+→ 200 { "version": 8 }
+→ 409 Conflict { "serverVersion": 9, "conflictCopy": "report (裝置B 的衝突副本).docx" }
+
+# 4) 下載：先取 metadata（有序 hash 清單），再依需要抓缺少的 chunk
+GET /api/v1/files/{fileId}/metadata → { "version": 8, "chunks": [...] }
+GET /api/v1/chunks/{hash}           → &lt;binary chunk&gt;
+
+# 5) 變更通知（長連線 / 推播）：其他裝置收到「該拉取」訊號
+WS  /api/v1/notify   ← { "event": "changed", "fileId": "...", "version": 8 }
+</code></pre>
+  <div class="box"><span class="label">為何先 check 再 PUT</span>「先問缺哪些、只傳缺的」是去重與省頻寬的核心動作；伺服器以 chunk hash 為主鍵，PUT 同一 hash 第二次是 no-op。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>-- metadata DB（關聯式、可分片，存「指標」不存內容）
+files
+  file_id      BIGINT PRIMARY KEY
+  owner_id     BIGINT
+  path         TEXT
+  latest_ver   INT
+  is_deleted   BOOL
+
+file_versions（不可變、append-only，支援版本歷史與還原）
+  file_id, version  PRIMARY KEY
+  chunk_list   JSONB        -- 有序的 chunk hash 清單（檔案 = chunk 的序列）
+  size         BIGINT
+  device_id    TEXT         -- 哪個裝置提交的
+  vector_clock JSONB        -- 版本向量，用於衝突偵測
+  created_at   TIMESTAMP
+
+chunks（內容定址索引；blob 本體在物件儲存）
+  hash         CHAR(64) PRIMARY KEY   -- sha256(內容)，相同內容 → 同 key → 去重
+  size         INT
+  ref_count    BIGINT                 -- 被幾個版本引用，歸零才可 GC
+  blob_url     TEXT                   -- 指向 S3 / GCS 的物件位置
+
+-- blob 本體：物件儲存（S3 / GCS），key = chunk hash，與 metadata 完全分離</code></pre>
+  <div class="box"><span class="label">為何 metadata 與 blob 分離</span>metadata 小、操作頻繁、需交易與索引 → 放分片式關聯庫；blob 大、不可變、需極高耐久 → 放物件儲存。兩者特性相反，分開才能各自最佳化與擴展。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code>          ┌──────────┐  ①check ②PUT chunk ③commit
+ 寫(上傳)──▶│ 同步服務  │──▶ 分塊/去重 ──▶ Blob 物件儲存(S3)
+          └──────────┘        │                 ▲
+                              ▼                 │ ④拉取缺少的 chunk
+                        Metadata DB(分片) ───────┘
+                              │
+                              ▼ 版本提交事件
+                        變更通知服務(長連線) ──▶ 其他裝置(讀/同步=綠)
+ 讀(同步)──▶ 其他裝置 ──取 metadata──▶ Metadata DB ──抓 chunk──▶ Blob 儲存</code></pre>
+  <ol>
+    <li><strong>同步服務</strong>：接收 chunk check / 上傳 / commit；無狀態，可水平擴展。</li>
+    <li><strong>分塊 / 去重</strong>：客戶端先把檔案切塊算 hash；伺服器以 hash 判重，相同 chunk 只落地一次。</li>
+    <li><strong>Blob 物件儲存</strong>：存不可變 chunk 本體，key 即 hash，多副本 / EC 保證耐久。</li>
+    <li><strong>Metadata DB</strong>：存檔案 → 版本 → 有序 chunk 清單；commit 是交易邊界。</li>
+    <li><strong>變更通知服務</strong>：版本提交後推播給該使用者其他在線裝置，告知「該拉取」。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>檔案分塊：固定大小 vs 內容定義分塊（CDC）</h3>
+  <ul>
+    <li><strong>固定大小分塊</strong>（如每 4 MB）：實作簡單，但在檔案開頭插入 1 byte 會讓<em>後面所有 chunk 邊界位移</em>，導致幾乎全部重傳（boundary shift 問題）。</li>
+    <li><strong>內容定義分塊（CDC，如 Rabin 滾動雜湊）</strong>：依內容特徵決定切點，插入 / 刪除只影響鄰近 1~2 個 chunk，其餘 chunk 的 hash 不變 → 去重與 delta 效果遠優於固定分塊。<strong>面試講出 CDC 是加分點。</strong></li>
+  </ul>
+  <h3>內容定址儲存與去重</h3>
+  <ul>
+    <li>chunk 的 key = <code>sha256(內容)</code>。相同內容 → 相同 hash → 同一 key → 天然去重。</li>
+    <li>上傳前用 <code>chunks:check</code> 問伺服器缺哪些，只傳 missing → 同時省頻寬與儲存。</li>
+    <li><strong>ref_count（引用計數）</strong>：一個 chunk 可能被多版本 / 多檔引用；刪除版本時遞減，歸零才能垃圾回收，否則會誤刪別人還在用的內容。</li>
+  </ul>
+  <h3>增量同步（delta sync）</h3>
+  <p>客戶端保存「上次同步的 chunk 清單」。再次上傳時，把新版本切塊，<strong>新清單 − 舊清單 = 新出現的 chunk</strong>，只上傳這個差集；commit 時送完整有序清單讓伺服器組裝新版本。改大檔的一小段，頻寬成本只正比於那一小段。</p>
+  <h3>衝突解決（版本向量 / 衝突副本）</h3>
+  <ul>
+    <li>commit 時帶 <code>baseVersion</code>（或版本向量）。若伺服器當前版本 &gt; baseVersion，表示有人搶先提交 → <strong>衝突</strong>。</li>
+    <li>策略：<strong>不靜默覆蓋</strong>。較晚者另存為「衝突副本（conflicted copy）」，如 <code>report (裝置B 的衝突副本).docx</code>，兩份都保留交由使用者處理。</li>
+    <li>版本向量可區分「真衝突」與「單純落後」：若一方因果上包含另一方，則只是落後，直接快轉即可，無須產生副本。</li>
+  </ul>
+  <h3>多裝置同步通知與斷點續傳</h3>
+  <ul>
+    <li><strong>通知</strong>：裝置與通知服務維持長連線（WebSocket / long-poll）；某裝置 commit 後，服務推「changed + version」給同帳號其他裝置，避免輪詢浪費。</li>
+    <li><strong>斷點續傳</strong>：上傳以 chunk 為單位且內容定址，斷線重連後重跑 <code>chunks:check</code>，已上傳的 chunk 會被回報為「已存在」，只續傳剩餘的，天然支援續傳。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸（億級檔案）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單庫 metadata</td><td>兆級檔案裝不下、寫熱點</td><td>依 owner_id / file_id <strong>分片</strong>；同帳號資料同片以利交易</td></tr>
+    <tr><td>blob 容量 / 耐久</td><td>PB~EB 級、不可遺失</td><td>物件儲存多副本 / EC 編碼 + 跨區複寫；冷資料降溫到低成本層</td></tr>
+    <tr><td>頻寬成本</td><td>大檔整傳塞滿上行</td><td>CDC 分塊 + delta 同步 + 去重，成本只正比於變更量</td></tr>
+    <tr><td>通知扇出</td><td>千萬長連線、熱帳號扇出</td><td>長連線閘道分層；以使用者為單位扇出，事件僅帶「該拉取」訊號</td></tr>
+    <tr><td>chunk GC</td><td>誤刪共享 chunk</td><td>ref_count 引用計數 + 延遲回收（標記後寬限期再刪）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>固定分塊 vs CDC</strong>：固定簡單但怕邊界位移；CDC 抗位移、去重佳但需滾動雜湊、運算稍重。大檔頻繁小改的場景 CDC 完勝。</li>
+    <li><strong>客戶端分塊 vs 伺服器分塊</strong>：客戶端切塊可在上傳前就 check + 去重，省上行頻寬（Dropbox 採此）；伺服器切塊則客戶端簡單但得先把整檔傳上去，失去頻寬效益。</li>
+    <li><strong>強一致 vs 最終一致</strong>：同一檔的版本提交在單一 metadata 分片內可做交易（強一致，用於衝突偵測）；裝置間同步是最終一致（靠通知 + 拉取收斂）。</li>
+    <li><strong>跨使用者去重的隱憂</strong>：可省大量儲存，但帶來「存在性側信道」（猜中 hash 即可秒傳，洩漏他人是否擁有某檔）與加密衝突；隱私敏感系統常只在同使用者內去重。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>大檔上傳到一半斷線怎辦？→ chunk 級內容定址，重跑 check 只續傳缺的。</li>
+        <li>兩裝置離線各自改同檔，上線後？→ 版本向量判真衝突 → 產生 conflicted copy，不覆蓋。</li>
+        <li>刪檔後 chunk 何時真正釋放？→ ref_count 歸零 + 寬限期後 GC。</li>
+        <li>如何端到端加密又能去重？→ 收斂加密（convergent encryption），但有已知側信道取捨。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>分塊去重 + 增量同步 + 衝突偵測</strong>三大核心（而非 CRUD），可用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Chunker.php</code>　把內容切成固定大小 chunk，逐 chunk 算 sha256（以位元組切，對二進位內容亦然）。</li>
+    <li><code>src/BlobStore.php</code>　內容定址儲存：以 hash 為 key，相同 chunk 只存一份，統計去重節省的位元組。</li>
+    <li><code>src/FileIndex.php</code>　檔案 → 有序 chunk hash 清單 + 版本號（模擬 metadata DB 的 file_versions）。</li>
+    <li><code>src/SyncService.php</code>　上傳新版本時比對舊清單只上傳差集（delta）；兩裝置基於同版本各自修改 → 偵測衝突並產生 conflicted copy。</li>
+    <li><code>public/index.php</code>　路由 + 深色測試頁，可直接貼入文字內容當作「檔案」操作。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8020 -t public
+# 瀏覽器開 http://localhost:8020
+# 1) 貼入內容上傳 → 看切成幾個 chunk、各 hash
+# 2) 小改內容再上傳 → 只有變更的 chunk 被新增（顯示 delta 與去重率）
+# 3) 模擬兩裝置基於同版本並發修改 → 偵測衝突，產生衝突副本</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    為了在本機零依賴展示，Demo 用<strong>固定大小分塊</strong>（真實 Dropbox 用 CDC 內容定義分塊以抗邊界位移），以 JSON 檔模擬 metadata DB、以本機檔案模擬 blob 物件儲存。
+    本機 PHP 未載入 mbstring，故<strong>以位元組（byte）切塊</strong>——這其實與真實系統一致：分塊面對的是二進位內容，本就不該以字元為單位。
+    分塊、sha256 內容定址、去重統計、delta 差集、版本向量衝突偵測等<strong>系統邏輯為真實可執行</strong>。
+  </div>
+
+  <footer>⑳ Dropbox / Google Drive 檔案同步 · D 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>
