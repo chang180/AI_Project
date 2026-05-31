@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>② 地震預警系統 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅰️ 通知/Fan-out 扇出</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>② 地震預警系統：偵測到推播的秒級競賽</h1>
+  <p class="subtitle">
+    <span class="tag group">A 通知/Fan-out</span>
+    <span class="tag time">建議 48 分鐘</span>
+    <span class="tag">Design an Earthquake Early Warning System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>極致低延遲的事件偵測 + 地理範圍篩選 + 海量 fan-out 推播</strong>」的綜合題。
+    它跟一般通知系統最大的差別是：<em>跟物理賽跑</em>——破壞性的 S 波正以每秒數公里逼近，
+    從偵測到使用者手機響起的<strong>每一秒</strong>都直接換算成「多爭取到幾公里的逃生緩衝」。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（海量 fan-out）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>從感測器網路（地震儀 / 手機加速度計）即時接收震動讀數，<strong>偵測地震發生並估計震央、規模</strong>。</li>
+    <li>計算受影響地理範圍（震央周邊半徑、預估烈度等高線），<strong>只通知範圍內的使用者</strong>。</li>
+    <li>對範圍內所有使用者<strong>大規模 fan-out 推播</strong>（手機警報、簡訊、廣播、IoT 設備）。</li>
+    <li>推播內容含「預估抵達秒數」倒數，讓使用者就地避難。</li>
+    <li>事後回放與校正：用更多測站資料修正震央/規模，發補充或取消通知。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>極致低延遲</strong>：偵測 → 推播端到端 <strong>p99 &lt; 數秒</strong>。這是全題的靈魂，所有設計都為它讓路。</li>
+    <li><strong>不可漏報（高 recall）</strong>：寧可偶爾誤報，也不能讓真地震漏掉任何一個受災者。</li>
+    <li><strong>高可用</strong>：天災時系統本身可能斷電斷網，需多區域、多通道冗餘。</li>
+    <li><strong>地理正確</strong>：範圍外的人不該被打擾（誤報疲勞會讓人關掉警報，反而致命）。</li>
+    <li><strong>突發海量</strong>：平時 0 流量，地震瞬間要對數百萬至千萬使用者同時推播（尖峰極陡）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「我們<strong>負責偵測，還是只負責分發</strong>？」——若偵測由官方測震網（如 USGS / 中央氣象署）提供，
+    我們系統的核心就純粹是「<em>吃事件 → 地理篩選 → 海量 fan-out</em>」（本筆記主軸）；
+    若連偵測都要做，還得加上感測器接入與信號處理。先釐清，否則範圍會爆炸。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>使用者總數</td><td>全國 5000 萬台裝置</td><td>地理索引需涵蓋 5000 萬個座標點</td></tr>
+    <tr><td>地震事件頻率</td><td>有感地震 ~每日數次</td><td>平均寫入極低，<strong>但尖峰瞬間極高</strong></td></tr>
+    <tr><td>單次受影響人數</td><td>都會區地震波及半徑 100km</td><td>可達 <strong>500 萬～1000 萬</strong>人需同時推播</td></tr>
+    <tr><td>推播時間預算</td><td>S 波 3.5 km/s，要在抵達前送達</td><td>距震央 70km ≈ <strong>20 秒</strong>緩衝，扣偵測耗時剩 ~10 秒</td></tr>
+    <tr><td>fan-out 吞吐</td><td>1000 萬人 / 10 秒內送完</td><td>需 <strong>≥100 萬 推播/秒</strong> 的尖峰吞吐</td></tr>
+    <tr><td>地理篩選延遲</td><td>從 5000 萬點篩出半徑內者</td><td>暴力掃描不可行 → 必須<strong>空間索引</strong>（geohash / R-tree）</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    這題的數字呈現「<strong>平時近乎零、尖峰瞬間爆表</strong>」的脈衝形狀。設計重點不是穩態 QPS，
+    而是<strong>「冷啟動下的瞬間放大能力」</strong>：地理篩選要能毫秒級算出收件人集合，推播管線要能瞬間水平展開到百萬級。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># ── 上游：偵測服務發布地震事件（內部，高優先級）──
+POST /internal/v1/quake-events
+Body: { "event_id": "eq_2026...", "epicenter": {"lat":24.15,"lng":121.65},
+        "magnitude": 6.2, "depth_km": 12, "detected_at": "2026-05-31T...Z",
+        "affected_radius_km": 120, "confidence": 0.93 }
+→ 202 Accepted（立刻回，不阻塞；後續非同步 fan-out）
+
+# ── 後續修正 / 取消（用同一 event_id，冪等覆蓋）──
+PATCH  /internal/v1/quake-events/{event_id}   Body: { "magnitude": 5.8, "status": "revised" }
+DELETE /internal/v1/quake-events/{event_id}   # 誤報 → 發取消通知
+
+# ── 使用者端：註冊裝置與位置（寫，低頻）──
+POST /api/v1/devices
+Body: { "device_token": "...", "lat": 25.03, "lng": 121.56, "channels": ["push","sms"] }
+
+# ── 使用者端：心跳更新位置（移動中）──
+PUT  /api/v1/devices/{device_id}/location   Body: { "lat": ..., "lng": ... }
+
+# ── 推播 payload（送到裝置）──
+{ "event_id":"eq_2026...", "intensity":"5強", "eta_seconds": 18, "action":"就地掩護" }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>devices  (使用者裝置與位置 → 走空間索引)
+  device_id     UUID PRIMARY KEY
+  device_token  TEXT          -- APNs / FCM 推播 token
+  lat, lng      DOUBLE
+  geohash       VARCHAR(9)    -- 預先算好，建立空間索引的鍵
+  channels      JSONB         -- ["push","sms",...]
+  updated_at    TIMESTAMP
+
+quake_events  (地震事件，append + 可修正)
+  event_id      VARCHAR PRIMARY KEY    -- 冪等鍵：修正/取消用同一 id
+  epicenter     GEOGRAPHY(POINT)
+  magnitude     DOUBLE
+  affected_radius_km  DOUBLE
+  status        ENUM(new, revised, cancelled)
+  detected_at   TIMESTAMP
+
+delivery_log  (投遞紀錄，at-least-once 去重用)
+  event_id, device_id   COMPOSITE KEY  -- (event_id, device_id) = 冪等鍵
+  status        ENUM(queued, sent, failed)
+  attempts      INT</code></pre>
+  <div class="box"><span class="label">為何要 geohash 欄位</span>
+    地理篩選不能在查詢時對 5000 萬列逐一算 haversine 距離。預先把每台裝置的座標編成 <code>geohash</code> 前綴，
+    就能用「字串前綴比對」快速框出震央附近的少數網格（候選集），再對候選集做精確距離過濾。空間查詢由 O(N) 降到 O(log N)。
+    生產上常用 PostGIS（GIST 索引）、Elasticsearch geo_point、或 Redis GEO 指令。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 感測器網路 ──▶ 偵測服務 ──▶ 事件匯流排(Kafka) ──▶ 地理篩選服務
+ (地震儀/手機)   (估震央/規模)   高優先級 topic        │   ▲
+                                                      │   │ 查空間索引
+                                                      ▼   │
+                                            ┌──────────────────┐
+                                            │ 空間索引(geohash) │  ← 裝置位置(預載)
+                                            └──────────────────┘
+                                                      │ 收件人分區
+                                                      ▼
+            分區佇列(by region) ──▶ 推播閘道(水平擴展) ──▶ APNs/FCM/簡訊 ──▶ 使用者
+            (NotificationQueue)      (Dispatcher)         失敗→退避重試→DLQ</code></pre>
+  <ol>
+    <li><strong>偵測服務</strong>：聚合測站讀數，最快速度判定「地震發生」並估出震央/規模，搶在 S 波抵達前發事件。</li>
+    <li><strong>事件匯流排</strong>：地震事件走<strong>專屬高優先級 topic</strong>，與其他通知物理隔離，避免被排隊拖慢。</li>
+    <li><strong>地理篩選服務</strong>：拿事件查空間索引，毫秒級算出「震央半徑內的裝置集合」，這是 fan-out 的收件人名單。</li>
+    <li><strong>分區佇列 + 推播閘道</strong>：依 region 分區並行投遞；推播閘道無狀態，可瞬間水平擴展到百萬級吞吐。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>偵測：為什麼能「預警」？P 波 / S 波時間差</h3>
+  <p>地震同時發出快但溫和的 <strong>P 波（~6 km/s）</strong>和慢但破壞性強的 <strong>S 波（~3.5 km/s）</strong>。
+  離震央越遠的測站越晚收到 P 波，但只要近震央的少數測站先偵測到 P 波並判定地震，
+  就能<strong>趕在 S 波抵達遠方城市之前</strong>把警報用「光速的網路」送過去——這就是預警能成立的物理基礎。
+  系統設計的天職，就是把「偵測 + 篩選 + 推播」的總耗時壓到比 S 波傳播還短。</p>
+
+  <h3>地理篩選：從 5000 萬人毫秒級框出收件人</h3>
+  <ul>
+    <li><strong>不可暴力掃描</strong>：對全體裝置逐一算 haversine 距離是 O(N)，尖峰下完全不可行。</li>
+    <li><strong>geohash 網格法</strong>：把座標編成前綴字串，地理相鄰的點前綴相同。用震央附近的幾個網格前綴撈出<em>候選集</em>（粗篩），再對候選集逐一算精確 haversine 距離<em>細篩</em>。</li>
+    <li><strong>邊界處理</strong>：geohash 在網格邊界會把鄰格的人漏掉，要連同 <strong>8 個鄰格</strong>一起撈。寧可多撈（recall 優先），細篩會把多餘的剔除。</li>
+    <li><strong>替代方案</strong>：R-tree / PostGIS GIST 索引、Uber H3 六邊形網格、S2 cell。原理相同：用空間索引把 O(N) 降到候選集大小。</li>
+  </ul>
+
+  <h3>海量 fan-out：一個事件炸成千萬則推播</h3>
+  <ul>
+    <li><strong>分區並行</strong>：收件人名單依 region / geohash 前綴切片，丟進多個分區佇列，由一群推播 worker 並行消費。</li>
+    <li><strong>fan-out on write</strong>：地震是「寫一次、瞬間讀放大千萬倍」的極端讀放大場景，必須在事件進來時就主動展開推播（而非等使用者來拉）。</li>
+    <li><strong>背壓與優先級</strong>：地震 topic 永遠插隊在最前面；普通通知（如價格提醒）讓路。</li>
+  </ul>
+
+  <h3>投遞保證：at-least-once + 冪等 + 退避重試</h3>
+  <ul>
+    <li><strong>at-least-once</strong>：寧可重送也不可漏送（漏報會死人）。用 <code>(event_id, device_id)</code> 當<strong>冪等鍵</strong>，裝置端或閘道去重，避免同一警報響兩次。</li>
+    <li><strong>重試</strong>：推播通道（APNs/FCM）暫時失敗 → <strong>指數退避 + 抖動</strong>重試；但地震有時效性，<strong>重試視窗很短</strong>（過了 S 波抵達時間，補送已無意義，直接進 DLQ 記錄供事後分析）。</li>
+    <li><strong>多通道冗餘</strong>：push 失敗退簡訊、退電視/廣播插播。天災時網路可能壅塞，單一通道不可靠。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸（海量 fan-out）</h2>
+  <table>
+    <tr><th>階段 / 環節</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>地理篩選</td><td>對 5000 萬裝置算距離</td><td>geohash / PostGIS 空間索引，粗篩候選集再細篩</td></tr>
+    <tr><td>事件分發</td><td>地震事件被一般通知排隊拖慢</td><td>專屬高優先級 topic + 資源隔離，地震永遠插隊</td></tr>
+    <tr><td>推播吞吐</td><td>單一 worker 送不完千萬則</td><td>依 region 分區佇列 + 無狀態 worker 大量水平擴展</td></tr>
+    <tr><td>上游推播商限流</td><td>APNs/FCM 對單一 app 有速率上限</td><td>多帳號 / 多通道分流 + 批次推播 API</td></tr>
+    <tr><td>冷啟動</td><td>平時 0 流量，地震瞬間要爆量</td><td>常駐最小資源池 + 預熱 + 可秒級擴容（avoid scale-from-zero 延遲）</td></tr>
+    <tr><td>災害時自身存活</td><td>地震本身可能打掉機房</td><td>多區域部署，跨區冗餘，邊緣節點就近推播</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>速度 vs 準確</strong>：等更多測站資料判得更準，但會慢；地震預警<strong>選速度</strong>——先用少量測站快速發警報，再用後續資料發「修正/取消」。誤報可接受，漏報不可接受。</li>
+    <li><strong>at-least-once vs exactly-once</strong>：選 at-least-once（不漏），用冪等鍵在裝置端去重把「重複」壓到不擾民，而非追求昂貴的 exactly-once。</li>
+    <li><strong>fan-out on write vs on read</strong>：本題是極端讀放大、且要主動推，必選 on write（事件來就展開）；on read 不適用（使用者不會主動來「拉地震」）。</li>
+    <li><strong>geohash 精度取捨</strong>：網格太粗 → 撈太多人細篩慢；太細 → 邊界漏報風險高、要撈更多鄰格。通常取能覆蓋典型影響半徑的精度，並一律帶上 8 鄰格保 recall。</li>
+    <li><strong>誤報疲勞</strong>：地理篩選做不準 → 沒事也被吵 → 使用者關警報 → 真地震時致命。所以「<strong>範圍外的人不該收到</strong>」跟「不漏報」一樣是硬需求。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>「使用者在移動（開車/搭高鐵）怎麼辦？」→ 心跳更新位置 + 索引近即時刷新；或推播時用粗網格容忍位置誤差。</li>
+        <li>「怎麼測這種平時不發生的系統？」→ 影子流量 / 定期演練重放歷史地震事件，量端到端延遲。</li>
+        <li>「如何避免修正通知造成第二次驚嚇？」→ 取消/降級用較溫和通道，警報升級才用強提醒。</li>
+        <li>「跨國 / 跨時區？」→ 多區域獨立部署，事件按地理路由到對應區域的 fan-out 管線。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 刻意<strong>不做 CRUD 表單</strong>，而是聚焦真正的考點——<strong>地理篩選 + fan-out 投遞</strong>，可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/GeoIndex.php</code>　空間索引：用 haversine 距離實作「<strong>找出震央半徑 N 公里內的所有裝置</strong>」，並附 geohash 粗篩示意（對應真實系統的 PostGIS / Redis GEO）。</li>
+    <li><code>src/NotificationQueue.php</code>　通知佇列：事件展開成逐裝置的投遞任務（fan-out on write），帶 <code>(event_id, device_id)</code> 冪等鍵入列。</li>
+    <li><code>src/Dispatcher.php</code>　投遞器：消費佇列、模擬推播（含隨機延遲/失敗）、<strong>at-least-once + 指數退避重試 + 冪等去重</strong>，多次失敗記 DLQ。</li>
+    <li><code>src/Store.php</code>　裝置 / 事件 / 投遞紀錄持久化（JSON 檔模擬 DB）。</li>
+    <li><code>public/index.php</code>　路由：註冊裝置、觸發一次地震、檢視 fan-out 結果（人數、各自距離、投遞狀態與模擬延遲），並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8002 -t public
+# 瀏覽器開 http://localhost:8002
+# 1) 先註冊幾台裝置（或按「載入示範裝置」）
+# 2) 設定震央(lat/lng)+規模+半徑 → 觸發地震
+# 3) 觀察：誰在範圍內、各自距震央幾公里、投遞狀態與模擬延遲</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的「推播」是<strong>模擬投遞</strong>（隨機延遲與失敗，不會真的呼叫 APNs/FCM），偵測服務也以「手動觸發一次事件」代替真實信號處理；
+    但<strong>地理篩選（haversine 半徑查詢）、fan-out 展開、冪等去重、指數退避重試、DLQ 等系統邏輯為真實可執行</strong>。
+    要接真實推播，把 <code>Dispatcher</code> 的模擬投遞換成 APNs/FCM SDK 呼叫即可，其餘邏輯不變（見 <code>demo/README.md</code>）。
+  </div>
+
+  <footer>② Earthquake Early Warning System · A 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

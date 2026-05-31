@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑧ Webhook 平台 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅰️ 通知/Fan-out 扇出</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑧ Webhook 平台：把事件可靠投遞給不可靠的外部端點</h1>
+  <p class="subtitle">
+    <span class="tag group">A 通知/Fan-out</span>
+    <span class="tag time">建議 46 分鐘</span>
+    <span class="tag">Design a Webhook Delivery Platform</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把內部事件，透過 HTTP 可靠地 fan-out 投遞到大量「我們無法控制」的外部端點</strong>」。
+    難點不在發 HTTP，而在<em>對方隨時會掛、會慢、會回錯、會重複收到</em>——所以真正考點是
+    <strong>HMAC 簽章驗證、至少一次投遞 + 接收方冪等、指數退避重試、死信佇列（DLQ）、慢端點隔離</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（慢端點與 head-of-line blocking）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>客戶可<strong>註冊端點</strong>（callback URL + 訂閱事件類型），平台回傳一組 <code>secret</code> 用於簽章。</li>
+    <li>內部產生事件（如 <code>payment.succeeded</code>）後，平台把事件<strong>投遞</strong>到所有訂閱該事件的端點。</li>
+    <li><strong>簽章</strong>：每次 POST 帶上 <code>X-Signature</code>（HMAC）與 <code>X-Timestamp</code>，讓接收方驗證來源與防重放。</li>
+    <li><strong>重試</strong>：對方回非 2xx 或逾時 → 自動重試（指數退避 + 抖動），超過上限進 <strong>DLQ</strong>。</li>
+    <li>客戶可查詢每筆投遞的<strong>嘗試次數、狀態、回應碼</strong>，並手動重送 DLQ 中的訊息。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>至少一次投遞（at-least-once）</strong>：寧可重送，不可漏送 → 接收方必須<strong>冪等</strong>。</li>
+    <li><strong>故障隔離</strong>：某客戶的端點慢/掛，不能拖垮其他客戶的投遞（避免 head-of-line blocking）。</li>
+    <li><strong>每端點順序性（可選）</strong>：同一端點的事件盡量按序到達 → 與吞吐量是取捨。</li>
+    <li><strong>安全</strong>：防偽造（簽章）、防重放（timestamp + 容忍視窗）、防 SSRF（端點 URL 白名單/封鎖內網）。</li>
+    <li><strong>可觀測</strong>：每筆投遞可追蹤、可重送、可報表。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「投遞語義是 at-least-once 還是 exactly-once？」——分散式下沒有真正的 exactly-once，務實答案是
+    <strong>at-least-once + 接收方用 idempotency key 去重</strong>。把「exactly-once 由誰負責」講清楚是這題的分水嶺。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>事件產生</td><td>1 億/日</td><td>~1150 事件 QPS（峰值 ×3 ≈ 3.5k）</td></tr>
+    <tr><td>Fan-out 放大</td><td>每事件平均 1.5 個訂閱端點</td><td>~1700 投遞 QPS（峰值 ≈ 5k）</td></tr>
+    <tr><td>重試放大</td><td>~10% 投遞需重試，平均 2 次</td><td>投遞嘗試量再 ×1.2 ≈ 6k 嘗試 QPS</td></tr>
+    <tr><td>投遞記錄</td><td>每筆嘗試 ~300 bytes，保留 30 天</td><td>6k×86400×30×300B ≈ <strong>4.5 TB</strong>（時序/列式庫）</td></tr>
+    <tr><td>慢端點佔比</td><td>p99 對方回應 > 5s</td><td>worker 連線會被長時間佔住 → 必須隔離</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>瓶頸不是 CPU 而是<strong>外部端點的延遲與失敗率</strong>。整個設計圍繞「<strong>把不可控的 I/O 延遲與失敗，隔離成「不會互相拖累」的可重試任務</strong>」。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 註冊端點（客戶端，回傳 secret 只顯示一次）
+POST /api/v1/endpoints
+Body: { "url": "https://acme.com/hook", "events": ["payment.succeeded"] }
+→ 201 { "endpoint_id": "ep_123", "secret": "whsec_abc..." }
+
+# 內部發布事件（觸發 fan-out）
+POST /api/v1/events
+Body: { "type": "payment.succeeded", "data": {...}, "idempotency_key": "evt_9f2" }
+→ 202 { "event_id": "evt_9f2", "queued_deliveries": 2 }
+
+# 查詢某端點的投遞記錄（含每次嘗試）
+GET /api/v1/endpoints/{id}/deliveries
+→ { "deliveries": [ { "id":"dl_1", "status":"DEAD", "attempts":6,
+                      "last_code":500, "next_retry_at":null } ] }
+
+# 手動重送 DLQ 中的投遞
+POST /api/v1/deliveries/{id}/redeliver  → 202
+
+# ===== 平台「送給對方」的請求長相（對方端點要驗這個）=====
+POST https://acme.com/hook
+Headers:
+  X-Webhook-Id: dl_1
+  X-Webhook-Timestamp: 1717113600
+  X-Webhook-Signature: sha256=HMAC(secret, "{timestamp}.{body}")
+  Idempotency-Key: evt_9f2        # 接收方據此去重
+Body: { "type":"payment.succeeded", "data":{...} }
+→ 對方驗簽 + 比對 timestamp 視窗 + 依 Idempotency-Key 去重 → 回 200</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>endpoints
+  endpoint_id   VARCHAR  PRIMARY KEY
+  customer_id   BIGINT
+  url           TEXT
+  secret        TEXT                 -- HMAC 共享密鑰（加密儲存）
+  events        JSONB                -- 訂閱的事件類型
+  state         ENUM(ACTIVE,DISABLED)-- 連續失敗過多可自動停用
+  created_at    TIMESTAMP
+
+deliveries  (投遞任務 = 一個狀態機，高頻寫 → 時序/列式庫)
+  delivery_id   VARCHAR  PRIMARY KEY
+  endpoint_id   VARCHAR  (FK, 也是分區鍵 → 每端點順序/隔離)
+  event_id      VARCHAR              -- = idempotency_key，貫穿全程
+  status        ENUM(PENDING,DELIVERING,DELIVERED,RETRY,DEAD)
+  attempts      INT
+  last_code     INT                  -- 對方最後回應碼
+  next_retry_at TIMESTAMP            -- 退避後的下次嘗試時間
+  created_at / updated_at
+
+dead_letters  (DLQ：超過重試上限的投遞，供人工/自動重送)
+  delivery_id, endpoint_id, event_id, payload, failed_at, reason</code></pre>
+  <div class="box"><span class="label">為何 delivery 與 event 分開</span>一個事件 fan-out 成 N 筆 delivery，每筆獨立重試/獨立 DLQ；<code>event_id</code> 全程不變，正是接收方做冪等去重的鍵。<code>endpoint_id</code> 同時是分區鍵 → 保證「同端點順序」並把慢端點隔離在自己的分區。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 事件來源 ──▶ Ingest API ──▶ Fan-out ──▶ 投遞佇列（依 endpoint 分區）
+                                              │
+                                              ▼
+                                    投遞 Worker（簽章 HMAC）── HTTP POST ──▶ 外部端點
+                                              │                              │
+                                  2xx ◀───────┘                              │ 非2xx/逾時
+                                   │                                         ▼
+                              標記 DELIVERED                        重試排程（指數退避+抖動）
+                                                                             │ 超過上限
+                                                                             ▼
+                                                                        DLQ 死信佇列 ──▶ 人工/自動重送</code></pre>
+  <ol>
+    <li><strong>Ingest API</strong>：接收內部事件，寫入後即回 202（解耦：產生 ≠ 投遞）。</li>
+    <li><strong>Fan-out</strong>：查訂閱該事件類型的端點，為每個端點建一筆 <code>delivery</code> 任務入列。</li>
+    <li><strong>投遞佇列（依 endpoint 分區）</strong>：同端點進同一分區 → 順序 + 隔離；慢端點只塞自己的分區。</li>
+    <li><strong>投遞 Worker</strong>：取任務 → HMAC 簽章 → 發 HTTP；依結果走狀態機（DELIVERED / RETRY / DEAD）。</li>
+    <li><strong>重試排程</strong>：失敗任務按退避時間延遲再入列；超過上限轉 DLQ。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>HMAC 簽章：防偽造 + 防重放</h3>
+  <ul>
+    <li>平台與端點共享 <code>secret</code>。簽章 = <code>HMAC-SHA256(secret, timestamp + "." + body)</code>，放 <code>X-Webhook-Signature</code>。</li>
+    <li><strong>把 timestamp 納入簽章</strong>，接收方拒絕「時間戳超出 ±5 分鐘」的請求 → 防重放；用<strong>常數時間比較</strong>（<code>hash_equals</code>）防時序攻擊。</li>
+    <li>輪替密鑰時可同時放兩組簽章（舊+新），讓接收方平滑切換。</li>
+  </ul>
+  <h3>至少一次投遞 + 接收方冪等</h3>
+  <ul>
+    <li>網路下「已送達但回應遺失」無法區分 → 必然會重送。平台保證 at-least-once；<strong>exactly-once 的責任在接收方</strong>。</li>
+    <li>每筆帶穩定的 <code>Idempotency-Key</code>（= event_id）。接收方第一次處理後記下該鍵，重複收到直接回 200 不再處理。</li>
+  </ul>
+  <h3>重試策略：指數退避 + 抖動 + 上限</h3>
+  <ul>
+    <li>退避：<code>delay = base × 2^(attempt-1)</code>（如 1s,2s,4s,8s…），避免對剛恢復的端點瞬間打爆。</li>
+    <li><strong>抖動（jitter）</strong>：在退避值上加隨機，打散大量同時失敗的任務，避免「驚群」同時重試。</li>
+    <li>達上限（如 6 次）→ 進 <strong>DLQ</strong>，停止自動重試，保留 payload 供人工/自動重送；連續失敗過多可自動停用端點。</li>
+  </ul>
+  <h3>慢端點隔離（避免 head-of-line blocking）</h3>
+  <ul>
+    <li>若所有投遞共用一個 worker 池，一個慢端點會佔滿連線，拖垮全體 → <strong>per-endpoint（或 per-customer）佇列/併發上限</strong>。</li>
+    <li>對持續失敗/超時的端點開<strong>熔斷器</strong>：直接快速失敗或降頻探測，不再浪費 worker；半開狀態試探恢復。</li>
+    <li>每端點限制併發（避免我們自己變成對方的 DDoS）。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸（慢端點與 head-of-line blocking）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單一 worker 池</td><td>慢端點佔滿連線拖垮全體</td><td>依 endpoint/customer 分區 + per-endpoint 併發上限 + 熔斷</td></tr>
+    <tr><td>重試風暴</td><td>大量端點同時恢復 → 驚群</td><td>指數退避 + <strong>抖動</strong>打散</td></tr>
+    <tr><td>順序 vs 吞吐</td><td>嚴格順序須序列化單分區</td><td>降級為「同端點盡量有序」或僅關鍵事件保序</td></tr>
+    <tr><td>投遞記錄寫爆</td><td>每次嘗試一筆，量大</td><td>時序/列式庫 + 批次寫 + TTL 過期</td></tr>
+    <tr><td>安全</td><td>客戶 URL 指向內網（SSRF）</td><td>解析後封鎖私有 IP / metadata 端點，egress 代理</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>at-least-once vs exactly-once</strong>：選 at-least-once（簡單可靠）+ 接收方冪等；別承諾做不到的 exactly-once。</li>
+    <li><strong>順序 vs 吞吐</strong>：嚴格每端點順序須單分區序列化，犧牲並行度；多數場景「最終一致 + 事件自帶版本/時間戳」即可，由接收方自行判斷新舊。</li>
+    <li><strong>同步重試 vs 排程重試</strong>：行內 sleep 重試會佔住 worker；正解是<strong>把帶 next_retry_at 的任務丟回延遲佇列</strong>，worker 不阻塞。</li>
+    <li><strong>推（webhook）vs 拉（polling）</strong>：webhook 即時但要求對方有公開端點且我方要扛重試；對極不可靠的對象，提供 polling/事件補拉 API 作後備。</li>
+    <li><strong>常見追問</strong>：怎麼防重放？→ timestamp + 簽章 + 容忍視窗。怎麼防偽造？→ HMAC + 常數時間比較。對方一直掛怎麼辦？→ 熔斷 + 自動停用 + DLQ 通知客戶。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>簽章 + 重試/退避 + DLQ</strong>（這題真正的考點），不是端點 CRUD，可實際用 PHP 內建伺服器跑：</p>
+  <ul>
+    <li><code>src/EndpointStore.php</code>　註冊端點（url + secret + 可設定的模擬投遞結果），JSON 檔模擬 DB。</li>
+    <li><code>src/Signer.php</code>　HMAC-SHA256 對 <code>timestamp + "." + payload</code> 簽章，產生並驗證簽章標頭（<code>hash_equals</code> 常數時間比較 + timestamp 視窗防重放）。</li>
+    <li><code>src/DeliveryQueue.php</code>　投遞任務狀態機（PENDING→DELIVERING→DELIVERED/RETRY/DEAD）的儲存與排程，JSON 檔持久化。</li>
+    <li><code>src/Dispatcher.php</code>　投遞引擎：簽章 → 投遞 → 依結果指數退避 + 抖動重試，超過上限進 DLQ。</li>
+    <li><code>public/index.php</code>　路由：註冊端點 / 發布事件（fan-out 入列）/ 觸發投遞 / 查看投遞與 DLQ，附深色測試頁；另含 <code>/receive</code> 內建測試接收端（驗 HMAC 後回 200）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8008 -t public
+# 瀏覽器開 http://localhost:8008
+# 1) 註冊一個「會成功」端點、一個「會失敗」端點
+# 2) 發布事件 → 自動 fan-out 入列
+# 3) 反覆按「觸發投遞」→ 看失敗端點的退避重試與最終進 DLQ</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    為避免 PHP 內建伺服器<strong>單執行緒自我投遞造成阻塞自鎖</strong>，demo 預設用「<strong>模擬投遞結果</strong>」：依端點設定（成功/失敗/慢）直接判定回應，不真的發外部 HTTP；
+    狀態機、HMAC 簽章與驗證、指數退避 + 抖動、重試上限、DLQ 等<strong>系統邏輯為真實可執行</strong>。
+    端點亦可指向內建 <code>/receive</code> 測試接收端示範完整驗簽流程。真實系統會用<strong>獨立的 worker 程序池</strong>並發、非阻塞地投遞，並以延遲佇列承載 <code>next_retry_at</code>。
+  </div>
+
+  <footer>⑧ Webhook Platform · A 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑦ Messenger · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑦ Messenger：億級在線的即時訊息系統</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag time">建議 40 分鐘</span>
+    <span class="tag">Design a Chat / Messenger System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>億級長連線（WebSocket）+ 連線註冊表（user 在哪台 gateway）+ 跨機轉發（Pub/Sub）</strong>」的題型。
+    存訊息很簡單；面試真正考的是 <em>如何把一則訊息，從 A 的連線，精準即時送到散落在數千台 gateway 中 B 的那一條連線</em>，並處理離線、順序與已讀。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（億級在線）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>1:1 即時訊息：A 傳給 B，B 在線時<strong>即時</strong>收到。</li>
+    <li><strong>離線訊息</strong>：B 不在線時訊息要暫存，B 上線後補收，並推播（APNs/FCM）通知。</li>
+    <li><strong>訊息順序</strong>：同一對話內訊息不可亂序（per-conversation 單調序號）。</li>
+    <li><strong>已讀回條</strong>：發送方能看到「已送達 / 已讀」狀態。</li>
+    <li>群組訊息（fan-out）、presence（在線狀態）顯示。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：在線投遞 p99 &lt; 200ms（端到端）。</li>
+    <li><strong>高可用</strong>：訊息不可遺失（持久化後才回 ACK）。</li>
+    <li><strong>海量長連線</strong>：億級裝置同時保持 WebSocket 連線。</li>
+    <li><strong>順序與一致</strong>：對話內順序保證；跨對話可放寬。</li>
+    <li><strong>可擴展</strong>：連線數、訊息量都能水平擴展。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「先做 1:1 還是群組？需不需要已讀回條 / 端到端加密 / 多裝置同步？」範圍差很多。建議先把 <strong>1:1 即時投遞 + 離線 + 順序</strong>講透，再延伸群組 fan-out，這才是擴展挑戰所在。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>同時在線連線</td><td>2 億 DAU，50% 同時在線</td><td><strong>~1 億條</strong>長連線</td></tr>
+    <tr><td>連線伺服器數</td><td>單台扛 ~50 萬連線</td><td>1億 / 50萬 ≈ <strong>200+ 台 WS gateway</strong></td></tr>
+    <tr><td>訊息量（寫）</td><td>每人每日 40 則</td><td>2億×40/86400 ≈ 9.3萬 寫 QPS（峰值 ×3 ≈ 28萬）</td></tr>
+    <tr><td>投遞量（讀/推）</td><td>群組放大 ×2~3</td><td>峰值可達數十萬～百萬 投遞 QPS</td></tr>
+    <tr><td>訊息儲存</td><td>每則 ~300 bytes，存 1 年</td><td>2億×40×365×300B ≈ <strong>876 TB/年</strong> → 分片 + 冷熱分層</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>瓶頸不在「存訊息」，而在「<strong>維持億級長連線</strong>」與「<strong>知道誰連在哪、把訊息轉發過去</strong>」。連線狀態是有狀態的，這跟一般無狀態 web 服務最大的不同。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 長連線（真正的即時通道）— WebSocket
+WS  /connect            握手帶 token；成功後 gateway 在註冊表寫入 user→自己
+  ← server push: { "type":"message", "conversation":"c:A:B", "seq":7, "from":"A", "body":"..." }
+  → client ack:  { "type":"ack", "message_id":123 }
+
+# 送訊息（也可走 WS frame）
+POST /api/v1/messages
+Body: { "conversation":"c:A:B", "to":"B", "body":"哈囉", "client_msg_id":"uuid" }
+→ 201 { "message_id":123, "seq":7, "status":"sent" }   # client_msg_id 用於去重/冪等
+
+# 已讀回條
+POST /api/v1/conversations/{cid}/read   Body: { "up_to_seq": 7 }
+
+# 拉歷史 / 上線補收離線訊息
+GET  /api/v1/conversations/{cid}/messages?after_seq=5
+
+# presence
+GET  /api/v1/presence?users=A,B   → { "A":"online", "B":"offline" }
+</code></pre>
+  <div class="box"><span class="label">為何要 client_msg_id</span>網路重試會重送 → 用 client 端產生的唯一 id 做<strong>冪等去重</strong>，避免同一則訊息出現兩次。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>connections (連線註冊表，放 Redis，非主庫)
+  user_id  → { gateway_id, last_heartbeat }   -- TTL 過期即視為離線（presence）
+
+messages (依 conversation 分片，append-only)
+  conversation_id  VARCHAR    -- 1:1 用兩 user 排序拼接；群組用 group_id
+  seq              BIGINT     -- per-conversation 單調序號（保證順序）
+  message_id       BIGINT     -- 全域唯一（雪花 ID）
+  sender_id        BIGINT
+  body             TEXT
+  sent_at          TIMESTAMP
+
+inbox / user_timeline (寫擴散時：每個收件人一份指標)
+  user_id, conversation_id, last_read_seq, last_delivered_seq
+
+offline_queue
+  user_id → [ message_id, ... ]   -- 上線時補投遞 + 觸發推播</code></pre>
+  <div class="box"><span class="label">為何分開</span><code>connections</code> 是高頻變動的暫態資料（放 Redis）；<code>messages</code> 是永久歷史（分片落地）。把「連線狀態」與「訊息持久化」分離，是這題的核心切分。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> Client A ──WS──▶ WS Gateway1 ──▶ 訊息服務 ──▶ 訊息庫(持久化, 配 seq)
+                                      │
+                                      ├─▶ 連線註冊表(Redis): B 連在哪台?
+                                      │      ├─ 在線 ─▶ Redis Pub/Sub ─▶ WS Gateway2 ──WS push──▶ Client B
+                                      │      └─ 離線 ─▶ 離線佇列 ─▶ 推播(APNs/FCM)
+                                      ▼
+                              （B 上線重連時：拉離線佇列補收）</code></pre>
+  <ol>
+    <li><strong>WS Gateway</strong>：只負責維持長連線、收發 frame；無業務邏輯，可大量水平擴展。連上後把 <code>user→自己</code> 寫進註冊表。</li>
+    <li><strong>訊息服務</strong>：持久化訊息、配 per-conversation 序號，再查註冊表決定投遞路徑。</li>
+    <li><strong>Redis Pub/Sub</strong>：跨機轉發。每台 gateway 訂閱自己負責的 channel；訊息服務 publish 到「B 所在 gateway 的 channel」，該 gateway 收到後經 WS push 給 B。</li>
+    <li><strong>離線路徑</strong>：查不到 gateway → 進離線佇列 + 發推播；B 重連時一次補收。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>連線註冊表：怎麼知道 B 連在哪台 gateway？</h3>
+  <ul>
+    <li>B 的 WS 握手成功時，那台 gateway 在 Redis 寫入 <code>user:B → {gateway, ts}</code>。</li>
+    <li>送訊息給 B 時，訊息服務查這張表 → 得到 gateway → 透過 Pub/Sub 把訊息丟到該 gateway 的 channel。</li>
+    <li><strong>presence</strong>：靠心跳刷新 TTL；超過 TTL 沒心跳即視為離線（自動清理斷線）。</li>
+  </ul>
+  <h3>跨機轉發：為什麼需要 Pub/Sub？</h3>
+  <p>A 在 gateway1、B 在 gateway2，兩台機器彼此不認識。訊息服務查到 B 在 gateway2 後，<strong>publish 到 gateway2 訂閱的 channel</strong>，gateway2 收到才能用它手上那條 WS 連線 push 給 B。這是「有狀態連線 + 無狀態服務」之間的橋樑。</p>
+  <h3>訊息順序：per-conversation 單調序號</h3>
+  <p>每個 conversation 維護一個遞增 <code>seq</code>（Redis INCR 或 DB sequence）。client 依 seq 排序、補洞、去重。<strong>只保證對話內有序</strong>，跨對話無需全域排序，避免全域瓶頸。</p>
+  <h3>已讀回條與離線</h3>
+  <ul>
+    <li><strong>已讀</strong>：收件人讀到 seq=N → 送 read receipt（up_to_seq=N）→ 反向投遞給發送方更新 ✓✓。送達(delivered)與已讀(read)是兩個不同狀態。</li>
+    <li><strong>離線</strong>：投不到 → 進離線佇列 + 推播；上線重連時依 seq 排序補收，維持順序。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸（億級在線）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機連線</td><td>單台 WS 連線數上限</td><td>水平加 gateway；用一致性雜湊 / sticky 分配 user</td></tr>
+    <tr><td>跨機投遞</td><td>不知道對方在哪台</td><td>連線註冊表(Redis) + Pub/Sub 定向轉發</td></tr>
+    <tr><td>訊息儲存</td><td>單庫裝不下、寫熱點</td><td>依 conversation_id <strong>分片</strong>；冷熱分層</td></tr>
+    <tr><td>群組 fan-out</td><td>大群一則訊息放大 N 倍投遞</td><td>寫擴散 vs 讀擴散取捨（見 §8）；超大群走讀擴散</td></tr>
+    <tr><td>離線/推播風暴</td><td>大量離線用戶同時上線補收</td><td>離線佇列限長 + 批次補收 + 推播去重/合併</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>寫擴散 vs 讀擴散（fan-out 核心取捨）</strong>：寫擴散＝送訊息時就寫進每個成員的 inbox（讀快、寫放大，適合小群/1:1）；讀擴散＝只存一份，成員讀時才聚合（寫省、讀慢，適合大群/廣播）。實務常<strong>混合</strong>：小群寫擴散、超大群讀擴散。</li>
+    <li><strong>順序保證範圍</strong>：per-conversation 有序即可，不做全域有序（全域序號會變成單點瓶頸）。</li>
+    <li><strong>送達 vs 已讀</strong>：delivered（投到裝置）與 read（使用者真的看了）要分開，回條才準確。</li>
+    <li><strong>常見追問</strong>：多裝置同步如何一致？→ 每裝置維護 last_read_seq，以 seq 對齊。如何不丟訊息？→ 持久化成功才回 ACK，client 重連用 after_seq 補洞。端到端加密如何做？→ 訊息在 client 加密，server 只轉發密文（如 Signal Protocol）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>系統核心邏輯</strong>（也是億級在線真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/ConnectionRegistry.php</code>　連線註冊表：<code>user→gateway</code> 對映 + presence（online / TTL / 心跳 / 下線）。</li>
+    <li><code>src/MessageStore.php</code>　訊息持久化 + 收件匣 + 離線佇列 + per-conversation 單調序號 + 已讀標記（檔案鎖確保並發安全）。</li>
+    <li><code>src/MessageRouter.php</code>　核心：持久化 → 查註冊表 → 在線「即時投遞」否則「進離線佇列 + 推播」；上線時補收離線訊息。</li>
+    <li><code>public/index.php</code>　路由：連線 / 送訊息 / poll / 已讀 / 歷史，並附 A、B 雙對話框測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8007 -t public
+# 瀏覽器開 http://localhost:8007
+# A、B 上線 → A 傳給 B（在線即時投遞、seq 遞增）→ B poll 收到 → 標記已讀 → A 看到 ✓✓
+# B 下線時 A 傳 → 進離線佇列+推播 → B 再上線自動補收</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 <strong>HTTP poll 取代 WebSocket 的 server push</strong>（瀏覽器主動拉收件匣），但<strong>連線註冊表（user→gateway）、在線/離線路由決策、per-conversation 序號、已讀回條、離線佇列補收與排序、presence + 推播</strong>等系統邏輯<strong>為真實可執行</strong>。要換成真正即時，把 poll 改成 WebSocket、把行內收件匣改成 Redis Pub/Sub 即可，架構不變。
+  </div>
+
+  <footer>⑦ Messenger · B 即時連線/同步 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

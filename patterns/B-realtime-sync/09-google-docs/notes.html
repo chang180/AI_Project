@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑨ Google Docs 協作編輯器 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑨ Google Docs：字元級即時協作編輯器</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag time">建議 48 分鐘</span>
+    <span class="tag">Design a Collaborative Document Editor</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>多人同時對同一份文件做字元級編輯，且結果必須收斂一致</strong>」的即時同步題。
+    CRUD 存檔很簡單；面試真正考的是 <em>並發衝突解決</em>——當 A、B 基於同一版本同時打字，如何讓兩邊套用後文件<strong>收斂到相同內容、誰都不被覆蓋</strong>。核心就是 <em>OT（Operational Transformation）vs CRDT</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入（OT vs CRDT）</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>字元級即時協作</strong>：多人同時編輯同一份文件，每個按鍵級的 insert/delete 操作近即時（&lt; 200ms）同步給所有人。</li>
+    <li><strong>衝突收斂</strong>：並發編輯後，所有客戶端最終看到<strong>完全相同</strong>的文件內容（收斂性 / convergence）。</li>
+    <li><strong>游標與選取共享（presence）</strong>：看得到別人的游標位置、選取範圍、上線狀態。</li>
+    <li><strong>版本歷史與快照</strong>：可回溯任意時間點、還原版本、看誰改了什麼。</li>
+    <li><strong>離線編輯</strong>：斷線可繼續編輯，重連後與雲端合併。</li>
+    <li>權限分享（檢視 / 留言 / 編輯）、留言批註。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：本地操作立即顯示（樂觀更新），同步延遲 p99 &lt; 200ms。</li>
+    <li><strong>強最終一致</strong>：可暫時分歧，但必須收斂；絕不可永久分歧或丟字。</li>
+    <li><strong>高可用</strong>：協作伺服器需具備故障轉移；連線斷掉要能無痛重連續傳。</li>
+    <li><strong>持久性</strong>：已確認的操作不可遺失（操作日誌持久化）。</li>
+    <li><strong>可擴展</strong>：單文件數十並發編輯者、全站數百萬份活躍文件。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「衝突解決要用 <strong>OT 還是 CRDT</strong>？要不要支援<strong>離線</strong>？」這兩問決定整題走向。需要中央權威排序、頻寬敏感 → OT（Google Docs 走這條）；需要去中心化、離線優先、P2P → CRDT（Figma、Apple Notes 傾向這條）。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>活躍文件</td><td>同時編輯中 100 萬份</td><td>需百萬條 WebSocket 長連線 → 連線層水平分片</td></tr>
+    <tr><td>單文件並發者</td><td>平均 2~5、峰值數十</td><td>單文件操作需序列化（單一 owner 節點）</td></tr>
+    <tr><td>操作頻率（寫）</td><td>每人打字 ~5 ops/s</td><td>單文件 5 人 ≈ 25 ops/s；廣播放大 ×5（N 個訂閱者）</td></tr>
+    <tr><td>單操作大小</td><td>insert 1 字 + 中繼資料 ~100 B</td><td>頻寬主要花在<strong>廣播放大</strong>而非單筆大小</td></tr>
+    <tr><td>操作日誌</td><td>每文件每日數千 ops × 數百 B</td><td>定期<strong>快照壓縮</strong>，否則日誌無限成長</td></tr>
+    <tr><td>儲存</td><td>文件本體 + 快照 + 近期日誌</td><td>快照 + 增量日誌，回放成本可控</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>讀寫不是重點，<strong>並發寫的收斂</strong>才是。瓶頸在「單文件操作必須由<strong>單一權威節點序列化</strong>」與「<strong>廣播放大</strong>」——這決定了路由與分片策略。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 建立 / 開啟文件（HTTP）
+POST /api/v1/docs                 → { "doc_id": "d_abc", "version": 0 }
+GET  /api/v1/docs/{id}            → { "content": "...", "version": 42 }  # 載入快照
+
+# 即時協作走 WebSocket（核心）
+WS   /ws/docs/{id}
+
+→ 客戶端送出操作（基於它目前看到的版本）
+{ "type": "op", "doc": "d_abc", "baseVersion": 42,
+  "op": { "kind": "insert", "pos": 5, "text": "X" } }
+
+← 伺服器排序後回 ACK + 廣播（已 transform 過、附權威版本號）
+{ "type": "ack",  "version": 43 }
+{ "type": "op",   "version": 43, "op": { "kind":"insert","pos":5,"text":"X" }, "by": "userA" }
+
+# presence：游標 / 選取（高頻、可丟、不進操作日誌）
+{ "type": "presence", "user": "userB", "cursor": 12, "selection": [12,18] }
+
+# 版本歷史
+GET  /api/v1/docs/{id}/history    → [{version, ts, author}]
+GET  /api/v1/docs/{id}/snapshot/{version}
+</code></pre>
+  <div class="box"><span class="label">為何 op 要帶 baseVersion</span>伺服器靠它判斷這個操作「基於哪個版本」，才知道要對它做幾次 transform（追上權威版本）。這是 OT 的命脈。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>documents
+  doc_id        VARCHAR  PRIMARY KEY
+  title         TEXT
+  owner_id      BIGINT
+  current_ver   BIGINT                 -- 權威版本號（單調遞增）
+  created_at    TIMESTAMP
+
+snapshots (定期壓縮，避免回放整條日誌)
+  doc_id, version, content TEXT, created_at
+
+operations (append-only 操作日誌 — OT 的真相來源)
+  doc_id, version BIGINT,             -- 套用後的權威版本
+  author_id, kind ('insert'|'delete'),
+  pos INT, text TEXT, len INT, ts
+
+  PRIMARY KEY (doc_id, version)        -- 同一文件版本嚴格有序
+
+presence (記憶體 / Redis，不持久化)
+  doc_id, user_id, cursor, selection, last_seen</code></pre>
+  <div class="box"><span class="label">為何分快照 + 日誌</span>純靠日誌回放成本隨時間爆炸；純存內容又丟失歷史。<strong>快照 + 增量操作日誌</strong>：載入時取最近快照再回放少量後續操作，兼顧載入速度與完整歷史。presence 是高頻易逝資料，放記憶體/Redis，絕不進持久化日誌。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> Client A ──┐                         ┌─▶ 廣播 ─▶ Client A
+ (本地樂觀) │   WebSocket            │           (套 transform 後)
+            ├─▶ 連線層 ─▶ 協作伺服器 ─┤
+ Client B ──┘   (Gateway) (單文件權威) ├─▶ 廣播 ─▶ Client B
+ (本地樂觀)                  │  ▲      │
+                            │  │      └─▶ 操作日誌(append-only)
+                  排序 + OT transform        │
+                            │                ▼
+                            └──────▶ 文件快照儲存 / 版本歷史
+
+ presence(游標/選取) ──▶ Pub-Sub(Redis) ──▶ 廣播給同文件其他人（不進日誌）</code></pre>
+  <ol>
+    <li><strong>連線層 / Gateway</strong>：維持百萬 WebSocket 長連線，依 doc_id 把同一文件的客戶端路由到<strong>同一台協作伺服器</strong>（一致性雜湊）。</li>
+    <li><strong>協作伺服器（單文件權威）</strong>：對某文件的所有操作做<strong>序列化排序</strong>，對落後版本的操作做 <strong>OT transform</strong>，賦予權威版本號後廣播 + 寫入操作日誌。</li>
+    <li><strong>操作日誌</strong>：append-only，是收斂的真相來源；定期觸發快照壓縮。</li>
+    <li><strong>Pub-Sub</strong>：游標/選取等 presence 走 Redis pub-sub 廣播，與操作管線解耦（可丟、不影響收斂）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入：OT vs CRDT（本題重點）</h2>
+  <div class="box warn"><span class="label">這段就是考點</span>面試官要聽的不是「我選 X」，而是「我懂 OT 的 transform 與 CRDT 的無衝突合併各自如何達成收斂、代價在哪、誰用在哪」。下面逐一拆。</div>
+
+  <h3>問題本質：並發操作的位置會錯位</h3>
+  <p>文件目前是 <code>"Hello"</code>（版本 v0）。A 與 B <strong>同時</strong>基於 v0 送出操作：</p>
+  <pre><code>A: insert(pos=0, "X")   想得到 "XHello"
+B: insert(pos=5, "!")   想得到 "Hello!"</code></pre>
+  <p>伺服器先收到 A，套用得 <code>"XHello"</code>（v1）。接著收到 B 的操作，但 B 的 <code>pos=5</code> 是<strong>基於舊的 v0</strong>算的；此刻文件已因 A 在前面插了一個字而整體右移一格。若直接套 <code>pos=5</code>，<code>"!"</code> 會插在 <code>"XHell|o"</code> 而非結尾，<strong>結果發散、不收斂</strong>。這就是必須 transform 的根因。</p>
+
+  <h3>方案 A：OT（Operational Transformation）</h3>
+  <p>中央伺服器維護<strong>權威版本號 + 操作日誌</strong>。當一個操作的 <code>baseVersion</code> 落後權威版本時，伺服器把它<strong>依序對「中間已套用的每個操作」做 transform</strong>，調整其位置，再套用。核心是 <code>transform(opB, opA)</code>：在 opA 已先套用的前提下，回傳「修正後的 opB」。</p>
+  <pre><code>// insert vs insert：A 先套用，調整 B 的位置
+transform(B=insert(pos_b, text_b), A=insert(pos_a, text_a)):
+    if pos_a &lt;= pos_b:
+        pos_b += len(text_a)      // A 插在 B 之前/同位 → B 右移
+    return insert(pos_b, text_b)
+// 例：B.pos 5 + len("X") 1 = 6 → "!" 插在 "XHello" 結尾 = "XHello!"  ✓收斂
+
+// delete vs insert：A 插字 → 在插入點之後的刪除位置要右移
+// insert vs delete：A 刪字 → B 的位置左移；若刪除範圍涵蓋 B → 夾到刪除點
+// delete vs delete：需處理範圍重疊（避免重複刪 / 刪過頭）</code></pre>
+  <ul>
+    <li><strong>收斂保證</strong>：滿足 TP1 性質 <code>apply(apply(s,A), T(B,A)) == apply(apply(s,B), T(A,B))</code>，兩條套用順序殊途同歸。</li>
+    <li><strong>優點</strong>：操作小（一個 insert 幾 byte）、<strong>頻寬省</strong>；有中央權威，排序簡單；游標位置易維護。</li>
+    <li><strong>代價</strong>：transform 函式<strong>組合爆炸難寫對</strong>（insert/delete × 各情況），歷史上多家實作出過收斂 bug；強依賴<strong>中央伺服器序列化</strong>，不適合純 P2P。</li>
+    <li><strong>誰用</strong>：<strong>Google Docs、Etherpad</strong>。需要中央排序、頻寬敏感、富文本屬性多時的首選。</li>
+  </ul>
+
+  <h3>方案 B：CRDT（Conflict-free Replicated Data Type）</h3>
+  <p>不靠中央 transform，而是讓資料結構<strong>天生可無衝突合併</strong>。文字常用 <em>sequence CRDT</em>（如 RGA、Logoot/LSEQ、Yjs 的 YATA）：每個字元給一個<strong>全域唯一、可比較且稠密的 ID</strong>（不是脆弱的整數位置）。插入只是「在某兩個字元 ID 之間放一個新 ID」，刪除是「打 tombstone 墓碑」。任意順序合併，結果都收斂。</p>
+  <pre><code>"Hello" 的字元帶 ID： H(1) e(2) l(3) l(4) o(5)
+A: 在 &lt;起點, H(1)&gt; 之間插 X，分得 ID 0.5  →  X(0.5) H e l l o
+B: 在 &lt;o(5), 終點&gt; 之間插 !，分得 ID 6    →  H e l l o !(6)
+合併：依 ID 全序排序 → X(0.5) H e l l o !(6) = "XHello!"  ✓收斂
+（兩端不論先收到誰、收幾次，依 ID 排序結果恆等 → 冪等、可交換）</code></pre>
+  <ul>
+    <li><strong>收斂保證</strong>：合併滿足<strong>交換律 + 結合律 + 冪等</strong>（CmRDT/CvRDT 性質），不需中央協調即收斂，天生<strong>離線友善</strong>。</li>
+    <li><strong>優點</strong>：去中心化 / P2P 可行；離線編輯重連直接合併；無需寫複雜 transform。</li>
+    <li><strong>代價</strong>：每字元帶 ID 與 tombstone → <strong>中繼資料肥大、記憶體/頻寬開銷高</strong>；墓碑需垃圾回收；游標映射較麻煩。現代實作（Yjs/Automerge）已大幅優化。</li>
+    <li><strong>誰用</strong>：<strong>Figma、Apple Notes、Yjs/Automerge 生態</strong>。離線優先、P2P、本地優先（local-first）場景首選。</li>
+  </ul>
+
+  <h3>一句話對比</h3>
+  <table>
+    <tr><th>維度</th><th>OT</th><th>CRDT</th></tr>
+    <tr><td>收斂方式</td><td>中央 transform 調整位置</td><td>結構天生可交換合併</td></tr>
+    <tr><td>需中央伺服器</td><td>是（序列化排序）</td><td>否（P2P 可行）</td></tr>
+    <tr><td>頻寬 / 中繼資料</td><td>小（操作精簡）</td><td>較大（每字元 ID + 墓碑）</td></tr>
+    <tr><td>離線優先</td><td>弱（重依賴中央）</td><td>強</td></tr>
+    <tr><td>實作難度</td><td>transform 難寫對</td><td>結構設計難，但合併簡單</td></tr>
+    <tr><td>代表</td><td>Google Docs、Etherpad</td><td>Figma、Yjs、Automerge</td></tr>
+  </table>
+
+  <h3>presence、版本歷史、離線</h3>
+  <ul>
+    <li><strong>presence（游標/選取）</strong>：高頻、可丟、不收斂也無妨 → 走獨立 pub-sub，不進操作日誌；別人插字時本地把游標位置一起 transform 即可跟著移動。</li>
+    <li><strong>版本歷史 / 快照</strong>：操作日誌即天然歷史；定期把日誌壓成快照，回溯時取快照 + 回放後續操作。</li>
+    <li><strong>離線編輯合併</strong>：OT 重連時把離線期間累積的操作逐一對伺服器中間操作 transform 後補送；CRDT 直接把本地變更集合與雲端合併（這正是 CRDT 的主場）。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>連線量</td><td>百萬 WebSocket 長連線</td><td>連線層水平分片；依 doc_id 一致性雜湊把同文件導到同節點</td></tr>
+    <tr><td>單文件熱點</td><td>單一權威節點序列化成瓶頸</td><td>單文件並發通常有限；熱文件升配 + 操作合批；presence 與操作分流</td></tr>
+    <tr><td>廣播放大</td><td>N 訂閱者 → 一筆操作放大 N 倍</td><td>節點內本地 fan-out；跨節點才走 pub-sub，減少跨機流量</td></tr>
+    <tr><td>日誌無限成長</td><td>回放成本爆炸、儲存膨脹</td><td>定期快照壓縮 + 冷日誌歸檔；CRDT 需墓碑垃圾回收</td></tr>
+    <tr><td>節點故障</td><td>權威節點掛掉</td><td>操作日誌持久化 → 新節點回放快照+日誌接手；客戶端重連續傳</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>OT vs CRDT</strong>：要中央排序 + 省頻寬 + 富文本 → OT（Google Docs）；要離線優先 / P2P / local-first → CRDT（Figma、Yjs）。能講清「為何 Google 選 OT 而 Figma 選 CRDT」就贏一半。</li>
+    <li><strong>樂觀本地更新 vs 等伺服器確認</strong>：本地立即顯示（體驗好）→ 必須能在收到 ACK/他人操作時把本地未確認操作重新 transform（client 端也跑一套）。</li>
+    <li><strong>強一致 vs 最終一致</strong>：協作天生最終一致——允許短暫分歧，但<strong>收斂是硬底線</strong>，且操作不可丟。</li>
+    <li><strong>presence 與操作解耦</strong>：游標可丟、操作不可丟，混在一起會拖垮收斂與持久化。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>transform 寫錯導致不收斂怎麼辦？→ TP1/TP2 性質測試、模糊測試大量隨機並發序列驗證收斂。</li>
+        <li>離線一週回來怎麼合併？→ OT 補送 transform / CRDT 直接合併；過久可能需人工或版本分叉。</li>
+        <li>富文本（粗體、樣式）？→ 操作要含屬性，transform 需處理屬性區間重疊。</li>
+        <li>權威節點故障如何不丟操作？→ 已 ACK 必先落地操作日誌再回 ACK。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重<strong>真正的考點——OT transform 讓並發編輯收斂</strong>，而非 CRUD 存檔。可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/OTEngine.php</code>　最小可用 OT：insert/delete 操作、<code>transform()</code> 對同一基準版本的並發操作做位置調整；伺服器維護<strong>權威版本號與操作日誌</strong>。</li>
+    <li><code>src/DocStore.php</code>　文件內容 + 版本號 + 操作歷史（JSON 檔模擬持久化）。</li>
+    <li><code>public/index.php</code>　路由：載入文件 / 提交操作（自動 transform）/ 重設，並附深色測試頁（兩個編輯輸入模擬使用者 A、B）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8009 -t public
+# 瀏覽器開 http://localhost:8009
+# 讓 A 在位置 0 插 "X"、B 在位置 0 插 "Y"（都基於同一版本）
+# → 伺服器 transform 後兩者都套用、結果收斂一致、版本號遞增</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    真實系統用 <strong>WebSocket 長連線 + 完整 OT（insert/delete 全情況 + TP1/TP2）或 CRDT</strong>，並有連線層分片、快照壓縮、presence pub-sub。本 demo 用<strong>同步 HTTP</strong> 模擬，OT transform 聚焦 <strong>insert/insert、delete vs insert、insert vs delete</strong> 的核心收斂邏輯——<strong>並發操作收斂、版本號遞增、操作日誌為真實可執行</strong>，足以展示「為何需要 transform、它如何讓兩個並發編輯收斂到同一結果」這一核心考點。
+  </div>
+
+  <footer>⑨ Google Docs 協作編輯器 · B 組 即時連線/同步 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

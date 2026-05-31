@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>④ Amazon 價格追蹤 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅰️ 通知/Fan-out 扇出</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>④ Amazon 價格追蹤：海量商品的條件匹配與智能去抖</h1>
+  <p class="subtitle">
+    <span class="tag group">A 通知/Fan-out</span>
+    <span class="tag time">建議 43 分鐘</span>
+    <span class="tag">Design a Price Tracking / Alerting System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>海量價格事件流 → 反向索引條件匹配 → 智能去抖 → 通知 fan-out</strong>」的綜合題。
+    難點不在「存價格」，而在 <em>幾億商品的價格如何取得</em>、<em>幾千萬條使用者門檻如何被一筆價格變動高效命中</em>、以及 <em>價格抖動時如何不把使用者轟炸到退訂</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（海量商品）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>使用者對某商品（SKU/ASIN）設定<strong>追蹤門檻</strong>：目標價（target price）或跌幅（如 -15%）。</li>
+    <li>系統持續取得商品最新價格，價格滿足門檻時<strong>觸發提醒</strong>（Email / Push / App 內）。</li>
+    <li><strong>智能去抖</strong>：價格在門檻附近抖動，不可重複狂發；觸發後進入冷卻，價格回升才重新武裝。</li>
+    <li>一個商品可被大量使用者追蹤（熱門商品如 iPhone 可能上百萬人盯著）→ fan-out。</li>
+    <li>使用者可查看追蹤清單、歷史提醒、目前狀態。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>規模</strong>：商品數以億計，追蹤關係（watch）以千萬/億計。</li>
+    <li><strong>讀寫特性</strong>：價格事件是高頻寫入流；匹配是「每筆價格 → 命中 N 條門檻」的讀放大。</li>
+    <li><strong>時效</strong>：價格達標到發出提醒應在<strong>秒級～分鐘級</strong>（非毫秒級即時，可容忍輪詢延遲）。</li>
+    <li><strong>不漏發 / 不重發</strong>：達標必須發（at-least-once）+ 冪等去重，避免一次達標發十封。</li>
+    <li><strong>成本</strong>：不能對億級商品每秒輪詢 → 輪詢頻率必須分層。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「價格是<strong>我們能訂閱事件</strong>，還是只能<strong>從外部爬/輪詢</strong>？」這決定了擷取層走<em>事件驅動（CDC）</em>還是<em>分層輪詢</em>。
+    再問「提醒的時效要求？」秒級 vs 分鐘級，差別在要不要做真正的串流匹配，還是批次掃描即可。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>商品數</td><td>5 億 SKU</td><td>價格中繼資料 5億×~200B ≈ <strong>100 GB</strong>（可全進 KV/快取）</td></tr>
+    <tr><td>追蹤關係 watch</td><td>5000 萬使用者 × 平均 4 個</td><td>~2 億條 watch</td></tr>
+    <tr><td>價格變動事件</td><td>每日 5% 商品變價</td><td>2500萬/日 ≈ <strong>~290 變價 QPS</strong>（峰值 ×5 ≈ 1.5k）</td></tr>
+    <tr><td>匹配讀放大</td><td>熱門商品單筆變價命中數萬 watcher</td><td>fan-out 後通知量遠大於事件量</td></tr>
+    <tr><td>通知量</td><td>真正達標的比例低（門檻多在現價下方）</td><td>去抖後實際發送量是關鍵成本</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>事件量不大（百級 QPS），<strong>真正的爆點是「一筆變價 → fan-out 到海量 watcher」的匹配與通知</strong>。所以設計圍繞「<strong>price→watchers 反向索引</strong>」與「<strong>去抖降低實際發送量</strong>」。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 建立追蹤（寫）
+POST /api/v1/watches
+Body: { "user_id": 42, "sku": "B0iphone", "type": "target", "target_price": 899.00 }
+   # type: target（低於目標價）| drop_pct（自基準跌幅 %）
+→ 201 { "watch_id": "w_123", "status": "ARMED" }
+
+# 取消 / 修改門檻
+DELETE /api/v1/watches/{watch_id}
+PATCH  /api/v1/watches/{watch_id}   Body: { "target_price": 849.00 }
+
+# 查使用者追蹤清單與狀態
+GET /api/v1/users/{user_id}/watches
+→ [{ "watch_id":"w_123","sku":"B0iphone","target_price":899,
+     "status":"COOLDOWN","alerts_sent":1,"last_price":880 }]
+
+# 內部：價格擷取層推送新價格（事件，不對外）
+POST /internal/prices    Body: { "sku":"B0iphone", "price":880.00, "ts":"..." }
+   # 觸發：變更偵測 → 反向索引匹配 → 去抖 → 通知 fan-out
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>products (商品現價，億級 → KV/快取為主)
+  sku        VARCHAR  PRIMARY KEY
+  price      DECIMAL
+  updated_at TIMESTAMP
+  poll_tier  TINYINT          -- 0=hot 1=warm 2=cold（輪詢分層）
+
+watches (追蹤關係，反向索引的來源)
+  watch_id     VARCHAR PRIMARY KEY
+  user_id      BIGINT
+  sku          VARCHAR          -- 以 sku 分片
+  type         ENUM('target','drop_pct')
+  threshold    DECIMAL          -- target=絕對價；drop_pct=百分比
+  base_price   DECIMAL          -- drop_pct 的基準
+  state        ENUM('ARMED','TRIGGERED','COOLDOWN')   -- 去抖狀態機
+  cooldown_until TIMESTAMP
+  alerts_sent  INT
+
+# 反向索引（核心）：給定 sku，快速取出所有 watcher 與其門檻
+idx:sku -> sorted set of (watch_id, threshold)   # Redis ZSET，依 threshold 排序
+                                                  # 新價 P 來 → ZRANGEBYSCORE 取門檻>=P 的 target watcher
+
+alerts (已發提醒，去重/冪等)
+  alert_id (= hash(watch_id+trigger_epoch))  PRIMARY KEY   -- 冪等鍵
+  watch_id, sku, price, sent_at</code></pre>
+  <div class="box"><span class="label">為何用 ZSET 做反向索引</span>價格匹配的本質是<strong>區間查詢</strong>：「新價 P 來了，誰的 target ≥ P？」。若用「掃描每條 watch 比大小」是 O(watcher) 線性掃描；用以 threshold 為 score 的 sorted set，一次 <code>ZRANGEBYSCORE sku P +inf</code> 即取出所有達標者，這就是把「條件匹配」變成「<strong>反向索引 + 區間查</strong>」的精髓。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 外部來源 ──▶ 價格擷取器(分層輪詢/CDC) ──▶ 價格事件匯流排(Kafka)
+                                                  │
+                                                  ▼
+                                       變更偵測(去重，價格真的變了嗎?)
+                                                  │
+                                                  ▼
+                            規則匹配引擎 ──(查)──▶ 反向索引 price→watchers(Redis ZSET)
+                                                  │ 命中的 watch
+                                                  ▼
+                                  去抖狀態機 ARMED→TRIGGERED→COOLDOWN
+                                                  │ 通過去抖者
+                                                  ▼
+                                          通知佇列 ──▶ 投遞(Email/Push) ──▶ 使用者</code></pre>
+  <ol>
+    <li><strong>價格擷取器</strong>：能訂閱就走事件驅動（CDC）；否則<strong>分層輪詢</strong>（hot 商品每分鐘、cold 商品每日），用排程器派發。</li>
+    <li><strong>變更偵測</strong>：對照上次價格，<em>沒變就丟棄</em>，避免下游做白工（去重第一道）。</li>
+    <li><strong>規則匹配引擎</strong>：以 sku 查反向索引，一次區間查取出所有達標 watcher（而非逐條掃描）。</li>
+    <li><strong>去抖狀態機</strong>：每條 watch 維護狀態，已觸發進冷卻、價格回升才 re-arm，避免重複轟炸。</li>
+    <li><strong>通知 fan-out</strong>：達標者丟通知佇列，依 user/region 分區並行投遞，at-least-once + 冪等。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>海量商品的價格怎麼取得？事件驅動 vs 輪詢</h3>
+  <ul>
+    <li><strong>事件驅動（首選）</strong>：若價格來自內部系統，訂閱其變更（CDC，change data capture，例如監聽 DB binlog）→ 只有真的變價才產生事件，零浪費。</li>
+    <li><strong>輪詢（外部來源時）</strong>：不能對億級商品同頻輪詢。<strong>分層</strong>：hot（熱賣/多人追蹤）每分鐘、warm 每小時、cold 每日。用「多人追蹤 + 歷史波動率」動態調整 tier。</li>
+    <li><strong>變更資料擷取</strong>：輪詢到的價格先過「變更偵測」，與上次比對，<em>沒變直接丟棄</em>，下游只處理真實變動。</li>
+  </ul>
+  <h3>條件匹配：為何要反向索引（price → watchers）？</h3>
+  <ul>
+    <li>天真做法：價格來了，掃描所有 watch 比 <code>price &lt;= target</code> → O(全部 watch)，億級下不可行。</li>
+    <li><strong>反向索引</strong>：以 sku 為 key、threshold 為 score 建 sorted set。新價 P 到 → <code>ZRANGEBYSCORE sku P +inf</code> 一次取出所有 target≥P 的 watcher，複雜度 O(log N + 命中數)，只碰真正達標的人。</li>
+    <li>drop_pct 型門檻：可預先換算成「絕對觸發價 = base×(1-pct)」存進同一個 ZSET，統一成價格區間查。</li>
+  </ul>
+  <h3>智能去抖 / 去重：別把使用者轟炸到退訂</h3>
+  <ul>
+    <li><strong>狀態機</strong>：每條 watch 有 <code>ARMED → TRIGGERED → COOLDOWN</code>。達標時若已是 TRIGGERED/COOLDOWN 就<em>不再發</em>。</li>
+    <li><strong>冷卻期</strong>：觸發後進 COOLDOWN（如 24h），期間即使持續低於門檻也不重發。</li>
+    <li><strong>re-arm 條件</strong>：價格須<em>回升超過門檻一定幅度</em>（hysteresis 遲滯帶，如 target×1.05）才回到 ARMED，避免在門檻線上下抖動造成「達標→回升一塊→又達標」的反覆觸發。</li>
+    <li><strong>冪等</strong>：通知帶 idempotency key（如 <code>hash(watch_id + 觸發時段)</code>），投遞層去重，保證 at-least-once 不變成 many-times。</li>
+  </ul>
+  <h3>通知 fan-out</h3>
+  <p>熱門商品一次變價可能命中數萬 watcher。達標清單丟<strong>通知佇列</strong>（Kafka/SQS），依 user_id/region 分區並行投遞；失敗用<strong>指數退避 + 抖動</strong>重試，多次失敗進 DLQ。匹配與投遞解耦——投遞慢/掛了不影響匹配引擎繼續消費價格事件。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（海量商品）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>擷取層</td><td>億級商品同頻輪詢成本爆炸</td><td>分層輪詢（hot/warm/cold）+ 盡量改事件驅動/CDC</td></tr>
+    <tr><td>無效流量</td><td>大量「價格沒變」事件灌爆下游</td><td>變更偵測去重，沒變即丟棄</td></tr>
+    <tr><td>匹配</td><td>逐條掃描 watch O(N)</td><td>price→watchers 反向索引（Redis ZSET 區間查）</td></tr>
+    <tr><td>熱點商品</td><td>單一熱門 sku 的 ZSET 過大、單點壓力</td><td>該 key 再分片 / 本地快取 + 批次 fan-out</td></tr>
+    <tr><td>通知洪峰</td><td>一次變價命中數萬人瞬間爆量</td><td>通知佇列削峰 + 分區並行 + per-user 限流</td></tr>
+    <tr><td>重複轟炸</td><td>抖動造成反覆觸發</td><td>去抖狀態機 + 冷卻 + 遲滯帶 + 冪等鍵</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>事件驅動 vs 輪詢</strong>：事件驅動零浪費但需上游能發事件；輪詢通用但要分層控成本，且有延遲與漏抓風險。</li>
+    <li><strong>推（match-on-write）vs 拉（match-on-read）</strong>：價格來就主動匹配推送（即時、寫放大）vs 使用者開 App 才檢查（省算力、有延遲）。價格追蹤通常<strong>推</strong>，因為要主動提醒。</li>
+    <li><strong>去抖嚴格度</strong>：冷卻太長會漏掉「跌更深」的二次提醒；太短會轟炸。可做「<em>跌破更低再發一次</em>」的進階規則。</li>
+    <li><strong>一致性</strong>：價格快取與 DB 最終一致即可（秒級延遲可接受）；但<strong>冪等去重必須可靠</strong>，否則重發傷害體驗。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>價格回升又跌破要不要再發？→ 遲滯帶 + 冷卻後 re-arm。</li>
+        <li>怎麼決定哪些是 hot 商品？→ 追蹤人數 + 歷史波動率動態調 tier。</li>
+        <li>一個熱門商品上百萬 watcher 的 fan-out？→ 佇列削峰 + 分區並行 + 該 key 分片。</li>
+        <li>使用者改了目標價如何即時生效？→ 更新反向索引 ZSET 的 score + 重置狀態為 ARMED。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 刻意<strong>不做 CRUD 表單堆疊</strong>，而是聚焦真正的考點：<strong>條件匹配 + 智能去抖狀態機</strong>，可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Watchlist.php</code>　使用者對商品設定 target price（門檻），即反向索引的來源。</li>
+    <li><code>src/PriceFeed.php</code>　模擬價格串流/輪詢：可手動推送一筆新價格，或隨機波動一輪。</li>
+    <li><code>src/AlertEngine.php</code>　核心：價格達標偵測 + 去抖狀態機（ARMED→TRIGGERED→COOLDOWN）+ 遲滯 re-arm + 冪等去重。</li>
+    <li><code>public/index.php</code>　路由：建立追蹤 / 餵價格 / 看哪些觸發，並附深色測試頁顯示每個 watch 的狀態與已發提醒數。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8004 -t public
+# 瀏覽器開 http://localhost:8004：建立追蹤 → 餵入幾筆價格 → 看觸發與去抖</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 JSON 檔模擬儲存、用 process-local 邏輯模擬「反向索引匹配」與「通知投遞」——<strong>不含真正的 Redis ZSET、Kafka 佇列或實際寄信</strong>；但<strong>條件匹配、去抖狀態機（含冷卻與遲滯 re-arm）、冪等去重等系統核心邏輯為真實可執行</strong>，正是本題在面試中最常被追問的部分。要上生產，把反向索引換成 Redis ZSET、通知佇列換成 Kafka/SQS 即可，狀態機邏輯不變。
+  </div>
+
+  <footer>④ Amazon 價格追蹤 · A 組（通知/Fan-out）· 系統設計學習專案</footer>
+</div>
+</body>
+</html>

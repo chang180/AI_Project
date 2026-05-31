@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑤ RoboTaxi 叫車 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑤ RoboTaxi 叫車：地理空間配對與即時位置串流</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag time">建議 54 分鐘</span>
+    <span class="tag">Design a Ride-Hailing / RoboTaxi Dispatch System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>高頻 GPS 位置串流 + 地理空間索引查附近 + 原子媒合（防並發重複指派）+ 雙向即時追蹤</strong>」的綜合題。
+    CRUD 的「叫車單」很簡單；面試真正考的是 <em>百萬輛車的位置每秒更新</em>、<em>如何在毫秒內找到最近可用車並保證同一台不被搶兩次</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（百萬輛車）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>乘客在某座標叫車 → 系統找到<strong>附近可用車輛</strong>並媒合一台，回傳司機資訊與預計到達時間（ETA）。</li>
+    <li>司機/車輛<strong>持續上報 GPS 位置</strong>（每 2～5 秒一次），系統需即時更新其位置。</li>
+    <li>媒合後，乘客與司機<strong>雙向即時看到對方位置</strong>（行程中追蹤）、路線與動態 ETA。</li>
+    <li>狀態機：車輛 available → matched → busy(on_trip) → available；行程結束釋放車輛。</li>
+    <li>供需熱區與<strong>動態加價（surge）</strong>：某區域需求遠大於供給時調整價格。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲媒合</strong>：叫車到回應 &lt; 1～2 秒；「查附近」需毫秒級。</li>
+    <li><strong>高寫入量</strong>：每輛車每數秒上報一次位置 → 位置寫入是系統最大寫負載。</li>
+    <li><strong>不可重複指派</strong>：同一輛車絕不能同時被指派給兩個乘客（並發競態的核心考點）。</li>
+    <li><strong>即時性</strong>：位置推播延遲低；長連線（WebSocket）維持雙向通道。</li>
+    <li><strong>高可用 + 區域化</strong>：城市為單位分區，跨區流量隔離。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「媒合是<em>即時請求型</em>（乘客叫車當下找車）還是<em>批次撮合型</em>（如拼車、每隔數秒一批集中優化）？」
+    即時型考<strong>地理索引 + 原子鎖</strong>；批次型考<strong>全域最佳指派（匈牙利演算法 / 最小成本流）</strong>。本筆記主軸為即時型，這是 RoboTaxi/Uber 的關鍵路徑。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>線上車輛</td><td>全球同時 100 萬輛</td><td>需維持百萬條 WebSocket 長連線</td></tr>
+    <tr><td>位置上報（寫）</td><td>每車每 4 秒一次</td><td>100萬÷4 ≈ <strong>25 萬寫 QPS</strong>（峰值更高）</td></tr>
+    <tr><td>叫車請求（讀+媒合）</td><td>尖峰 1 萬筆/分</td><td>~170 媒合 QPS，每筆要查附近 + 原子指派</td></tr>
+    <tr><td>位置狀態大小</td><td>每筆 carId+lat+lng+ts ≈ 50 bytes</td><td>100萬×50B ≈ 50 MB（全放記憶體，如 Redis）</td></tr>
+    <tr><td>歷史軌跡（冷）</td><td>每車每日約 2 萬點 × 50B</td><td>1TB/日 → 走時序庫/物件儲存，不進熱路徑</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>位置「<strong>當前值</strong>」高頻覆寫且只需最新 → 放<strong>記憶體型地理索引</strong>（Redis GEO / 自建 QuadTree）；位置「<strong>歷史軌跡</strong>」是 append-only 冷資料 → 走串流落地時序庫。兩者分流是擴展關鍵。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 司機上報位置（高頻寫，走 WebSocket 或輕量 UDP/HTTP）
+WS  → { "type":"loc", "driver_id":"d1", "lat":25.0418, "lng":121.565, "ts":... }
+
+# 乘客叫車（媒合，關鍵路徑）
+POST /api/v1/rides
+Body: { "rider_id":"u9", "pickup":{"lat":25.0410,"lng":121.563}, "dropoff":{...} }
+→ 201 { "ride_id":"r123", "driver":{"id":"d1","plate":"ABC-001"},
+        "distance_km":0.42, "eta_min":2.1, "surge":1.0 }
+
+# 查附近可用車（地理空間查詢；媒合內部會用，也可獨立暴露給「附近有幾台」UI）
+GET /api/v1/drivers/nearby?lat=25.041&lng=121.563&radius_km=3&k=5
+
+# 行程中雙向位置追蹤（WebSocket 訂閱）
+WS  subscribe ride:r123  → 推送司機/乘客即時座標、ETA
+
+# 行程結束 → 釋放車輛回 available
+POST /api/v1/rides/{id}/complete
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>drivers (當前狀態，熱資料 → 記憶體 / Redis)
+  driver_id   STRING PRIMARY KEY
+  lat, lng    DOUBLE              -- 最新座標（高頻覆寫）
+  geohash     STRING              -- 由 lat/lng 算出，索引用
+  status      ENUM(available, matched, on_trip, offline)
+  updated_at  TIMESTAMP
+
+# 地理空間索引（非一張表，而是索引結構）
+geo_index : geohash 前綴 → {driver_id...}    -- Redis GEO / QuadTree / S2 cell
+
+rides (媒合與行程，主庫)
+  ride_id, rider_id, driver_id
+  pickup_lat/lng, dropoff_lat/lng
+  status      ENUM(matched, on_trip, completed, cancelled)
+  matched_at, eta_min, surge
+
+location_history (冷，append-only → Kafka → 時序庫)
+  driver_id, lat, lng, ts</code></pre>
+  <div class="box"><span class="label">為何分開</span>「司機當前位置」每秒被覆寫且只查最新 → 放記憶體地理索引；「行程紀錄」需持久化與一致性 → 主庫；「歷史軌跡」是高頻 append → 串流到時序庫。三類資料的讀寫特性完全不同，混在一起會互相拖垮。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 乘客 App ──叫車──▶ API GW ──▶ 媒合引擎(Matcher) ──查附近──▶ 地理空間索引(GeoIndex)
+                                     │  原子指派(鎖/CAS)        ▲
+                                     ▼                          │ 位置更新
+                                 狀態 DB(rides)             位置更新處理
+                                     │                          ▲
+                                     ▼                          │
+                               媒合結果 ──▶ Pub/Sub ──▶ 雙方推播  │
+                                                                 │
+ 司機 App ──高頻 GPS──▶ 位置串流閘道(WebSocket) ──────────────────┘</code></pre>
+  <ol>
+    <li><strong>位置串流閘道（WS Gateway）</strong>：維持百萬車長連線，接收高頻 GPS，更新地理索引；無狀態、可水平擴展（連線狀態外置）。</li>
+    <li><strong>地理空間索引（GeoIndex）</strong>：以 geohash / S2 / QuadTree 組織司機位置，支援「半徑內」與「最近 K 台」查詢，毫秒級。</li>
+    <li><strong>媒合引擎（Matcher）</strong>：叫車 → 查附近候選 → 依距離/ETA/供需排序 → <strong>原子指派</strong>選中車（CAS/鎖，防重複）→ 寫 rides → 發 Pub/Sub。</li>
+    <li><strong>Pub/Sub</strong>：媒合結果與行程中位置，透過 Redis Pub/Sub 跨機轉發到乘客與司機的連線伺服器。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>地理空間索引：如何毫秒查「附近可用車」？</h3>
+  <ul>
+    <li><strong>Geohash</strong>：把經緯度交錯編碼成字串，<em>共同前綴越長 = 地理越接近</em>。查附近 = 查同前綴的桶 + 周圍 8 個鄰桶（邊界問題）。Redis GEO 底層即用此類做法。</li>
+    <li><strong>QuadTree</strong>：遞迴把平面切四象限，密集區自動細分；適合分佈不均（市中心車多、郊區車少）。</li>
+    <li><strong>S2 / H3</strong>：Google/Uber 的生產級球面格網，解決 geohash 在赤道/極區的形變與邊界問題。</li>
+    <li>查詢策略：先用索引縮小到候選集（粗篩），再用 <strong>haversine</strong> 精算實際球面距離排序（細排）。</li>
+  </ul>
+  <h3>原子媒合：如何防止同一台車被指派兩次？（核心考點）</h3>
+  <p>兩個乘客幾乎同時叫車，附近候選都包含車 <code>d1</code>。若兩個請求都讀到 d1=available 並各自指派 → <strong>重複指派</strong>。解法：</p>
+  <ul>
+    <li><strong>條件更新 / CAS</strong>：指派時做「<code>UPDATE driver SET status='matched' WHERE id='d1' AND status='available'</code>」，受影響列數 = 1 才算搶到；= 0 表示已被別人搶走 → 換下一台候選。</li>
+    <li><strong>分散式鎖</strong>：對 <code>lock:driver:d1</code> 用 Redis <code>SET NX</code> 取鎖，搶到才指派，否則跳過。</li>
+    <li>失敗即<strong>重試下一候選</strong>，而非報錯給乘客；候選清單已按距離排序，退而求其次仍是近車。</li>
+  </ul>
+  <h3>即時雙向追蹤與 ETA</h3>
+  <p>媒合後建立 <code>ride:{id}</code> 頻道，司機後續 GPS 上報除了更新索引，也<strong>發佈到該頻道</strong>，乘客連線端訂閱即可即時看到車在移動。ETA 由當前距離 + 路網/路況估算（生產走路由引擎 OSRM/Valhalla），demo 用直線距離 ÷ 平均車速近似。</p>
+  <h3>供需熱區與動態加價</h3>
+  <p>把城市切格，統計每格「叫車數 / 可用車數」。比值高 = 供不應求 → 對該格 surge 係數 &gt; 1，既抑制需求也吸引司機過去，使供需自平衡。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（從一城到百萬輛車）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機</td><td>連線數 / 位置寫入 CPU</td><td>WS 閘道無狀態化 + 水平擴展，連線狀態與位置外置 Redis</td></tr>
+    <tr><td>位置寫爆</td><td>25 萬寫 QPS 打 DB</td><td>當前位置只寫記憶體地理索引（覆寫），歷史走 Kafka 落地</td></tr>
+    <tr><td>媒合競態</td><td>同車被搶 / 鎖爭用</td><td>CAS 條件更新 + 失敗重試下一候選；鎖粒度到單車</td></tr>
+    <tr><td>地理熱點</td><td>市中心單格過載</td><td>QuadTree 自適應細分 + 依城市/區域分片索引</td></tr>
+    <tr><td>跨區/全球</td><td>跨城查詢無意義且拖慢</td><td>以城市為單位分區隔離；就近區域部署降 RTT</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>Geohash vs QuadTree vs S2</strong>：geohash 實作簡單、有現成 Redis GEO；QuadTree 適應不均分佈；S2/H3 為生產級球面精度。面試說得出「為何不只用經緯度範圍掃描（太慢）」即可。</li>
+    <li><strong>即時媒合 vs 批次撮合</strong>：即時延遲低、實作直觀；批次（每數秒撮合一批）可做<strong>全域最佳化</strong>（總等待最短），但延遲較高、實作複雜。</li>
+    <li><strong>強一致 vs 最終一致</strong>：車輛指派狀態必須<strong>強一致</strong>（防重複指派，用原子操作）；位置追蹤可<strong>最終一致</strong>（晚 1 秒看到車沒關係）。</li>
+    <li><strong>推 vs 拉</strong>：行程中位置用 <em>推</em>（WebSocket）才即時省輪詢；附近車數量可用 <em>拉</em>（HTTP 輪詢）。</li>
+    <li><strong>常見追問</strong>：司機斷線怎麼辦？→ 心跳 + TTL，逾時標記 offline 並移出索引。媒合後司機拒單？→ 釋放車回 available 並重新媒合，設拒單懲罰。如何避免「鬼車」（位置不動的殭屍）？→ TTL 過期淘汰。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>地理空間查詢 + 原子媒合（防並發重複指派）</strong>，而非 CRUD，可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/GeoIndex.php</code>　以 geohash 分桶 + haversine 精算，維護司機位置，支援「半徑內 / 最近 K 台可用司機」查詢，並可更新位置（模擬 GPS 串流）。</li>
+    <li><code>src/Matcher.php</code>　叫車 → 找最近可用車 → <strong>原子指派</strong>（檔案鎖 + 條件更新標記 busy，避免兩個請求搶同一車）→ 回傳媒合與估計 ETA。</li>
+    <li><code>src/Store.php</code>　司機/行程狀態儲存（JSON 檔模擬 DB）+ 檔案鎖示意條件更新（CAS）。</li>
+    <li><code>public/index.php</code>　路由：註冊司機 / 查附近 / 叫車 / 完成行程 / 更新位置，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8005 -t public
+# 瀏覽器開 http://localhost:8005：註冊幾台司機 → 在某點叫車看媒合到哪台、距離/ETA
+# 再叫一次驗證「不會重複指派同一台」；更新司機位置看附近結果變化</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的 ETA 為<strong>直線距離 ÷ 平均車速的教學近似</strong>（非真實路網路由）；地理索引採<strong>單機 geohash + haversine</strong>（非分散式 Redis GEO）。但<strong>查附近、最近 K 台、原子指派防並發重複指派、車輛狀態機等系統核心邏輯為真實可執行</strong>，要換成生產級僅需把 GeoIndex 後端換成 Redis GEO、把鎖換成 Redis <code>SET NX</code>，介面不變。
+  </div>
+
+  <footer>⑤ RoboTaxi Dispatch · B 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>
