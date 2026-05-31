@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>③ Polymarket 預測市場 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅲 一致性/交易</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>③ Polymarket 預測市場：order book 撮合與資金一致性</h1>
+  <p class="subtitle">
+    <span class="tag group">C 一致性/交易</span>
+    <span class="tag time">建議 53 分鐘</span>
+    <span class="tag">Design a Prediction Market / Order-Book Exchange</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>限價單委託簿交易所 + 資金強一致結算</strong>」。預測市場用 <em>YES/NO 股份</em> 把「事件機率」變成可買賣的價格（0~1）；
+    面試真正考的是 <em>撮合引擎如何在高並發下不出錯</em>（不超賣、不雙花、可審計），而非畫出 CRUD。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>市場以二元結果建模：每個市場有 <strong>YES / NO 兩種股份</strong>，市場到期由預言機（oracle）判定結果，贏的一側每股兌現 1 元、輸的一側歸零。</li>
+    <li><strong>限價單委託簿</strong>：使用者掛買/賣單（價 0~1 = 隱含機率），撮合引擎依規則成交，支援部分成交與撤單。</li>
+    <li><strong>資金管理</strong>：下單前凍結保證金/股份；成交時原子過帳；查詢餘額、持倉、歷史成交。</li>
+    <li>市場生命週期：開市 → 交易 → 凍結 → 結算（resolve）→ 兌付（payout）。</li>
+    <li>行情：即時推送最佳買賣價、深度、最近成交（讀多寫多但可分流）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>正確性凌駕一切</strong>：涉及金錢，<em>不能超額下單、不能雙重花用、餘額不可為負</em>，結算後資金必須守恆。</li>
+    <li><strong>強一致</strong>：撮合與資金過帳要 ACID；同一帳戶的並發下單不可產生競態。</li>
+    <li><strong>低延遲撮合</strong>：熱門市場 p99 撮合 &lt; 10ms；行情近即時。</li>
+    <li><strong>可審計 / 可重放</strong>：每一筆下單、成交、過帳都要能回溯（監管、對帳、爭議處理）。</li>
+    <li><strong>高可用</strong>：交易引擎是關鍵路徑，崩潰後能從事件日誌重建狀態。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「是 <strong>委託簿（order book / CLOB）</strong> 還是 <strong>自動做市商（AMM / LMSR）</strong>？」
+    Polymarket 主力是<strong>中央限價委託簿</strong>（撮合 maker/taker），本筆記主軸即委託簿撮合 + 結算一致性；AMM 可作為流動性補充作為延伸討論。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>下單（寫）</td><td>熱門事件期間 500 萬單/日</td><td>~58 寫 QPS（峰值 ×10 ≈ 580）</td></tr>
+    <tr><td>撮合吞吐</td><td>單市場單執行緒</td><td>單核可達 ~10 萬筆/秒（純記憶體無鎖）</td></tr>
+    <tr><td>行情讀</td><td>觀看者遠多於下單者</td><td>讀:寫可達 100:1，走推播 + 快照快取</td></tr>
+    <tr><td>事件日誌</td><td>每筆事件 ~300 bytes，5 年</td><td>500萬×365×5×300B ≈ <strong>2.7 TB</strong>（可冷儲存）</td></tr>
+    <tr><td>市場數</td><td>同時數千個活躍市場</td><td>依市場 ID <strong>分片</strong>，各自單執行緒撮合</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>撮合不靠「加機器並行」提速（並行會破壞順序與正確性），而是<strong>按市場分片</strong>：每個市場單執行緒序列化，市場之間水平擴展。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 下限價單（寫，撮合核心入口）
+POST /api/v1/orders
+Body: { "market_id": "elec-2028", "outcome": "YES",
+        "side": "buy", "price": 0.62, "qty": 100, "client_order_id": "uuid" }
+→ 201 { "order_id": 987, "status": "partially_filled",
+        "filled_qty": 40, "trades": [ ... ] }
+
+# 撤單（釋放凍結的保證金/股份）
+DELETE /api/v1/orders/{order_id}
+
+# 委託簿快照 / 深度（讀，高頻 → 快取 + 推播）
+GET  /api/v1/markets/{id}/book        → { bids:[[price,qty]...], asks:[[...]] }
+WS   /ws/markets/{id}                  → 推播最佳價、增量更新、最新成交
+
+# 帳戶（餘額 / 持倉 / 成交）
+GET  /api/v1/accounts/{id}/balance     → { available, held, positions:{YES,NO} }
+
+# 市場結算（管理 / 預言機）
+POST /api/v1/markets/{id}/resolve      Body: { "winner": "YES" }
+</code></pre>
+  <div class="box"><span class="label">冪等</span>下單帶 <code>client_order_id</code>；撮合引擎以它去重，避免網路重試造成重複下單（重複下單 = 重複凍結資金）。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>accounts (帳本，強一致主庫)
+  account_id     BIGINT PK
+  available      DECIMAL(18,6)   -- 可用現金
+  held           DECIMAL(18,6)   -- 凍結現金（掛單保證金）
+  version        BIGINT          -- 樂觀鎖
+positions
+  account_id, market_id, outcome(YES|NO), qty, held_qty   -- held_qty=掛賣凍結中
+
+orders (掛單，可變狀態)
+  order_id PK, market_id, account_id, outcome, side, price,
+  qty, filled_qty, status(open|partial|filled|cancelled), ts
+
+trades (成交，append-only)
+  trade_id PK, market_id, price, qty, buy_order, sell_order, maker, taker, ts
+
+events (事件日誌，append-only，可重放/審計)
+  seq BIGINT PK, type, payload JSONB, ts        -- 真實走 Kafka commit log</code></pre>
+  <div class="box"><span class="label">為何分開</span><code>accounts/positions</code> 是<strong>可變且強一致</strong>的資金真相；<code>trades/events</code> 是<strong>不可變</strong>的歷史。撮合在記憶體中跑，落地靠事件日誌；帳本過帳走 DB 交易。三者職責分離。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 交易者 ──下單──▶ API/風控(凍結保證金) ──▶ 撮合引擎(單執行緒 order book)
+                        │                          │
+                        │                          ├─▶ 事件日誌(append-only)
+                        │                          │        │(重放)
+                        │                          ▼        ▼
+                        └◀─行情推播(WS,綠)◀── 結算/帳本(原子過帳, DB 交易)
+                                                   ▲
+                                              錢包/餘額</code></pre>
+  <ol>
+    <li><strong>API / 風控</strong>：驗證、冪等去重、<strong>下單前先凍結</strong>資金（買）或股份（賣），不足直接拒。</li>
+    <li><strong>撮合引擎</strong>：每個市場一條單執行緒序列化處理，跑價格-時間優先撮合，產生成交。</li>
+    <li><strong>事件日誌</strong>：下單/成交/過帳全寫成不可變事件 → 崩潰後重放重建、可審計。</li>
+    <li><strong>結算/帳本</strong>：依成交做原子過帳（DB 交易）；市場到期執行兌付。</li>
+    <li><strong>行情推播</strong>：撮合產生的增量更新經 WebSocket 即時推給觀看者。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>為什麼撮合引擎要單執行緒？</h3>
+  <ul>
+    <li>多執行緒搶同一本委託簿 → 需要大量鎖，且容易產生<strong>競態</strong>（兩張單同時吃掉同一張對手單）。</li>
+    <li>業界做法（LMAX、多數交易所）：<strong>單執行緒序列化</strong>處理單一市場的所有指令，<em>無鎖、完全確定性、輸入相同→輸出相同</em>，天然可重放。</li>
+    <li>擴展靠<strong>分片</strong>：不同市場分到不同引擎實例；單市場吞吐已足夠（純記憶體可達數十萬筆/秒）。</li>
+  </ul>
+  <h3>價格-時間優先（price-time priority）</h3>
+  <ul>
+    <li>買單：<strong>價高者先</strong>，同價<strong>先到者先</strong>；賣單：<strong>價低者先</strong>，同價先到者先。</li>
+    <li>當最高買價 ≥ 最低賣價即成交，成交價取<strong>被動單（maker，先掛在簿上那張）</strong>的價格；主動單（taker）可能因此拿到更好的價。</li>
+    <li>支援<strong>部分成交</strong>：大單吃掉多張對手單，剩餘量留在簿上。</li>
+  </ul>
+  <h3>資金一致性：凍結 → 過帳 → 防超額（本題靈魂）</h3>
+  <ul>
+    <li><strong>先凍結</strong>：買單下單即把 <code>price×qty</code> 現金從 <code>available</code> 移到 <code>held</code>；賣單則凍結對應股份。<em>沒凍結到就不進簿</em> → 杜絕「掛單時有錢、成交時沒錢」。</li>
+    <li><strong>原子過帳</strong>：成交時在<strong>同一個 DB 交易</strong>內：買方扣凍結現金+加持倉、賣方減凍結股份+加現金，全成功或全失敗。</li>
+    <li><strong>防超額/雙花</strong>：所有扣減走<strong>條件更新</strong> <code>UPDATE … SET available=available-? WHERE available &gt;= ?</code>，受影響列數=0 即拒絕 → 餘額<strong>永不為負</strong>。高衝突可改 <code>SELECT … FOR UPDATE</code>（悲觀）或樂觀鎖 version（CAS）。</li>
+  </ul>
+  <h3>事件溯源（event sourcing）</h3>
+  <p>撮合引擎的記憶體狀態不是真相來源，<strong>事件日誌才是</strong>。下單、成交、過帳依序 append；引擎崩潰後從日誌<strong>重放</strong>即回到一致狀態，且整段歷史可<strong>審計/對帳/重現爭議</strong>。這也是金融系統能「跑得快又賠得起」的關鍵。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單市場吞吐</td><td>單執行緒撮合上限</td><td>純記憶體無鎖（已極快）；批次寫日誌、群組提交</td></tr>
+    <tr><td>多市場</td><td>一台機器裝不下所有市場</td><td>依 <strong>market_id 分片</strong>，市場間水平擴展、互不影響</td></tr>
+    <tr><td>帳本寫熱點</td><td>結算過帳打同一帳本</td><td>帳戶分片 + 條件更新；成交先記事件、過帳可批次/非同步對帳</td></tr>
+    <tr><td>行情讀爆</td><td>大量觀看者拉委託簿</td><td>WebSocket 推增量 + 快照快取（Redis/CDN），讀寫解耦</td></tr>
+    <tr><td>崩潰恢復</td><td>引擎掛了狀態遺失</td><td>事件日誌重放重建 + 定期快照（snapshot）縮短重放時間</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>委託簿 CLOB vs AMM/LMSR</strong>：CLOB 撮合精準、價差小但需流動性（掛單者）；AMM 永遠有流動性但有滑點與資金效率問題。實務常混用。</li>
+    <li><strong>單執行緒 vs 多執行緒撮合</strong>：單執行緒換來確定性與可重放，吞吐靠分片；多執行緒提速但要鎖、難證明正確。金融場景幾乎都選前者。</li>
+    <li><strong>強一致 vs 最終一致</strong>：資金過帳必須強一致（讀自己的寫、不可超額）；行情/分析可最終一致。</li>
+    <li><strong>悲觀鎖 vs 樂觀鎖</strong>：同帳戶高衝突用 <code>FOR UPDATE</code>；低衝突用 version CAS 提吞吐。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>引擎崩潰怎麼辦？→ 事件日誌重放 + 快照。</li>
+        <li>同帳戶兩張單同時下、想花同一筆錢？→ 凍結 + 條件更新，第二張凍結失敗被拒（防雙花）。</li>
+        <li>成交價怎麼定？→ 取 maker 價；taker 可能得到更優價，多凍結的保證金退回。</li>
+        <li>市場結算錯了怎麼辦？→ 預言機爭議期 + 可回滾事件（補償交易）。</li>
+        <li>如何對帳？→ 重放事件日誌重算帳本，與真相比對。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>系統核心邏輯</strong>（也是面試真正的考點：order book 撮合 + 資金一致性），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/OrderBook.php</code>　限價單委託簿；<strong>價格-時間優先</strong>撮合、部分成交、產生成交(trade)。</li>
+    <li><code>src/Ledger.php</code>　帳本/錢包；<strong>凍結保證金/股份、成交原子過帳、條件更新防超額/防雙花</strong>（餘額永不為負）。</li>
+    <li><code>src/MatchingEngine.php</code>　撮合引擎；<strong>全域鎖序列化下單（單執行緒語意）</strong>，串接凍結→撮合→過帳，並做市場結算。</li>
+    <li><code>src/EventLog.php</code>　<strong>事件日誌（append-only）</strong>，每個關鍵動作寫一筆不可變事件，可印出可重放的事件序列。</li>
+    <li><code>public/index.php</code>　路由：下單 / 結算 / 重置 / 狀態，並附深色測試頁（委託簿、最近成交、帳戶餘額/持倉、事件日誌）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8003 -t public
+# 瀏覽器開 http://localhost:8003：下幾筆買/賣單看撮合，故意下超過餘額的單看被拒</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 <strong>JSON 檔 + 檔案鎖</strong>模擬「DB 交易 / 單執行緒序列化」屬<strong>示意</strong>；而
+    <strong>撮合演算法、價格-時間優先、部分成交、凍結保證金、成交原子過帳、防超額/防雙花、事件溯源</strong>
+    等<strong>系統邏輯為真實可執行</strong>（所有操作後現金與股份皆守恆，已實測）。生產級替換方式見 <code>demo/README.md</code>。
+  </div>
+
+  <footer>③ Polymarket 預測市場 · C 一致性/交易 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

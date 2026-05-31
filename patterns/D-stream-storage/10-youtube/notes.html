@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑩ YouTube 影片儲存/串流平台 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑩ YouTube：PB 級影片儲存與全球串流分發</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 37 分鐘</span>
+    <span class="tag">Design a Video Storage / Streaming Platform</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>大檔上傳（分塊/直傳）＋ 非同步轉碼管線 ＋ 自適應串流（HLS/DASH）＋ CDN 全球分發</strong>」的綜合題。
+    上傳與播放<em>完全異步、完全解耦</em>：影片進來先落物件儲存，轉碼管線在背景把它切成多解析度/多碼率的分段，
+    觀看端再透過 manifest 自適應拉取 — 面試真正考的是<strong>這條管線的狀態機與分發策略</strong>，不是 CRUD。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（PB 級 / 全球）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>上傳影片</strong>：支援大檔（數 GB）、分塊上傳、斷點續傳。</li>
+    <li><strong>轉碼</strong>：原片轉成多解析度（240p/480p/720p/1080p/4K）與多碼率，並切片。</li>
+    <li><strong>播放</strong>：自適應串流，依使用者頻寬/裝置自動切換清晰度。</li>
+    <li><strong>中繼資料</strong>：標題、描述、縮圖、時長、各解析度狀態、觀看數。</li>
+    <li><strong>觀看數 / 推薦</strong>：計數、熱門排行（推薦本身可視為獨立題）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>讀遠多於寫</strong>：上傳少、觀看極多（讀寫比可達數千:1）→ 設計圍繞讀路徑。</li>
+    <li><strong>高可用 + 低啟播延遲</strong>：播放是關鍵路徑，首段（first segment）要快。</li>
+    <li><strong>海量儲存</strong>：PB ~ EB 級，且需冷熱分層降成本。</li>
+    <li><strong>全球低延遲</strong>：CDN 就近分發，跨洲 RTT 不能進關鍵路徑。</li>
+    <li><strong>上傳/轉碼可非同步</strong>：上傳完成即回應，轉碼背景進行（最終可看）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「要做<strong>儲存+播放</strong>還是連<strong>推薦/直播</strong>都做？」範圍差很多。本筆記主軸＝<em>VOD（隨選影片）的上傳→轉碼→串流→分發</em>；
+    直播（low-latency live）與推薦系統建議明說「先聚焦 VOD，這兩塊另議」，避免發散。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>上傳（寫）</td><td>每日 50 萬支、平均 10 分鐘</td><td>~6 上傳 QPS（峰值 ×3 ≈ 18）— 寫很少</td></tr>
+    <tr><td>觀看（讀）</td><td>每日 50 億次播放</td><td>~58k 播放 QPS（峰值 ≈ 170k）— 讀爆量</td></tr>
+    <tr><td>原片儲存</td><td>每支 ~1GB，每日 50 萬支</td><td>~500 TB/日 → 一年 ≈ <strong>180 PB</strong>（原片）</td></tr>
+    <tr><td>轉碼後副本</td><td>多解析度約 ~1.5× 原片</td><td>總儲存再放大 ~2.5× → <strong>數百 PB/年</strong></td></tr>
+    <tr><td>頻寬（出向）</td><td>平均每播放 5Mbps × 並發</td><td>峰值需 <strong>Tbps 級</strong> 出向 → 必須靠 CDN 卸載</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>儲存與頻寬都是天文數字 → 兩條主線：①<strong>物件儲存承載 PB 級影片、DB 只存中繼資料</strong>；②<strong>CDN 卸載 99%+ 出向頻寬</strong>，源站（origin）只服務回源 miss。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 1) 建立上傳（取得 upload_id 與分塊直傳位址 / 預簽章 URL）
+POST /api/v1/uploads
+Body: { "filename": "demo.mp4", "size": 1048576000, "title": "我的影片" }
+→ 201 { "upload_id": "up_abc", "video_id": "vid_123",
+        "chunk_size": 5242880,
+        "presigned_urls": ["https://obj/...part=0", "...part=1", ...] }  # 概念：直傳物件儲存，不經 App
+
+# 2) 上傳分塊（真實是 PUT 到預簽章 URL；demo 走自家端點示意）
+PUT /api/v1/uploads/{upload_id}/parts/{index}   Body: <binary chunk>
+→ 200 { "index": 0, "received": 5242880, "etag": "..." }
+
+# 3) 完成上傳（合併分塊 → 觸發轉碼管線）
+POST /api/v1/uploads/{upload_id}/complete
+→ 202 { "video_id": "vid_123", "status": "QUEUED" }   # 202 Accepted：非同步
+
+# 4) 查詢轉碼狀態（各解析度 job 狀態機）
+GET /api/v1/videos/{video_id}
+→ { "video_id": "vid_123", "status": "TRANSCODING",
+    "renditions": { "240p":"READY", "480p":"READY", "720p":"TRANSCODING", "1080p":"QUEUED" } }
+
+# 5) 取得自適應串流 manifest（HLS）
+GET /api/v1/videos/{video_id}/master.m3u8   → 文字 manifest（列出各解析度子清單）
+
+# 6) 觀看（計數 +1，回播放資訊）
+POST /api/v1/videos/{video_id}/view  → { "views": 1234 }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>videos （中繼資料，存 RDB / 文件庫；影片本體不在這）
+  video_id     VARCHAR PRIMARY KEY
+  title        TEXT
+  owner_id     BIGINT
+  duration_s   INT
+  status       ENUM(QUEUED, TRANSCODING, READY, FAILED)
+  origin_key   TEXT          -- 原片在物件儲存的 key（s3://bucket/vid_123/original.mp4）
+  views        BIGINT        -- 觀看數（高頻 → 實際走快取/分桶聚合）
+  created_at   TIMESTAMP
+
+renditions （每支影片的各解析度產物）
+  video_id, resolution(240p/480p/720p/1080p), bitrate_kbps,
+  status ENUM(QUEUED, TRANSCODING, READY, FAILED),
+  playlist_key TEXT          -- 該解析度 .m3u8 的物件儲存 key
+  segment_keys TEXT[]        -- 切片 .ts 的 key 列表
+
+# 影片本體（原片 + 轉碼後分段）→ 物件儲存（S3 類），DB 只存 key 與狀態
+# 切片事件 / 觀看事件 → Kafka → 聚合（與主庫解耦，同 ① 短碼題的計數思路）</code></pre>
+  <div class="box"><span class="label">為何 DB 不存影片</span>影片是 PB 級二進位大物件，放 DB 會炸。<strong>物件儲存負責 bytes、DB 只負責「指標與狀態」</strong>；DB 一筆中繼資料 ~KB，CDN 與物件儲存負責真正的流量。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 上傳端 ──分塊/預簽章直傳──▶ Upload Service ──▶ 物件儲存(原片)
+                                  │ complete
+                                  ▼
+                            轉碼佇列(Queue) ──▶ 轉碼 Worker(ffmpeg)
+                                                    │ 轉多解析度/多碼率 + 切片
+                                                    ▼
+                                          物件儲存(分段 .ts + .m3u8) ◀── 中繼資料 DB(狀態)
+                                                    │
+ 播放端 ◀── CDN(就近邊緣快取) ◀──回源 miss── 源站(origin)──┘
+   ▲  取 master.m3u8 → 子清單 → 依頻寬自適應拉 segment</code></pre>
+  <ol>
+    <li><strong>Upload Service</strong>：發 upload_id 與預簽章 URL，讓客戶端<em>直傳物件儲存</em>（不佔 App 頻寬）；complete 後丟轉碼佇列。</li>
+    <li><strong>轉碼佇列 + Worker</strong>：非同步消費，ffmpeg 轉多解析度/多碼率並切片，產出 segment 與 manifest，回寫中繼 DB 狀態。</li>
+    <li><strong>播放路徑</strong>：客戶端先抓 master manifest，再依即時頻寬挑子清單拉 segment；segment 由 CDN 邊緣快取，源站只服務回源 miss。</li>
+    <li><strong>熱門預熱</strong>：預期爆紅影片主動推到各區 CDN 邊緣，避免首播 miss 風暴打爆源站。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>上傳：為什麼要分塊 + 直傳？</h3>
+  <ul>
+    <li><strong>分塊（chunked）</strong>：大檔切成固定大小（如 5MB）逐塊上傳，單塊失敗只重傳該塊 → <strong>斷點續傳</strong>。</li>
+    <li><strong>預簽章 URL 直傳</strong>：App 只發「有時效的授權 URL」，客戶端把 bytes <em>直接 PUT 進物件儲存</em>，不經 App 伺服器 → App 不被大流量壓垮。</li>
+    <li><strong>complete</strong>：所有分塊到齊後合併（物件儲存的 multipart complete），App 才把任務丟轉碼佇列。</li>
+  </ul>
+  <h3>轉碼管線：job 狀態機</h3>
+  <ul>
+    <li>每支影片 fan-out 成多個 rendition job：<code>QUEUED → TRANSCODING → READY</code>（失敗 → <code>FAILED</code> 可重試）。</li>
+    <li>低解析度<strong>先轉先 READY</strong>，使用者可先看 240p/480p，高解析度陸續補上（漸進可用）。</li>
+    <li>Worker 無狀態、可水平擴展；佇列削峰（上傳突增不會壓垮轉碼）。</li>
+  </ul>
+  <h3>自適應串流：HLS / DASH</h3>
+  <ul>
+    <li><strong>master manifest（.m3u8）</strong>：列出各解析度的子清單與其頻寬，客戶端據此選流。</li>
+    <li><strong>media manifest</strong>：列出該解析度的 segment（如 6 秒一段的 .ts）。</li>
+    <li>播放器<strong>每段重新評估頻寬</strong>，可在段與段之間無縫切換清晰度（ABR, Adaptive Bitrate）。</li>
+  </ul>
+  <pre><code>#EXTM3U                          ← master.m3u8（示意）
+#EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=426x240
+240p/index.m3u8
+#EXT-X-STREAM-INF:BANDWIDTH=1400000,RESOLUTION=1280x720
+720p/index.m3u8</code></pre>
+  <h3>CDN 分發與快取</h3>
+  <ul>
+    <li>segment 是<strong>不可變的靜態檔</strong> → CDN 可長 TTL 快取，命中率極高，源站幾乎不被打到。</li>
+    <li><strong>熱門預熱</strong>：新片/預期爆紅內容主動 push 到邊緣；冷門影片走「首播回源後快取」。</li>
+    <li>manifest TTL 短（內容可能新增解析度），segment TTL 長（內容固定）。</li>
+  </ul>
+  <h3>觀看數計數不阻塞播放</h3>
+  <p>播放先回 manifest，<strong>非同步</strong>把觀看事件丟 Kafka → 下游聚合（去重、防刷）。即使計數管線掛了，播放體驗不受影響（同 ① 短碼題的關鍵路徑解耦思路）。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（PB 級 / 全球）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>上傳大檔</td><td>App 頻寬被佔、上傳易斷</td><td>分塊 + 斷點續傳 + 預簽章 URL 直傳物件儲存</td></tr>
+    <tr><td>轉碼算力</td><td>CPU/GPU 密集、突發上傳</td><td>佇列削峰 + 無狀態 Worker 自動擴縮 + 低解析度優先</td></tr>
+    <tr><td>儲存爆量</td><td>PB~EB 級、成本高</td><td>物件儲存 + 冷熱分層（熱片高頻、冷片轉低成本歸檔）</td></tr>
+    <tr><td>出向頻寬</td><td>Tbps 級、源站撐不住</td><td>CDN 卸載 99%+，源站只服務回源 miss + 熱門預熱</td></tr>
+    <tr><td>全球延遲</td><td>跨洲 RTT 進關鍵路徑</td><td>多區域 CDN 邊緣 + segment 就近快取，啟播只取就近首段</td></tr>
+    <tr><td>觀看數寫爆</td><td>每次播放寫一筆</td><td>Kafka 緩衝 + 批次聚合 + 近似計數（同 ① 題）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>同步 vs 非同步轉碼</strong>：同步讓使用者等到天荒地老；<em>非同步 + 漸進可用</em>（低解析度先 READY）是業界標準，上傳完成立即回 202。</li>
+    <li><strong>預轉全解析度 vs 隨需轉碼</strong>：預轉省播放延遲但耗儲存/算力；隨需（just-in-time）省儲存但首播慢。熱門全預轉、長尾冷片可隨需，是常見折衷。</li>
+    <li><strong>HLS vs DASH</strong>：HLS Apple 生態原生、相容性好；DASH 開放標準、編碼器無關。實務常<em>兩者都出</em>（同一套 segment、不同 manifest）。</li>
+    <li><strong>切片長度</strong>：短段（2s）切換快、啟播快但 manifest 大、overhead 高；長段（10s）反之。VOD 常用 ~6 秒折衷。</li>
+    <li><strong>強一致 vs 最終一致</strong>：中繼資料/狀態需即時（讀自己的上傳）；觀看數可最終一致。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>轉碼失敗怎麼辦？→ job 狀態機 <code>FAILED</code> + 重試 / 死信佇列。</li>
+        <li>如何防盜連 / DRM？→ 簽章 URL、加密 segment（AES-128 / Widevine）。</li>
+        <li>啟播延遲怎麼降？→ 首段預熱、短首段、CDN 就近、預連線。</li>
+        <li>直播差在哪？→ low-latency（LL-HLS/LL-DASH）、邊轉邊推、播放窗口更小。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>上傳 → 轉碼管線狀態機 → 自適應串流 manifest</strong>（面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/UploadService.php</code>　建立上傳（回 upload_id + 分塊位址 / 預簽章 URL 概念）、接收分塊、合併完成 → 觸發轉碼。</li>
+    <li><code>src/TranscodePipeline.php</code>　上傳完成後 fan-out 多解析度 job，狀態機 <code>QUEUED→TRANSCODING→READY</code>，產出 240p/480p/720p/1080p 與 HLS <code>.m3u8</code> 文字示意。</li>
+    <li><code>src/MetadataStore.php</code>　影片中繼資料 + 各解析度狀態 + 觀看數（JSON 檔模擬 DB，檔案鎖保證一致）。</li>
+    <li><code>public/index.php</code>　路由：建立上傳 / 上傳分塊 / 完成 / 推進轉碼 / 取 manifest / 觀看 +1，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8010 -t public
+# 瀏覽器開 http://localhost:8010
+# 流程：上傳影片(分塊→合併) → 推進轉碼(看各解析度 QUEUED→READY) → 取 master.m3u8 → 觀看 +1</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo<strong>不做真正的影片編碼</strong>：分塊合併、轉碼任務狀態機、各解析度狀態流轉、HLS manifest 結構皆為<strong>真實可執行的系統邏輯</strong>，
+    但 segment 內容是<em>佔位文字</em>而非真正的 H.264 切片。真實系統用 <code>ffmpeg</code> 做編碼/切片、<code>S3</code> 類物件儲存放 bytes、<code>CDN</code> 做全球分發 — 詳見 <code>demo/README.md</code>。
+  </div>
+
+  <footer>⑩ YouTube 影片儲存/串流平台 · D 串流計算/儲存分發 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

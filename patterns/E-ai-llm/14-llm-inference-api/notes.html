@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑭ LLM 推論 API · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅴 AI/LLM 系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑭ LLM 推論 API：把 GPU 榨到極限的服務化系統</h1>
+  <p class="subtitle">
+    <span class="tag group">E AI/LLM</span>
+    <span class="tag time">建議 44 分鐘</span>
+    <span class="tag">Design an LLM Inference Serving System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把昂貴的 GPU 當共享資源來排隊、批次、串流</strong>」的吞吐最佳化題。
+    重點不是「呼叫一次模型」這麼簡單；面試真正考的是 <em>continuous batching（連續批次）</em>、<em>KV cache</em>、
+    <em>prefill / decode 兩階段</em>，以及如何在<strong>吞吐</strong>與<strong>單請求延遲</strong>之間做取捨。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型與請求生命週期</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入（continuous batching / KV cache）</a></li>
+      <li><a href="#scale">擴展與瓶頸（多副本 / 自動擴縮）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>提供 <code>/v1/completions</code> 類 API：輸入 prompt + 參數（max_tokens、temperature），回傳生成文字。</li>
+    <li><strong>串流輸出</strong>：以 SSE 逐 token 回吐（token-by-token），降低使用者感知的「首字延遲」（TTFT）。</li>
+    <li>多模型 / 多租戶：不同模型副本、不同 API key，per-tenant 限流與用量計費（按 token 計）。</li>
+    <li>請求排隊與優先級：付費租戶優先、batch 任務低優先，避免長請求餓死短請求。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高吞吐</strong>：GPU 極貴，目標是把 GPU 利用率拉到最高（每秒總 token 數最大化）。</li>
+    <li><strong>可接受延遲</strong>：TTFT（首 token）數百 ms；TPOT（每 token 間隔）數十 ms。</li>
+    <li><strong>彈性擴縮</strong>：流量尖峰時加副本，離峰縮回（GPU 一張就燒錢）。</li>
+    <li><strong>公平 / 隔離</strong>：單一租戶不能拖垮整池；限流 + 配額。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「優化目標是<strong>吞吐</strong>還是<strong>單請求延遲</strong>？」這兩者天生衝突：批次越大吞吐越高，但隊伍裡的請求等越久。
+    多數線上服務選「在 P99 延遲約束下，最大化吞吐」——這正是 continuous batching 存在的理由。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>請求量</td><td>每日 1000 萬次生成</td><td>~115 QPS（峰值 ×3 ≈ 350 QPS）</td></tr>
+    <tr><td>輸出長度</td><td>平均 300 tokens / 次</td><td>需 ~115 × 300 ≈ <strong>34.5k tokens/s</strong> 總產能</td></tr>
+    <tr><td>單卡產能</td><td>一張 GPU 連續批次下 ~2.5k tokens/s</td><td>34.5k ÷ 2.5k ≈ <strong>14 張 GPU</strong>（含 buffer 抓 ~20 張）</td></tr>
+    <tr><td>KV cache 記憶體</td><td>每 token 每層約數十 KB</td><td>長 context × 大批次 → KV cache 常是<strong>顯存瓶頸</strong>，限制批次大小</td></tr>
+    <tr><td>靜態批次 vs 連續批次</td><td>同硬體</td><td>連續批次吞吐常為靜態批次的 <strong>2～4 倍</strong></td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>瓶頸是 <strong>GPU 顯存（KV cache）</strong>與 <strong>GPU 計算槽位利用率</strong>，不是 CPU 或網路。整個設計圍繞「<strong>別讓 GPU 有任何一個 step 在空轉</strong>」。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 同步生成（一次回完）
+POST /v1/completions
+Header: Authorization: Bearer &lt;api_key&gt;
+Body: { "model": "llama-8b", "prompt": "...", "max_tokens": 256, "temperature": 0.7 }
+→ 200 { "id": "cmpl-abc", "text": "...", "usage": { "prompt_tokens": 12, "completion_tokens": 256 } }
+
+# 串流生成（SSE，逐 token 回吐）—— 線上服務主力
+POST /v1/completions  (stream=true)
+→ Content-Type: text/event-stream
+   data: {"token":"Hello"}
+   data: {"token":" world"}
+   ...
+   data: [DONE]
+
+# 用量 / 計費（按 token）
+GET /v1/usage?tenant=acme&from=...   → { "prompt_tokens": ..., "completion_tokens": ..., "cost": ... }
+</code></pre>
+  <div class="box"><span class="label">為何要 SSE 串流</span>生成是<strong>逐 token</strong>的（自迴歸），等整段生成完才回，使用者要等好幾秒；逐 token 推播能讓首字在數百 ms 內出現，體感天差地別。</div>
+
+  <h2 id="data">4. 資料模型與請求生命週期</h2>
+  <pre><code>Request（在排程器內的狀態機）
+  id            string
+  tenant        string         -- 限流 / 計費歸屬
+  priority      int            -- 0=高(付費) 1=一般 2=batch
+  prompt_tokens int            -- prefill 階段要處理的輸入長度
+  max_tokens    int            -- decode 上限
+  generated     int            -- 已生成 token 數
+  state         QUEUED → PREFILL → DECODING → DONE
+  enqueue_step  int            -- 進佇列的 step（算等待）
+  finish_step   int            -- 完成的 step（算耗時）
+
+usage_counter（計費，按 token 累加；真實系統走事件流聚合）
+  tenant, prompt_tokens, completion_tokens, requests</code></pre>
+  <div class="box"><span class="label">兩階段為何要分</span><strong>prefill</strong>（一次處理整段 prompt，平行度高、算力密集）與 <strong>decode</strong>（一次生一個 token，記憶體頻寬密集）特性完全不同；很多系統會把兩者分流到不同副本（disaggregated prefill/decode）以分別最佳化。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 客戶端 ──▶ API Gateway ──▶ 請求佇列 ──▶ 批次排程器 ──▶ GPU Worker ──▶ 串流 token
+   │        (限流/計費/鑑權)    (依優先級)    (continuous       (KV cache    (SSE 回吐)
+   │                                          batching)         /模型)
+   └────────────────────────── SSE token 串流回吐 ◀────────────────────┘
+
+ 多副本：排程器 + GPU Worker 為一組，水平複製 N 組；
+        自動擴縮依「佇列長度 / GPU 利用率 / P99 等待」觸發加減副本。</code></pre>
+  <ol>
+    <li><strong>API Gateway</strong>：鑑權、per-tenant 限流（token bucket）、記錄計費用量，無狀態可水平擴展。</li>
+    <li><strong>請求佇列</strong>：依優先級排序；高優先（付費）插前面，batch 任務墊底，避免長請求餓死短請求。</li>
+    <li><strong>批次排程器（核心）</strong>：維護一個「執行中批次」，逐 step 推進；批次有空槽就<strong>立刻</strong>從佇列拉新請求補進來（continuous batching）。</li>
+    <li><strong>GPU Worker</strong>：持有模型權重與 KV cache，每個 step 為批次內每個請求平行算出下一個 token。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>continuous batching（連續批次）—— 本題真正考點</h3>
+  <p>傳統「<strong>靜態批次</strong>」：湊滿 N 個請求一起送進 GPU，<em>等整批全部生成完</em>才釋放、才收下一批。問題是請求長度不一——短的早就生完了，卻得空等最長那個，GPU 槽位大量空轉。</p>
+  <ul>
+    <li><strong>連續批次</strong>在<strong>每一個 token step</strong>檢查批次：哪個請求 <code>DONE</code> 了就<strong>當場</strong>讓出槽位，立刻從佇列拉一個新請求<strong>填補</strong>進來，無需等整批。</li>
+    <li>效果：GPU 槽位幾乎時時刻刻滿載 → 吞吐常拉到靜態批次的 2～4 倍（這就是 vLLM / TGI 的核心）。</li>
+    <li>代價：排程器邏輯複雜（每 step 都要決策），且新請求要先做 prefill 才能加入 decode 行列。</li>
+  </ul>
+  <div class="box tip"><span class="label">面試洞察</span>能講清楚「<strong>靜態批次等最慢的人、連續批次補空位</strong>」這一句，就贏了一半。Demo 就是把這個語意做成可一步步推進、看得到槽位被填補的模擬器。</div>
+  <h3>KV cache</h3>
+  <ul>
+    <li>自迴歸生成時，每個新 token 都要 attend 前面所有 token；把每層每 token 的 Key/Value 算過一次<strong>快取</strong>起來，後續 step 不必重算。</li>
+    <li>KV cache 隨 context 長度與批次大小線性成長，<strong>常是顯存第一瓶頸</strong> → 限制了批次能多大。<strong>PagedAttention</strong>（分頁管理 KV）能大幅減少碎片、塞進更多並發請求。</li>
+  </ul>
+  <h3>量化（quantization）</h3>
+  <p>把權重 / KV cache 從 FP16 降到 INT8 / FP8，<strong>省顯存、提吞吐</strong>，代價是少量精度損失。省下的顯存可換更大批次 → 又推高吞吐。</p>
+  <h3>GPU 排程與佇列</h3>
+  <p>排程器是單一決策點：依<strong>優先級</strong>挑請求、控制<strong>批次大小</strong>（受 KV cache 顯存上限約束）、平衡 prefill（吃算力）與 decode（吃頻寬）的混合。佇列過長就是該擴副本的訊號。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（多副本 / 自動擴縮）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單卡</td><td>GPU 槽位空轉</td><td><strong>continuous batching</strong> 填滿每個 step 的槽位</td></tr>
+    <tr><td>顯存不夠</td><td>KV cache 撐爆顯存、批次開不大</td><td>PagedAttention 分頁 + 量化（INT8/FP8）省顯存</td></tr>
+    <tr><td>單副本吞吐到頂</td><td>QPS 超過一張卡能力</td><td>多副本（排程器+Worker 一組）水平複製 + 負載均衡</td></tr>
+    <tr><td>流量尖峰 / 離峰</td><td>GPU 閒置燒錢 / 尖峰排隊</td><td>自動擴縮：依佇列長度、GPU 利用率、P99 等待加減副本</td></tr>
+    <tr><td>長短請求互相干擾</td><td>長請求拖慢短請求</td><td>優先級佇列 + 公平排隊；必要時 prefill/decode 分離部署</td></tr>
+    <tr><td>單租戶暴衝</td><td>一個 key 打爆整池</td><td>per-tenant token bucket 限流 + 配額隔離</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>吞吐 vs 延遲</strong>：批次越大吞吐越高，但隊內請求等越久、TTFT 變差。實務是「在 P99 延遲約束下最大化吞吐」。</li>
+    <li><strong>靜態批次 vs 連續批次</strong>：靜態實作簡單但 GPU 空轉嚴重；連續批次複雜但吞吐翻倍——線上幾乎都選後者。</li>
+    <li><strong>大批次 vs KV cache 顯存</strong>：想開大批次卻被 KV cache 吃光顯存 → 用量化 / PagedAttention 換空間。</li>
+    <li><strong>公平 vs 效率</strong>：純按吞吐排會餓死低優先請求；要加優先級與公平排隊兜底。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>如何避免長請求餓死短請求？→ 優先級 + 限制單請求 max_tokens + 公平排隊。</li>
+        <li>prefill 和 decode 為何要分？→ 一個吃算力、一個吃記憶體頻寬，混在一起互相拖累，分離可各自最佳化。</li>
+        <li>怎麼計費？→ 按 prompt_tokens + completion_tokens；用量走事件流聚合，與關鍵路徑解耦。</li>
+        <li>冷啟動慢怎麼辦？→ 模型權重載入數十秒，預熱副本 / 保留最小常駐副本數。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>真正的考點：continuous batching 如何動態填補 GPU 槽位</strong>，而非 CRUD。可用 PHP 內建伺服器跑起來，一步步推進排程器、親眼看到槽位被新請求填補：</p>
+  <ul>
+    <li><code>src/InferenceModel.php</code>　假「模型」：依 prompt 雜湊決定該請求要生成幾個 token，逐 token 產出（無真 GPU/權重）。</li>
+    <li><code>src/Request.php</code>　請求生命週期狀態機：<code>QUEUED→PREFILL→DECODING→DONE</code>，記錄 token 數、等待 / 完成 step。</li>
+    <li><code>src/BatchScheduler.php</code>　<strong>continuous batching 核心</strong>：維護執行中批次，每 step 為批中每個請求生一個 token；有空槽就立刻從佇列拉新請求補入，並統計 GPU 槽利用率。</li>
+    <li><code>public/index.php</code>　路由 + 深色測試頁：提交請求、設定批次大小、一步步推進、看每 step 批次狀態與「連續 vs 靜態」利用率對比。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8014 -t public
+# 瀏覽器開 http://localhost:8014
+# 1) 提交數個不同長度的請求  2) 設定最大批次大小（如 4）
+# 3) 一步步推進排程器  4) 觀察完成的請求空出槽位被新請求填入</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo <strong>沒有真正的 GPU 或模型</strong>，token 由 prompt 雜湊決定性產出（純示意）。但<strong>continuous batching 的排程語意、槽位讓出與填補、優先級佇列、利用率統計（連續 vs 靜態對比）皆為真實可執行的邏輯</strong>——這正是本題的核心考點。
+  </div>
+
+  <footer>⑭ LLM Inference Serving System · E 組 AI/LLM · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

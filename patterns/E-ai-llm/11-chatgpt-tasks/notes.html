@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑪ ChatGPT Tasks · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅴 AI/LLM 系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑪ ChatGPT Tasks：排程式 / 非同步 AI 任務系統</h1>
+  <p class="subtitle">
+    <span class="tag group">E AI/LLM</span>
+    <span class="tag time">建議 48 分鐘</span>
+    <span class="tag">Design a Scheduled / Async AI Task System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>排程器（cron-like）+ 延遲佇列 + 非同步 worker 跑 LLM</strong>」的工作流系統。
+    使用者排定週期或一次性任務（如「每天早上摘要新聞」），系統在到期時把任務丟進佇列，由 worker 非同步呼叫 LLM 執行。
+    面試真正考的是 <em>排程準確性、冪等去重、失敗重試與規模化</em>，而不是任務的 CRUD。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>使用者建立任務：<strong>一次性</strong>（「明早 8 點幫我摘要這份報告」）或<strong>週期性</strong>（「每天早上 7 點摘要科技新聞」）。</li>
+    <li>任務內容是一段給 LLM 的提示（prompt），到期時非同步執行並產生結果。</li>
+    <li>結果投遞：完成後以通知（push / email / app 內收件匣）告知使用者。</li>
+    <li>任務管理：暫停 / 恢復 / 刪除 / 查看歷史執行與結果。</li>
+    <li>支援使用者<strong>時區</strong>（「每天早上 7 點」是使用者當地時間）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>排程準時</strong>：到期任務應在可接受誤差內被觸發（如 &lt; 1 分鐘）。</li>
+    <li><strong>不重複執行</strong>：同一觸發只跑一次（LLM 呼叫昂貴，重複跑＝重複計費 + 重複通知）。</li>
+    <li><strong>可靠</strong>：worker / LLM 失敗要能重試；最終失敗要通知或進死信。</li>
+    <li><strong>可擴展</strong>：任務數與 worker 數可獨立水平擴展；LLM 慢任務不阻塞排程。</li>
+    <li><strong>讀寫特性</strong>：建立任務少、執行多（週期任務一次建立、長期反覆觸發）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「任務是<strong>週期</strong>還是<strong>一次性</strong>？要不要支援 cron 表達式與使用者時區？」這決定排程器的複雜度。
+    再問「同一任務若同時被觸發兩次，可以接受跑兩次嗎？」→ 答案幾乎都是<strong>不行</strong>，因此<strong>冪等</strong>是本題核心。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>活躍任務</td><td>1000 萬使用者 × 每人 2 個週期任務</td><td>~2000 萬個排程任務</td></tr>
+    <tr><td>每日觸發量</td><td>多數每天 1 次</td><td>~2000 萬次/日 ≈ 230 觸發 QPS（峰值集中早上 ×10 ≈ 2.3k）</td></tr>
+    <tr><td>排程掃描</td><td>每分鐘掃一次到期</td><td>掃描需走索引（next_run_at），不可全表掃描</td></tr>
+    <tr><td>LLM 執行</td><td>每次 ~3 秒、~2k tokens</td><td>慢任務 → 必須非同步 + worker 池；成本＝觸發量 × token 計費</td></tr>
+    <tr><td>結果儲存</td><td>每筆 ~4KB，保留 90 天</td><td>2000萬×90×4KB ≈ <strong>~7 TB</strong></td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>觸發量有強烈<strong>時間尖峰</strong>（大家都設「早上 7 點」）→ 排程需<strong>抹平尖峰</strong>（抖動 jitter / 分桶），worker 需能彈性擴縮。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 建立任務（寫，低頻）
+POST /api/v1/tasks
+Body: {
+  "name": "每日科技新聞摘要",
+  "schedule": { "type": "cron", "expr": "0 7 * * *", "tz": "Asia/Taipei" },
+  "prompt": "摘要今天最重要的 3 則科技新聞",
+  "notify": { "channel": "push" }
+}
+→ 201 { "task_id": "task_123", "next_run_at": "2026-06-01T07:00:00+08:00" }
+
+# 一次性任務
+POST /api/v1/tasks  Body: { "schedule": { "type": "once", "run_at": "..." }, ... }
+
+# 管理
+PATCH  /api/v1/tasks/{id}   Body: { "status": "paused" }   # 暫停 / 恢復
+DELETE /api/v1/tasks/{id}
+
+# 查執行歷史與結果（讀）
+GET /api/v1/tasks/{id}/runs        → [{ "run_id", "status", "result", "attempt" }]
+GET /api/v1/runs/{run_id}          → { "status": "DONE", "result": "..." }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>tasks（可變的任務定義 + 排程狀態；next_run_at 建索引供掃描）
+  task_id       PK
+  owner_id      BIGINT
+  type          ENUM(once, interval, cron)
+  schedule_expr TEXT            -- cron 字串 / 間隔秒數
+  tz            VARCHAR         -- 使用者時區（排程準點關鍵）
+  prompt        TEXT
+  status        ENUM(active, paused, deleted)
+  next_run_at   TIMESTAMP  ◀── 建索引！scheduler 靠它掃出到期任務
+  last_fired_at TIMESTAMP
+
+task_runs（每次觸發一筆，狀態機，高頻寫）
+  run_id          PK
+  task_id         FK
+  idempotency_key VARCHAR UNIQUE  ◀── = task_id + fire_at，唯一索引擋重複入列
+  fire_at         TIMESTAMP       -- 本次觸發對應的排定時間
+  status          ENUM(SCHEDULED, QUEUED, RUNNING, DONE, FAILED, RETRY)
+  attempt         INT
+  result          TEXT
+  error           TEXT
+  finished_at     TIMESTAMP</code></pre>
+  <div class="box"><span class="label">為何 task 與 run 分開</span>task 是少量可變定義；run 是高頻 append 的執行紀錄。分開後 run 可走獨立表 / 時序庫，且<strong>冪等鍵建在 run 上</strong>，靠 DB 唯一約束從根本擋住重複觸發。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 建立 ─▶ Task API ─▶ 任務 DB(next_run_at 索引)
+                            ▲  │
+                            │  ▼
+                      ┌──────────────┐
+                      │  排程器(tick) │ 每分鐘掃 next_run_at ≤ now
+                      └──────┬───────┘
+                             ▼  (產生冪等鍵 task_id@fire_at，入列)
+                       任務佇列(延遲/去重) ◀── 週期任務排定下次時間
+                             ▼
+        Worker(狀態機/重試) ─▶ LLM 推論 ─▶ 狀態/結果 DB ─▶ 通知投遞 ─▶ 使用者(收結果)</code></pre>
+  <ol>
+    <li><strong>Task API</strong>：建立 / 管理任務，寫入任務 DB 並算出首個 <code>next_run_at</code>。</li>
+    <li><strong>排程器</strong>：週期性 tick，掃出到期任務 → 產生冪等鍵 → 入佇列；週期任務立刻排定下次時間。</li>
+    <li><strong>佇列 + Worker</strong>：worker 競爭性消費、推進狀態機、呼叫 LLM、失敗重試、投遞通知。LLM 慢不阻塞排程（解耦）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>排程器：怎麼知道「到期了」？</h3>
+  <ul>
+    <li><strong>方案 A：DB 輪詢</strong>　cron worker 每分鐘 <code>SELECT … WHERE next_run_at &lt;= now() AND status='active'</code>（next_run_at 建索引）。簡單、夠用到中等規模，面試可先講這個。</li>
+    <li><strong>方案 B：時間輪 / 延遲佇列</strong>　把到期時間當 key 放 Redis ZSET（score = timestamp），或用佇列原生延遲投遞（SQS DelaySeconds、RabbitMQ TTL+DLX）。規模大、精度高。</li>
+    <li><strong>週期任務</strong>　觸發後<em>立刻</em>依間隔 / cron 算出下一個 <code>next_run_at</code> 寫回（catch-up：若落後多次，對齊到未來的下一個點，避免瘋狂補跑）。</li>
+    <li><strong>時區</strong>　「每天早上 7 點」是使用者當地時間；DST（日光節約）切換時，cron 換算要用使用者時區規則，不能只存 UTC offset。</li>
+  </ul>
+  <h3>冪等與去重：避免同一觸發跑兩次</h3>
+  <ul>
+    <li>每次觸發產生<strong>冪等鍵</strong> = <code>task_id + fire_at</code>（該次排定時間）。入列前先檢查 / 靠 DB 唯一索引擋住。</li>
+    <li>為何會重複？掃描器多副本同時掃到同一任務、訊息佇列「至少一次」語意重投、worker 逾時被判死又復活。冪等鍵讓這些情況都<strong>安全</strong>。</li>
+  </ul>
+  <h3>狀態機與失敗重試</h3>
+  <pre><code>SCHEDULED ──tick 到期──▶ QUEUED ──worker 取出──▶ RUNNING
+   RUNNING ──成功──▶ DONE                 ──失敗&還可重試──▶ RETRY ──退避──▶ QUEUED
+                                          ──失敗&重試用盡──▶ FAILED（死信 / 通知）</code></pre>
+  <p>重試用<strong>指數退避 + 抖動</strong>，並區分可重試（LLM 逾時、429）與不可重試（prompt 違規）錯誤。通知投遞本身也要<strong>至少一次 + 冪等</strong>（同一 run 不重複通知）。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機排程</td><td>單一 cron 掃全表、單點故障</td><td>任務分片（依 task_id 雜湊），每分片獨立掃描；排程器多副本 + 租約（lease）防重複掃</td></tr>
+    <tr><td>早高峰尖峰</td><td>大量任務同設 7:00 同時觸發</td><td>加抖動（jitter）分散觸發；分桶；worker 自動擴縮</td></tr>
+    <tr><td>LLM 慢 / 限流</td><td>worker 被慢任務佔滿、撞 LLM rate limit</td><td>worker 池 + 佇列緩衝；per-tenant 配額；批次 / 快取相同提示</td></tr>
+    <tr><td>重複執行</td><td>佇列至少一次、掃描器競爭</td><td>冪等鍵 + DB 唯一索引；worker 租約 / 可見性逾時</td></tr>
+    <tr><td>失敗堆積</td><td>下游故障導致大量重試</td><td>指數退避 + 死信佇列（DLQ）+ 斷路器</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>DB 輪詢 vs 延遲佇列</strong>：輪詢簡單但有掃描延遲與全表壓力；延遲佇列精度高但多一層基建。面試先講輪詢，再說「規模大時換 Redis ZSET / 佇列原生延遲」。</li>
+    <li><strong>at-least-once vs exactly-once</strong>：分散式下難真正 exactly-once；務實做法是<strong>at-least-once 投遞 + 冪等消費</strong>＝效果上的 exactly-once。這是本題最重要的一句話。</li>
+    <li><strong>排程與執行解耦</strong>：排程器只負責「何時觸發」，執行交給佇列 + worker。LLM 再慢也不拖累排程準點。</li>
+    <li><strong>時區 / DST</strong>：存使用者時區（IANA 名稱如 Asia/Taipei），每次計算 next_run_at 時換算，不可只存固定 offset。</li>
+    <li><strong>常見追問</strong>：任務暫停 / 刪除如何即時生效？→ 掃描時檢查 status，或入列後執行前再驗一次。如何防使用者建立海量任務？→ per-user 配額 + rate limit。長任務超過一次掃描週期怎麼辦？→ 租約續期 + 可見性逾時。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>排程 → 延遲佇列 → 狀態機 + 冪等 / 重試</strong>這條主線（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Scheduler.php</code>　排程器：管理 <code>next_run_at</code>（一次性 + 週期 interval），<code>tick()</code> 以「邏輯時間」掃出到期任務入列，週期任務自動排定下次（含 catch-up）。</li>
+    <li><code>src/TaskQueue.php</code>　延遲佇列 + 狀態機（QUEUED→RUNNING→DONE/RETRY/FAILED），<strong>冪等鍵 <code>task_id@fire_at</code></strong> 防同一觸發重複入列。</li>
+    <li><code>src/Worker.php</code>　佇列消費者：取出 run、呼叫<strong>假的 LLM</strong> 產生結果、推進狀態機、失敗重試、投遞通知。</li>
+    <li><code>src/Store.php</code>　三個 JSON 檔模擬 DB（tasks / runs / notifications）+ 檔案鎖發號器。</li>
+    <li><code>public/index.php</code>　路由 + 深色測試頁（建立任務 / tick / run / 檢視狀態）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8011 -t public
+# 瀏覽器開 http://localhost:8011
+# 流程：建立週期+一次性任務 → ⏩tick(模擬時間前進，掃出到期入列) → ▶️run worker → 狀態轉 DONE、產生結果與通知</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的 <strong>LLM 呼叫為假呼叫</strong>（依 prompt 產生確定性文字，可勾選模擬失敗以示範重試）；而
+    <strong>排程的下次時間計算、延遲佇列、任務狀態機、冪等去重（防同一觸發跑兩次）、失敗重試</strong>等系統邏輯<strong>為真實可執行</strong>。
+    要接真實 LLM，只需把 <code>Worker::fakeLlmCall()</code> 換成實際 API 呼叫，其餘排程 / 佇列 / 狀態機完全不變。
+  </div>
+
+  <footer>⑪ ChatGPT Tasks · E 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>
