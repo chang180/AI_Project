@@ -1,0 +1,21 @@
+# PHP
+vendor/
+composer.lock
+*.log
+
+# 環境設定
+.env
+.env.local
+
+# 編輯器 / 系統
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# PHP demo 執行期產物
+patterns/**/demo/data/
+patterns/**/demo/storage/
+patterns/**/demo/*.sqlite
+patterns/**/demo/cache/

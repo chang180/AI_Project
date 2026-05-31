@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>① QR Code 生成器 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>① QR Code 生成器：從零到百萬級請求</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design a QR Code Generator</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>URL 短碼服務 + 圖片生成 + 大量讀取的快取/CDN 分發</strong>」的綜合題。
+    寫死的靜態 QR 很簡單；面試真正考的是 <em>動態 QR</em>（可改目標、可追蹤掃描）如何擴展到百萬級請求。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（百萬級請求）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>輸入一段文字/URL，產生對應的 QR Code 圖片（PNG / SVG）。</li>
+    <li><strong>動態 QR</strong>：QR 內嵌的是一個短網址 <code>https://qr.io/abc123</code>，掃描後 302 轉址到真實目標；目標可後續修改。</li>
+    <li>掃描分析：記錄掃描次數、時間、地區、裝置。</li>
+    <li>自訂：尺寸、容錯等級、可選 logo。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高可用</strong>：轉址路徑是關鍵路徑（掃描的人很多），需 99.99%。</li>
+    <li><strong>低延遲</strong>：轉址 &lt; 50ms（p99）。</li>
+    <li><strong>讀遠多於寫</strong>：建立 QR 少、掃描多（讀寫比可達 100:1 以上）。</li>
+    <li><strong>可擴展</strong>：從零到百萬 QPS。</li>
+    <li><strong>短碼不可預測</strong>（避免被遍歷）、不可碰撞。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「是靜態還是動態 QR？」決定了整題走向。靜態 = 純無狀態圖片生成；動態 = URL 短碼服務（本筆記主軸，因為它才有擴展挑戰）。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>建立 QR（寫）</td><td>1000 萬/日</td><td>~115 寫 QPS（峰值 ×3 ≈ 350）</td></tr>
+    <tr><td>掃描（讀）</td><td>每碼平均 100 次掃描</td><td>~11.5k 讀 QPS（峰值 ≈ 35k）</td></tr>
+    <tr><td>儲存（中繼資料）</td><td>每筆 ~500 bytes，5 年</td><td>1000萬×365×5×500B ≈ <strong>9 TB</strong></td></tr>
+    <tr><td>短碼空間</td><td>base62，7 碼</td><td>62⁷ ≈ 3.5 兆，足夠多年</td></tr>
+    <tr><td>QR 圖片</td><td>生成後可快取/不存</td><td>可由短碼即時重算，省儲存</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>讀寫極不對稱 → 整個設計圍繞「<strong>讀路徑快取化</strong>」與「<strong>寫路徑可靠生成唯一短碼</strong>」。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 建立動態 QR（寫）
+POST /api/v1/qrcodes
+Body: { "target_url": "https://example.com/promo", "size": 512, "ecc": "M" }
+→ 201 { "code": "abc123X", "short_url": "https://qr.io/abc123X",
+        "image_url": "https://cdn.qr.io/abc123X.svg" }
+
+# 更新目標（動態 QR 的賣點）
+PATCH /api/v1/qrcodes/{code}   Body: { "target_url": "..." }
+
+# 掃描轉址（讀，超高頻，關鍵路徑）
+GET /{code}        → 302 Location: <target_url>   （並非同步記錄一次掃描）
+
+# 取得圖片
+GET /api/v1/qrcodes/{code}/image?fmt=svg|png
+
+# 掃描分析
+GET /api/v1/qrcodes/{code}/stats → { "scans": 1234, "by_day": [...] }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>qrcodes
+  code         VARCHAR(7)  PRIMARY KEY   -- base62 短碼
+  target_url   TEXT
+  owner_id     BIGINT
+  ecc          CHAR(1)                   -- L/M/Q/H 容錯等級
+  created_at   TIMESTAMP
+  updated_at   TIMESTAMP
+
+scan_events (寫入量大 → 走串流/時序庫，不進主庫)
+  code, ts, country, device, referrer        -- 寫入 Kafka → 聚合
+scan_counters (聚合結果)
+  code, total_scans, daily JSONB</code></pre>
+  <div class="box"><span class="label">為何分開</span>掃描事件是 append-only 的高頻寫，放主庫會拖垮它；獨立到 Kafka + 時序/列式儲存（如 ClickHouse），主庫只保留可變的對映。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code>            ┌─────────┐
+ 寫 ───────▶│  API GW  │──▶ Create Service ──▶ 短碼產生器(KGS) ──▶ Metadata DB(分片)
+            └─────────┘                                              │
+                                                                     ▼
+ 讀(掃描) ──▶ CDN ──▶ Redirect Service ──▶ Redis 快取 ──(miss)──▶ Metadata DB
+                          │
+                          └──▶ Kafka(掃描事件) ──▶ 聚合 ──▶ 分析庫</code></pre>
+  <ol>
+    <li><strong>Create Service</strong>：取得唯一短碼、寫入對映、回傳 short_url。</li>
+    <li><strong>Redirect Service</strong>：無狀態、可大量水平擴展；查快取→轉址→非同步發掃描事件。</li>
+    <li><strong>圖片</strong>：由短碼即時生成 SVG（無狀態、可快取於 CDN），或生成後存物件儲存。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>短碼如何唯一又不可預測？</h3>
+  <ul>
+    <li><strong>方案 A：雜湊截斷</strong>　hash(url+salt) 取前 7 碼 → 需處理碰撞（重試/加鹽）。同一 URL 可去重。</li>
+    <li><strong>方案 B：發號器(KGS, Key Generation Service)</strong>　預先產生大量唯一碼放池子，服務啟動時批次領取一個區段（如領 1000 個），用完再領。<strong>無碰撞、低延遲、易擴展</strong>，面試首選。</li>
+    <li><strong>不可預測</strong>：用全域遞增 ID 經 base62 + 打亂（如 Feistel/乘法雜湊），避免 abc124 緊鄰 abc123 被遍歷。</li>
+  </ul>
+  <h3>讀路徑快取</h3>
+  <ul>
+    <li>Redis 快取 code→url，命中率可 &gt;95%（熱門碼集中）。</li>
+    <li>CDN 對轉址回應做短 TTL 快取需謹慎（動態 QR 可改目標）→ 通常 CDN 只快取圖片，不快取 302。</li>
+  </ul>
+  <h3>掃描計數不阻塞轉址</h3>
+  <p>轉址先回 302，<strong>非同步</strong>把事件丟 Kafka；下游聚合。即使分析管線掛了，掃描體驗不受影響（關鍵路徑與分析解耦）。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（從零到百萬級請求）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機</td><td>CPU / 連線數</td><td>無狀態服務 + 負載均衡，水平加機器</td></tr>
+    <tr><td>DB 讀爆</td><td>掃描查詢打 DB</td><td>Redis 快取 + 讀副本</td></tr>
+    <tr><td>DB 寫/容量</td><td>單庫裝不下、寫熱點</td><td>依 code 雜湊<strong>分片</strong>；KGS 去除寫時碰撞重試</td></tr>
+    <tr><td>全球延遲</td><td>跨洲 RTT</td><td>多區域部署 + CDN 就近轉址 + 快取就近</td></tr>
+    <tr><td>分析寫爆</td><td>每次掃描寫一筆</td><td>Kafka 緩衝 + 批次聚合 + 近似計數</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>雜湊 vs 發號器</strong>：雜湊可天然去重但要處理碰撞；KGS 無碰撞但需額外服務與預生成。</li>
+    <li><strong>圖片即時生成 vs 預生成存檔</strong>：即時省儲存、靠 CDN 快取；預生成省 CPU 但耗儲存且改目標時 QR 圖不需變（QR 內是短碼，不含目標）→ 其實圖片可永久快取，<em>只有對映會變</em>，這是動態 QR 的精髓。</li>
+    <li><strong>強一致 vs 最終一致</strong>：對映更新需即時生效（讀自己的寫）→ 更新時主動失效 Redis；掃描計數可最終一致。</li>
+    <li><strong>常見追問</strong>：如何防惡意 URL（釣魚）？→ 黑名單/掃描安全檢查。如何防短碼被枚舉？→ 不可預測碼 + rate limit。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>系統核心邏輯</strong>（也是百萬級請求真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/ShortCode.php</code>　base62 發號 + 乘法雜湊打亂（不可預測短碼）。</li>
+    <li><code>src/Store.php</code>　對映儲存（JSON 檔模擬 DB）+ 行內快取，統計命中/未命中。</li>
+    <li><code>src/QrRenderer.php</code>　把短網址渲染成 SVG（教學版方格圖；§註明如何換成 <code>endroid/qr-code</code> 產生可掃描 QR）。</li>
+    <li><code>public/index.php</code>　路由：建立 / 轉址 / 統計，並附簡易測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8000 -t public
+# 瀏覽器開 http://localhost:8000 建立 QR；掃描轉址走 GET /{code}</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的 QR 圖為<strong>教學用方格示意</strong>（非真正可掃描編碼）；短碼、儲存、快取、轉址、計數等<strong>系統邏輯為真實可執行</strong>。要產生可掃描 QR，依 <code>demo/README.md</code> 安裝 <code>endroid/qr-code</code> 即可無痛替換 <code>QrRenderer</code>。
+  </div>
+
+  <footer>① QR Code Generator · D 組範本 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

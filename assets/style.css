@@ -1,0 +1,112 @@
+/* ===== 系統設計學習專案 — 共用樣式 ===== */
+:root {
+  --bg: #0f1419;
+  --bg-soft: #1a2027;
+  --bg-card: #1e2630;
+  --border: #2a3540;
+  --text: #e6edf3;
+  --text-dim: #9aa7b3;
+  --accent: #58a6ff;
+  --accent-2: #7ee787;
+  --warn: #f0883e;
+  --danger: #ff7b72;
+  --code-bg: #161b22;
+  --radius: 12px;
+  --maxw: 980px;
+  font-size: 16px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- 版面 ---- */
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 32px 24px 96px; }
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(15,20,25,.85); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 24px; display: flex; align-items: center; gap: 16px;
+}
+.topbar .brand { font-weight: 700; color: var(--text); }
+.topbar a { font-size: .9rem; color: var(--text-dim); }
+
+h1 { font-size: 2rem; margin: .2em 0 .1em; line-height: 1.25; }
+h2 {
+  font-size: 1.35rem; margin: 2em 0 .6em; padding-bottom: .3em;
+  border-bottom: 1px solid var(--border); scroll-margin-top: 70px;
+}
+h3 { font-size: 1.1rem; margin: 1.4em 0 .4em; color: var(--accent-2); }
+.subtitle { color: var(--text-dim); font-size: 1.05rem; margin-top: 0; }
+
+/* ---- 標籤 / 徽章 ---- */
+.tag {
+  display: inline-block; font-size: .75rem; padding: 2px 10px;
+  border-radius: 999px; background: var(--bg-soft);
+  border: 1px solid var(--border); color: var(--text-dim); margin-right: 6px;
+}
+.tag.group { color: var(--accent); border-color: var(--accent); }
+.tag.time  { color: var(--warn); border-color: var(--warn); }
+
+/* ---- 卡片 ---- */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.card {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 18px 20px; transition: .15s;
+}
+.card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.card h3 { margin: 0 0 .3em; color: var(--text); }
+.card p { color: var(--text-dim); font-size: .9rem; margin: .4em 0 0; }
+.card .num { color: var(--accent); font-weight: 700; margin-right: 6px; }
+
+/* ---- 組別區塊 ---- */
+.group-block { margin: 28px 0; }
+.group-block > h2 { border: none; margin-bottom: .4em; }
+
+/* ---- 表格 ---- */
+table { width: 100%; border-collapse: collapse; margin: 1em 0; font-size: .92rem; }
+th, td { text-align: left; padding: 10px 12px; border: 1px solid var(--border); vertical-align: top; }
+th { background: var(--bg-soft); color: var(--accent); }
+tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+
+/* ---- 程式碼 ---- */
+code { background: var(--code-bg); padding: 2px 6px; border-radius: 6px; font-size: .88em; color: var(--accent-2); }
+pre {
+  background: var(--code-bg); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 16px 18px; overflow-x: auto; font-size: .85rem;
+}
+pre code { background: none; padding: 0; color: var(--text); }
+
+/* ---- 提示框 ---- */
+.box { border-left: 4px solid var(--accent); background: var(--bg-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 1em 0; }
+.box.warn   { border-color: var(--warn); }
+.box.danger { border-color: var(--danger); }
+.box.tip    { border-color: var(--accent-2); }
+.box .label { font-weight: 700; display: block; margin-bottom: .2em; }
+
+/* ---- 目錄 (TOC) ---- */
+.toc { background: var(--bg-soft); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 20px; margin: 1.5em 0; }
+.toc ol { margin: .4em 0; padding-left: 1.4em; }
+.toc a { color: var(--text-dim); }
+
+/* ---- 架構圖連結 ---- */
+.diagram-link {
+  display: inline-flex; align-items: center; gap: 8px; margin: 1em 0;
+  background: var(--bg-soft); border: 1px dashed var(--accent); border-radius: 8px;
+  padding: 10px 16px; color: var(--accent);
+}
+
+/* ---- 進度條 ---- */
+.progress { background: var(--bg-soft); border-radius: 999px; height: 10px; overflow: hidden; border: 1px solid var(--border); }
+.progress > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+
+footer { color: var(--text-dim); font-size: .85rem; text-align: center; margin-top: 60px; }

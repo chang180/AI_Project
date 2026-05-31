@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系統設計學習專案 · 14 題</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計學習專案</span>
+  <a href="#groups">分組</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>系統設計面試 · 14 題實戰</h1>
+  <p class="subtitle">每題包含 <strong>HTML 筆記 · Excalidraw 架構圖 · PHP demo</strong>，依共通模式分 5 組學習。</p>
+
+  <div class="box tip">
+    <span class="label">學習進度</span>
+    <div class="progress"><span style="width:7%"></span></div>
+    <p style="margin:.4em 0 0;color:var(--text-dim)">1 / 14 題完成（① QR Code 範本）</p>
+  </div>
+
+  <div id="groups">
+
+    <div class="group-block">
+      <h2>🅰️ 通知 / Fan-out 扇出</h2>
+      <p class="subtitle">事件觸發 → 大規模可靠投遞、queue、retry</p>
+      <div class="grid">
+        <a class="card" href="patterns/A-notification-fanout/02-earthquake-notification/notes.html"><h3><span class="num">02</span>地震預警系統</h3><p>即時通知千萬用戶 · 48 分</p></a>
+        <a class="card" href="patterns/A-notification-fanout/04-amazon-price-tracking/notes.html"><h3><span class="num">04</span>Amazon 價格追蹤</h3><p>即時監控與智能提醒 · 43 分</p></a>
+        <a class="card" href="patterns/A-notification-fanout/08-webhook-platform/notes.html"><h3><span class="num">08</span>Webhook 平台</h3><p>千萬級異步請求 · 46 分</p></a>
+      </div>
+    </div>
+
+    <div class="group-block">
+      <h2>🅱️ 即時連線 / 同步</h2>
+      <p class="subtitle">長連線、低延遲、狀態同步（CRDT / OT）</p>
+      <div class="grid">
+        <a class="card" href="patterns/B-realtime-sync/05-robotaxi/notes.html"><h3><span class="num">05</span>RoboTaxi 叫車</h3><p>即時配對與路線優化 · 54 分</p></a>
+        <a class="card" href="patterns/B-realtime-sync/07-messenger/notes.html"><h3><span class="num">07</span>Messenger</h3><p>億級用戶在線 · 40 分</p></a>
+        <a class="card" href="patterns/B-realtime-sync/09-google-docs/notes.html"><h3><span class="num">09</span>Google Docs</h3><p>協作文檔即時同步 · 48 分</p></a>
+      </div>
+    </div>
+
+    <div class="group-block">
+      <h2>🅲 一致性 / 交易</h2>
+      <p class="subtitle">強一致、防超賣 / 雙花、並發控制</p>
+      <div class="grid">
+        <a class="card" href="patterns/C-consistency-txn/03-polymarket/notes.html"><h3><span class="num">03</span>Polymarket</h3><p>預測市場高頻交易 · 53 分</p></a>
+        <a class="card" href="patterns/C-consistency-txn/12-bookings/notes.html"><h3><span class="num">12</span>Bookings.com</h3><p>短租平台全棧設計 · 42 分</p></a>
+      </div>
+    </div>
+
+    <div class="group-block">
+      <h2>🅳 串流計算 / 儲存分發</h2>
+      <p class="subtitle">大流量、聚合計算、儲存與 CDN 分發</p>
+      <div class="grid">
+        <a class="card" href="patterns/D-stream-storage/01-qr-code-generator/notes.html"><h3><span class="num">01</span>QR Code 生成器 ✅</h3><p>從零到百萬級請求 · 45 分</p></a>
+        <a class="card" href="patterns/D-stream-storage/06-spotify-trending/notes.html"><h3><span class="num">06</span>Spotify 趨勢榜</h3><p>實時計算與推薦 · 41 分</p></a>
+        <a class="card" href="patterns/D-stream-storage/10-youtube/notes.html"><h3><span class="num">10</span>YouTube</h3><p>PB 級內容儲存分發 · 37 分</p></a>
+      </div>
+    </div>
+
+    <div class="group-block">
+      <h2>🅴 AI / LLM 系統</h2>
+      <p class="subtitle">LLM、batching、async workflow、GPU</p>
+      <div class="grid">
+        <a class="card" href="patterns/E-ai-llm/11-chatgpt-tasks/notes.html"><h3><span class="num">11</span>ChatGPT Tasks</h3><p>AI 任務工作流 · 48 分</p></a>
+        <a class="card" href="patterns/E-ai-llm/13-agoda-ai-support/notes.html"><h3><span class="num">13</span>Agoda AI 客服</h3><p>RAG + 自動退款 · 45 分</p></a>
+        <a class="card" href="patterns/E-ai-llm/14-llm-inference-api/notes.html"><h3><span class="num">14</span>LLM 推論 API</h3><p>批處理與 GPU 吞吐 · 44 分</p></a>
+      </div>
+    </div>
+
+  </div>
+
+  <footer>系統設計學習專案 · 以 Claude Code 協助建置 · 繁體中文</footer>
+</div>
+</body>
+</html>
