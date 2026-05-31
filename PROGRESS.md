@@ -53,8 +53,29 @@
 > 8 題進階補充題的推薦理由與其餘未做題目清單，見對話紀錄（涵蓋搜尋/金流/地理/基建/社交/即時媒體/大數據等維度）。
 
 ## 待辦
-- [ ] （可選）把各 demo 的「示意」元件換成真套件：QR 換 `endroid/qr-code`、RAG 換真向量嵌入、LLM 換真模型；系統邏輯不需改。
-- [ ] （可選）依 framework.html 自我計時重做每題、補充個人筆記。
+
+### ⭐ 下一批：8 題進階補充（23–30）— 規劃已定，換電腦後對 Claude 說「建那 8 題」即可接續
+沿用 ① QR Code 範本：每題 `notes.html`（9 段式）+ `diagram.excalidraw` + 可跑 PHP demo（零依賴、本機無 mbstring 故不可用 `mb_*`、data/ 已 gitignore）。
+**新增 2 分組**：🅸 認證/安全（I-auth-security）、🅹 可觀測性（J-observability）。建好後記得更新 index.html（加分組區塊與卡片、進度改 30/30）與本檔表格。
+
+| # | 題目 | 分組 / 目錄 | demo 核心考點 | 埠 |
+|---|---|---|---|---|
+| ㉓ | 唯一 ID Snowflake | H `H-infra-primitives/23-snowflake-id` | 64-bit：時間戳41+機器10+序號12、同毫秒序號遞增、時鐘回撥處理、解碼還原 | 8023 |
+| ㉔ | OAuth/SSO 認證 | **新 I** `I-auth-security/24-oauth-sso` | 授權碼流程、token 簽發/刷新/撤銷、code 單次使用、HMAC 簽 JWT | 8024 |
+| ㉕ | 分散式訊息佇列 Kafka | H `H-infra-primitives/25-message-queue` | 主題分區、依 key 分區、消費者組 offset、重放、分區內有序、rebalance | 8025 |
+| ㉖ | 全文搜尋 Twitter Search | G `G-search-index/26-fulltext-search` | 倒排索引、tokenize、BM25/TF-IDF 排序、AND/OR 查詢 | 8026 |
+| ㉗ | 指標監控 Prometheus | **新 J** `J-observability/27-metrics-monitoring` | 時序庫(name+labels)、scrape、counter/gauge、rate/聚合查詢、告警規則 firing/resolved | 8027 |
+| ㉘ | 秒殺 Ticketmaster | C `C-consistency-txn/28-flash-sale` | 極端寫熱點、原子條件扣減防超賣、入場令牌/排隊削峰、每人限購冪等 | 8028 |
+| ㉙ | 遊戲排行榜 Leaderboard | D `D-stream-storage/29-leaderboard` | Redis ZSET 語意：zadd/zrank/top-K/我的名次±鄰居、更新即重排、分窗榜 | 8029 |
+| ㉚ | 視訊會議 Zoom | B `B-realtime-sync/30-video-conferencing` | 信令交換(SDP/ICE)、SFU vs MCU、轉發表、simulcast 分層依頻寬降階、active speaker | 8030 |
+
+分組標籤：I="🅸 認證/安全"(tag "I 認證/安全")、J="🅹 可觀測性"(tag "J 可觀測性")。圓圈編號 ㉓㉔㉕㉖㉗㉘㉙㉚。建議時間：23=35 24=48 25=50 26=46 27=42 28=45 29=38 30=50 分。
+省 token 可分批（一次 2–3 題、做完就 push）。
+
+### 其餘可選
+- [ ] 把各 demo 的「示意」元件換成真套件：QR→`endroid/qr-code`、RAG→真向量嵌入、LLM→真模型；系統邏輯不需改。
+- [ ] 依 framework.html 自我計時重做每題、補充個人筆記。
+- [ ] 30 題之後的更多題庫維度（地圖路徑/視訊白板/物件儲存 S3/分散式鎖/工作流引擎/推薦系統/Email/Splitwise 等）見對話推薦清單，可再擴充。
 
 ## 模擬面試進度（① QR Code，當大師教學用）
 進行到一半，暫停點如下，下次可從這裡接續：
