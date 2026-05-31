@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系統設計框架小抄 · 練習前必看</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="index.html">← 回總覽</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>🎓 系統設計框架小抄</h1>
+  <p class="subtitle">每次練習前看一遍。目標不是背架構，是練出「需求 → 約束 → 有理由的取捨」的反射。</p>
+
+  <div class="box danger">
+    <span class="label">心法零：你被考的是 signal，不是答案</span>
+    面試官評分勾的是：<strong>你能不能從需求推導出約束，再推導出有理由的取捨</strong>。
+    「我選 X 因為這題讀寫比 100:1」比「我會用 Kafka+Redis」值錢十倍。
+  </div>
+
+  <h2>⏱️ 45 分鐘時間盒</h2>
+  <table>
+    <tr><th>時間</th><th>階段</th><th>大師關鍵動作</th></tr>
+    <tr><td>0–5</td><td>需求釐清</td><td>砍範圍；講出假設；<strong>指出哪個非功能需求主宰全局</strong></td></tr>
+    <tr><td>5–8</td><td>規模估算</td><td>只算「會改變設計的數字」（QPS、讀寫比、儲存）</td></tr>
+    <tr><td>8–13</td><td>API + 資料模型</td><td>定合約：實體、存取模式</td></tr>
+    <tr><td>13–25</td><td>高階架構</td><td>先畫能跑通的<strong>最簡 happy path</strong>，別一開始就分散式</td></tr>
+    <tr><td>25–40</td><td>⭐ 深入 deep dive</td><td>挑 2–3 個被主宰需求逼出的難點，深挖 + 取捨（signal 全在這）</td></tr>
+    <tr><td>40–45</td><td>收尾</td><td>主動講瓶頸、故障模式、「更多時間我會…」</td></tr>
+  </table>
+
+  <h2>🧩 5 個模式（14 題的壓縮）</h2>
+  <table>
+    <tr><th>模式</th><th>本質</th><th>題目</th></tr>
+    <tr><td>A 通知 / Fan-out</td><td>事件 → 大規模可靠投遞</td><td>地震 · 價格 · Webhook</td></tr>
+    <tr><td>B 即時連線</td><td>長連線 + 狀態同步</td><td>Messenger · Docs · RoboTaxi</td></tr>
+    <tr><td>C 一致性 / 交易</td><td>不能超賣 / 雙花</td><td>Polymarket · Bookings</td></tr>
+    <tr><td>D 串流 / 儲存分發</td><td>讀爆 + 大檔分發</td><td>QR · Spotify · YouTube</td></tr>
+    <tr><td>E AI / LLM</td><td>非同步工作流 + GPU 吞吐</td><td>ChatGPT · RAG · 推論</td></tr>
+  </table>
+
+  <h2>🔧 積木 × 故障模式（要能講出「它何時害死你」）</h2>
+  <ul>
+    <li><strong>快取</strong> → 失效策略、雪崩、讀到舊值</li>
+    <li><strong>訊息佇列</strong> → at-least-once ⇒ 必須<strong>冪等</strong>；失敗 ⇒ DLQ</li>
+    <li><strong>DB 分片</strong> → 跨片交易痛、熱點 key</li>
+    <li><strong>讀複本</strong> → 主從延遲 ⇒「讀自己的寫」會失敗</li>
+    <li><strong>WebSocket</strong> → 連線狀態放哪？哪台 server？⇒ Redis Pub/Sub 轉發</li>
+    <li><strong>CDN / 物件儲存</strong> → 失效、回源風暴、冷啟動</li>
+  </ul>
+
+  <h2>⚖️ 取捨句型（每個決策都套）</h2>
+  <div class="box tip">
+    「我會選 <strong>X</strong> 而不是 <strong>Y</strong>，因為這題 <strong>___需求</strong> 主宰；
+    代價是 <strong>___</strong>，但可接受，因為 <strong>___</strong>。」
+  </div>
+  <p>常見取捨軸：一致性 ↔ 可用性 · 延遲 ↔ 成本 · 讀優化 ↔ 寫優化 · 強一致 ↔ 最終一致</p>
+
+  <h2>💀 5 個致命破綻（自我檢查）</h2>
+  <ol>
+    <li>還沒問需求就開始畫架構</li>
+    <li>算了估算卻沒拿來用</li>
+    <li>只給唯一正解，講不出替代方案</li>
+    <li>深挖簡單部分炫技，略過真正難點</li>
+    <li>完全不提故障與規模成長</li>
+  </ol>
+
+  <h2>🔁 刻意練習迴圈</h2>
+  <pre><code>冷啟動限時做 → 對照 reference(notes.html) → 找出落差
+（缺積木？漏取捨？時間沒分配好？）→ 針對性補 → 重做</code></pre>
+
+  <footer>系統設計框架小抄 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>
