@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉗ 指標監控系統 Prometheus · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅹 可觀測性</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉗ 指標監控系統 Prometheus：從 scrape 到告警的時序資料庫</h1>
+  <p class="subtitle">
+    <span class="tag group">J 可觀測性</span>
+    <span class="tag time">建議 42 分鐘</span>
+    <span class="tag">Design a Metrics &amp; Monitoring System (Prometheus)</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>pull 模型的時序資料庫（TSDB）+ 多維度 label 模型 + PromQL 查詢 + 告警狀態機</strong>」。
+    難點不在「存數字」，而在 <em>series 的高基數（cardinality）爆炸</em>、<em>rate() 對 counter reset 的正確處理</em>、以及 <em>pull vs push</em> 的取捨。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（高基數 / 聯邦 / 遠端儲存）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>從大量 target 收集<strong>指標（metrics）</strong>：每個 target 暴露 <code>/metrics</code>（Prometheus 曝露格式），系統定時拉取。</li>
+    <li>支援多維度 <strong>label</strong>：<code>http_requests_total{method="GET",code="200"}</code>，可依任意 label 切片聚合。</li>
+    <li>支援查詢語言：取最新值（instant）、<code>rate()</code>/<code>increase()</code>、<code>sum/avg by(label)</code> 聚合。</li>
+    <li>支援<strong>告警規則</strong>：表達式（如 rate &gt; 閾值）持續 <code>for</code> 一段時間後觸發。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>監控四黃金訊號</strong>：延遲（latency）、流量（traffic）、錯誤（errors）、飽和度（saturation）。</li>
+    <li><strong>高寫入吞吐</strong>：每秒數百萬樣本（samples/s）。</li>
+    <li><strong>查詢低延遲</strong>：儀表板（Grafana）需秒級回應。</li>
+    <li><strong>可靠性優先於完整性</strong>：監控系統本身必須比被監控者更穩；漏一兩個樣本可接受，但不能掛。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「metrics、logs、traces 三者要哪個？」本題是 <strong>metrics</strong>（數值型、可聚合、低成本、適合告警）。logs 是離散事件文字、traces 是單請求跨服務鏈路——三者互補但儲存與查詢模型完全不同。接著問「<strong>pull 還是 push</strong>？」Prometheus 是 pull（主動 scrape），這決定了 service discovery 與 target 健康判斷的設計。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>active series 數（基數）</td><td>1 萬 target × 每台 100 series</td><td>~<strong>100 萬</strong> active series</td></tr>
+    <tr><td>scrape 間隔</td><td>每 15 秒拉一次</td><td>樣本率 ≈ 100萬 / 15 ≈ <strong>6.7 萬 samples/s</strong></td></tr>
+    <tr><td>單樣本儲存</td><td>delta 壓縮後 ~1.5~2 bytes/sample</td><td>未壓縮 16B（8B 時間+8B 值）→ 壓縮率 ~10×</td></tr>
+    <tr><td>儲存（15 天保留）</td><td>6.7萬 × 86400 × 15 × 2B</td><td>≈ <strong>170 GB</strong>（壓縮後本地磁碟）</td></tr>
+    <tr><td>查詢</td><td>Grafana 多面板每 10s 刷新</td><td>查詢命中近期 block / 記憶體 head，需索引加速</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>成本與規模幾乎完全由 <strong>cardinality（series 數）</strong>決定，而非樣本率。一個高基數 label（如把 user_id、request_id 放進 label）就能讓 series 從幾千暴增到數百萬，拖垮記憶體與索引——這是 Prometheus 的頭號運維事故來源。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># target 暴露指標（被 scrape，曝露格式 exposition format）
+GET /metrics
+→ 200 text/plain
+  # TYPE http_requests_total counter
+  http_requests_total{method="GET",code="200"} 1027
+  # TYPE process_resident_memory_bytes gauge
+  process_resident_memory_bytes 5.1e7
+
+# 餵入 / 模擬 scrape 一批樣本（本 demo）
+POST /api/scrape    Body: 曝露格式文字  或  application/json { "samples":[{name,labels,value,type}] }
+→ 200 { "ingested": 3, "ts": 1717200000000 }
+
+# 查詢（PromQL 簡化語法）
+GET /api/query?expr=instant process_resident_memory_bytes
+GET /api/query?expr=rate http_requests_total[60]          # 60 秒窗每秒變化率
+GET /api/query?expr=sum http_requests_total by(method)    # 依 method 分組加總
+
+# 告警狀態
+GET /api/alerts → { "alerts": { "HighRequestRate": { "state":"firing", ... } } }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>series（時間序列）= metric name + 一組 labels，唯一識別一條曲線
+  http_requests_total{method="GET",code="200"}   ← 一條 series
+  http_requests_total{method="POST",code="200"}  ← 另一條（labels 不同）
+
+sample（樣本）= (timestamp 毫秒, float value)，append 到所屬 series
+  series A: (t0, 1000) (t1, 1027) (t2, 1100) ...
+
+型別：
+  counter  單調遞增（總請求/總錯誤）；重啟會 reset 歸零 → rate() 必須補回
+  gauge    可上可下（記憶體、佇列長度、溫度）
+  （延伸：histogram / summary 用多條 series 表示分位數）
+
+曝露格式（exposition format）：每行一個樣本，# TYPE 宣告型別</code></pre>
+  <div class="box"><span class="label">為何是「name + 排序後 labels」當 key</span><code>{a="1",b="2"}</code> 與 <code>{b="2",a="1"}</code> 必須對到<strong>同一條 series</strong>。實作上把 labels 依 key 排序再序列化成穩定字串當索引鍵；真實 Prometheus 用倒排索引（label→series 集合）加速「依 label 篩選」的查詢。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> Targets(/metrics) ──┐
+ Targets(/metrics) ──┤   Service Discovery（k8s/consul/檔案）
+ Targets(/metrics) ──┘            │ 提供 target 清單
+                                  ▼
+                       ┌──────────────────────┐
+                       │  Prometheus Server    │ 定時 scrape（pull, 藍）
+                       │  ┌────────────────┐   │
+                       │  │ 本地 TSDB      │   │ series 表 + WAL + block
+                       │  └────────────────┘   │
+                       │  PromQL 引擎(rate/sum) │ ← 查詢（綠）
+                       └──────────┬────────────┘
+                       告警規則評估 │
+                                  ▼
+                          Alertmanager（去重/分組/靜默/路由 → Slack/PagerDuty）
+
+ Grafana ──查詢──▶ Prometheus（視覺化儀表板）</code></pre>
+  <ol>
+    <li><strong>Service Discovery</strong>：動態取得要 scrape 的 target 清單（k8s pod、consul、靜態檔），target 來去自動納入/移除。</li>
+    <li><strong>Prometheus Server</strong>：定時 pull 每個 target 的 <code>/metrics</code>，打上 scrape 時間戳，寫入本地 TSDB。</li>
+    <li><strong>PromQL 引擎</strong>：對 TSDB 跑 instant / range 查詢（rate、increase、aggregation）。</li>
+    <li><strong>Alertmanager</strong>：接收 firing 告警，做去重、分組、靜默、抑制與路由通知（與評估解耦）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>pull 模型與 service discovery</h3>
+  <ul>
+    <li>Prometheus <strong>主動拉取</strong>，好處：target 不需知道後端在哪、天然得到「能否 scrape 成功」當作健康訊號（<code>up</code> 指標）、易於本機測試（直接 curl <code>/metrics</code>）。</li>
+    <li>缺點：短命任務（batch job）還沒被 scrape 就結束 → 用 <strong>Pushgateway</strong> 暫存；防火牆內的 target 需可被 Prometheus 連到。</li>
+  </ul>
+  <h3>TSDB 與時間窗</h3>
+  <ul>
+    <li>近期樣本進記憶體 <strong>head block</strong> + WAL（防當機遺失），定期切成不可變 <strong>block</strong> 落盤並壓縮（delta-of-delta 時間 + XOR 值編碼，~1.5B/sample）。</li>
+    <li>查詢是<strong>時間窗</strong>操作：range query 取一段時間的樣本陣列再套函式。</li>
+  </ul>
+  <h3>PromQL：rate / increase / aggregation 與 counter reset</h3>
+  <ul>
+    <li><code>rate(counter[5m])</code> = 窗內（最後值 − 第一值）/ 時間差，得「每秒平均增速」。</li>
+    <li><strong>counter reset 處理（重點）</strong>：counter 應只增不減；若相鄰樣本後值 &lt; 前值，代表 target 重啟歸零。rate 必須<strong>把下降的那段補回</strong>（視後值為從 0 重新累計），否則會算出負速率或嚴重低估。本 demo 的 <code>rate()</code> 真實實作了這個補償。</li>
+    <li><code>sum by(label)</code>：跨多條 series 取最新值加總，可依某 label 分組（如 <code>sum by(code)(rate(...))</code> 看各狀態碼速率）。</li>
+  </ul>
+  <h3>告警 for 持續時間與 firing/resolved 狀態機</h3>
+  <ul>
+    <li>規則 <code>expr</code> 成立後不立即告警，先進 <strong>pending</strong>；持續成立達 <code>for</code> 時長才升為 <strong>firing</strong>（過濾瞬時抖動，降低噪音）。</li>
+    <li>條件解除 → <strong>resolved</strong>（回 inactive）。狀態流轉：<code>inactive → pending → firing → resolved</code>。</li>
+  </ul>
+  <h3>label cardinality 爆炸風險</h3>
+  <ul>
+    <li>每個獨特 label 值組合都是一條<strong>新 series</strong>，吃記憶體與索引。把高基數欄位（user_id、email、完整 URL、trace_id）放進 label = 自爆。</li>
+    <li>守則：label 值集合要<strong>有界且低基數</strong>（method、status code、region 這類列舉值）。高基數資訊應放 logs/traces，而非 metrics label。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸（高基數 / 聯邦 / 遠端儲存）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機記憶體</td><td>active series 太多（高基數）</td><td>限制 label 基數、relabel 丟棄高基數 series、metric_relabel_configs</td></tr>
+    <tr><td>單機抓不完</td><td>target 數超過單 Prometheus 負荷</td><td><strong>水平分片</strong>：多台 Prometheus 各抓一部分 target（依 hash/標籤分配）</td></tr>
+    <tr><td>跨叢集彙總</td><td>要全域視圖</td><td><strong>聯邦 federation</strong>：上層 Prometheus scrape 下層的彙總指標（只抓聚合後少量 series）</td></tr>
+    <tr><td>長期保留</td><td>本地磁碟只留 15 天</td><td><strong>remote write</strong> 到遠端儲存（Thanos / Cortex / Mimir / VictoriaMetrics），長期 + 全域查詢</td></tr>
+    <tr><td>查詢爆量</td><td>大範圍 range query 慢</td><td><strong>recording rules</strong> 預先算好常用聚合，存成新 series</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>pull vs push</strong>：pull 天然有健康檢查（<code>up</code>）、易除錯、target 解耦；push 適合短命任務與防火牆穿透。Prometheus 選 pull，短命任務用 Pushgateway 補。</li>
+    <li><strong>本地 TSDB vs 遠端儲存</strong>：本地讀寫快、運維簡單、但保留期與全域視圖受限；遠端（remote write）換來長期 + 跨叢集，代價是複雜度與一致性。</li>
+    <li><strong>取樣精度 vs 成本</strong>：scrape 間隔越短（如 5s）解析度越高但樣本量與儲存成本線性上升；多數場景 15~30s 足夠，關鍵服務才縮短。</li>
+    <li><strong>metrics vs logs vs traces</strong>：metrics 便宜可告警但維度有限；別把高基數塞進 label，該用 logs/traces 的就用它們。</li>
+    <li><strong>常見追問</strong>：counter 重啟 rate 為何不會變負？→ reset 補償。如何避免告警風暴？→ <code>for</code> 抑制抖動 + Alertmanager 分組/去重/抑制。如何看「服務有沒有在」？→ <code>up == 0</code>。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 用 PHP 內建伺服器把 <strong>TSDB 核心邏輯</strong>做成真實可跑：</p>
+  <ul>
+    <li><code>src/Tsdb.php</code>　series 識別（name+排序 labels 序列化）、scrape 解析曝露格式、<code>append</code> 樣本、<code>instant</code>/<code>rate</code>（含 <strong>counter reset 補償</strong>）/<code>sumBy</code>、告警狀態機（<code>inactive→pending→firing→resolved</code>），以 <code>flock</code> 持久化到 JSON。</li>
+    <li><code>public/index.php</code>　路由 <code>POST /api/scrape</code>、<code>GET /metrics</code>、<code>GET /api/query?expr=</code>、<code>GET /api/alerts</code>，並附測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8027 -t public
+# 瀏覽器開 http://localhost:8027：按幾次 Scrape（counter 值逐次調大）→ 跑 rate/sum → 看告警 firing</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機 JSON 模擬 TSDB</strong>；<strong>series 識別、scrape 解析、樣本追加、instant/rate（含 counter reset）/sum 查詢、告警狀態機皆為真實可執行邏輯</strong>。<strong>未做</strong>樣本壓縮、高基數最佳化、保留期回收、remote write 與聯邦。要接真 Prometheus，把本系統 <code>/metrics</code> 當作一個 exporter target 設進 <code>scrape_configs</code> 即可。
+  </div>
+
+  <footer>㉗ 指標監控系統 Prometheus · J 可觀測性 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

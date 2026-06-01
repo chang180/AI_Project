@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉚ 視訊會議 Zoom · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉚ 視訊會議 Zoom：信令握手 + SFU 媒體轉發</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag time">建議 50 分鐘</span>
+    <span class="tag">Design a Video Conferencing System (Zoom)</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>WebRTC 信令交換（SDP/ICE）+ 媒體轉發拓樸選型（SFU vs MCU vs Mesh）+ 頻寬自適應（simulcast 分層）</strong>」的題型。
+    兩人視訊很簡單（P2P 直連即可）；面試真正考的是 <em>N 人會議時媒體怎麼走</em>——
+    為什麼大房間一定要 <strong>SFU 中央轉發</strong>，以及訂閱者頻寬變動時 SFU 如何<strong>自動為他挑選 high/mid/low 層級</strong>、誰才是當下要放大的<strong>主講者</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計（信令）</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>多人即時視訊/音訊會議：建立 room、peer 加入/離開。</li>
+    <li><strong>WebRTC 連線建立</strong>：peer 之間交換 SDP（offer/answer）與 ICE candidates，協商出可用的媒體路徑。</li>
+    <li><strong>視訊品質自適應</strong>：網路變差自動降畫質、變好升回來（不卡頓優先於高畫質）。</li>
+    <li><strong>主講者放大</strong>：偵測當前說話的人，前端放大其畫面。</li>
+    <li>螢幕分享、會議錄製（伺服器端混流存檔）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：互動式對話 端到端 &lt; 200ms（超過會明顯打斷對話節奏）。</li>
+    <li><strong>高可用</strong>：媒體伺服器掛掉要能快速重連、就近接管。</li>
+    <li><strong>可擴展</strong>：從 2 人到上百人大房，再到萬人 webinar（單向廣播）。</li>
+    <li><strong>NAT 穿透</strong>：大多數使用者在防火牆/NAT 後，需 STUN/TURN 才能連通。</li>
+    <li><strong>頻寬友善</strong>：弱網使用者不該拖垮整場會議。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「房間多大？」決定媒體拓樸：<strong>2~3 人</strong> 可 P2P / Mesh；<strong>數人到上百人</strong> 必須走 SFU；<strong>需錄製/相容老設備</strong> 才考慮 MCU 混流。先問清楚規模再選型，是本題拿分關鍵。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>單路視訊位元率</td><td>720p ≈ 1.5 Mbps、360p ≈ 0.5 Mbps</td><td>simulcast 同時送多層，上行需 high+mid+low 疊加 ≈ 2.5 Mbps</td></tr>
+    <tr><td>N 人房（SFU）流數</td><td>每人上行 1、下行 N−1</td><td>房內總流數 = N×(N−1)，但<strong>每個 client 上行只 1 條</strong></td></tr>
+    <tr><td>50 人房 SFU 出口</td><td>每人下行收 49 路（混合層）≈ 平均 0.4 Mbps/路</td><td>單 SFU 出口 ≈ 50×49×0.4 ≈ <strong>~1 Gbps</strong></td></tr>
+    <tr><td>Mesh 對比</td><td>每人要直連其他 N−1 人、各自編碼上傳</td><td>上行 = (N−1)×單路，10 人就上行 ~13 Mbps，<strong>client 先爆</strong></td></tr>
+    <tr><td>信令量</td><td>SDP 數 KB、ICE 數十條 candidate</td><td>僅連線建立時突發，穩態幾乎為 0 → 信令與媒體可分開擴展</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>瓶頸不在信令（量小），而在<strong>媒體下行頻寬</strong>。SFU 把「每人對每人編碼」變成「每人只上行一次、由伺服器轉發」，將 client 端的 O(N) 上行壓回 O(1)，代價是 SFU 出口頻寬成為新瓶頸。</div>
+
+  <h2 id="api">3. API 設計（信令）</h2>
+  <p>信令走 WebSocket（這裡 demo 用 HTTP 端點模擬訊息交換）。媒體<strong>不經</strong>這些 API，直接走 SFU。</p>
+  <pre><code># 加入會議（建立/進入 room，回傳 peer_id 與目前成員）
+POST /api/join            Body: { "room": "r1", "name": "Alice" }
+→ { "peer_id": "p1", "peers": ["p1"] }
+
+# 交換 SDP（offer 由發起方送，answer 由對端回；信令伺服器只中繼）
+POST /api/sdp            Body: { "room":"r1","from":"p1","to":"p2","type":"offer","sdp":"v=0..." }
+
+# 交換 ICE candidate（NAT 穿透候選路徑，邊收集邊送，trickle ICE）
+POST /api/ice            Body: { "room":"r1","from":"p1","to":"p2","candidate":"candidate:..." }
+
+# 查 room 狀態：成員、SFU 轉發表、各訂閱者目前選到的 simulcast 層、主講者
+GET  /api/room/{id}      → { "peers":[...], "forwarding":[...], "active_speaker":"p2" }
+
+# 設定某訂閱者可用頻寬 → SFU 回傳為他挑選的層級（自適應降/升階）
+POST /api/bandwidth      Body: { "room":"r1","peer":"p2","kbps":400 } → { "layer":"mid" }
+
+# 回報音量（audio level）→ SFU 重新選出主講者
+POST /api/audio          Body: { "room":"r1","peer":"p2","level":0.83 } → { "active_speaker":"p2" }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>room
+  id            VARCHAR  PRIMARY KEY
+  created_at    TIMESTAMP
+
+peer (room 內一名參與者)
+  peer_id       VARCHAR
+  room_id       VARCHAR
+  name          VARCHAR
+  bandwidth_kbps INT          -- 該 peer 目前下行可用頻寬（用於選層）
+  audio_level   FLOAT         -- 最近回報音量 0~1（用於選主講者）
+
+signal (信令信箱：暫存 SDP/ICE 待對端取走，模擬中繼)
+  room_id, from_peer, to_peer, kind('sdp'|'ice'), payload, ts
+
+forwarding_table (SFU 轉發表：room 內「誰的上行 → 轉給誰」)
+  room_id, publisher(上行的 peer), subscriber(收的 peer), layer('high'|'mid'|'low')
+
+simulcast 層定義
+  high = 720p ~1500kbps / mid = 360p ~500kbps / low = 180p ~150kbps</code></pre>
+  <div class="box"><span class="label">為何要轉發表</span>SFU 的本質就是這張表：N 人房裡，<strong>每個 publisher 的上行流，要為每個 subscriber 各拉一條下行</strong>，且每條下行可挑不同 simulcast 層（看訂閱者頻寬）。表的規模是 N×(N−1)，但每個 client 仍只上行一條。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 信令面（藍，量小、僅建連時突發）
+   Peer ──WebSocket──▶ 信令伺服器 ──中繼 SDP/ICE──▶ 對端 Peer
+                          │（協助協商，但不碰媒體）
+ 媒體面（綠/黃，量大、穩態持續）
+   Peer ──上行 1 條──▶  ┌──────────┐  ──下行 N−1 條（各挑層）──▶ 其他 Peer
+                        │   SFU    │
+   Peer ──上行 1 條──▶  │ 轉發表+   │  ──下行（high/mid/low）──▶ 其他 Peer
+                        │ 選層+主講 │
+                        └──────────┘
+ 基建（黃）：STUN（查自己公網位址）/ TURN（直連不通時中繼）穿透 NAT</code></pre>
+  <ol>
+    <li><strong>信令伺服器</strong>：純訊息中繼，幫兩端交換 SDP/ICE，協商出媒體參數與路徑；不承載媒體，故輕量、易水平擴展。</li>
+    <li><strong>SFU（Selective Forwarding Unit）</strong>：媒體核心。收每人一條上行，依轉發表把流選擇性轉給訂閱者，並為每個訂閱者按頻寬挑 simulcast 層。</li>
+    <li><strong>STUN/TURN</strong>：STUN 讓 peer 得知自己的公網 IP:port；直連真的不通時用 TURN 中繼（最後手段，耗頻寬）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>WebRTC 信令握手（SDP / ICE）</h3>
+  <ul>
+    <li><strong>SDP offer/answer</strong>：發起方產生 offer（描述自己支援的編解碼、媒體軌），對端回 answer，雙方據此達成媒體格式共識。信令伺服器只負責把這兩段文字搬給對方。</li>
+    <li><strong>ICE candidate</strong>：每端收集多條可能路徑（主機位址、STUN 反射位址、TURN 中繼位址），逐條交換並連通性測試，選出最佳路徑。<strong>trickle ICE</strong>＝邊收集邊送，不等全部收完，縮短建連時間。</li>
+  </ul>
+  <h3>STUN / TURN / ICE 穿透 NAT</h3>
+  <ul>
+    <li><strong>STUN</strong>：問「我在公網長怎樣？」回一個反射位址，多數 NAT 可藉此打洞直連。</li>
+    <li><strong>TURN</strong>：對稱型 NAT 打洞失敗時，所有媒體經 TURN 伺服器中繼——能連通但成本高、增延遲，是 fallback。</li>
+  </ul>
+  <h3>媒體拓樸：SFU vs MCU vs Mesh（本題核心取捨）</h3>
+  <table>
+    <tr><th>拓樸</th><th>媒體怎麼走</th><th>client 上行</th><th>client 下行</th><th>伺服器負擔</th><th>適用</th></tr>
+    <tr><td><strong>Mesh / P2P</strong></td><td>每人直連其他每人</td><td>N−1 條（各自編碼）</td><td>N−1 條</td><td>無（省伺服器）</td><td>2~3 人小房</td></tr>
+    <tr><td><strong>SFU</strong></td><td>每人上行 1，伺服器轉發</td><td><strong>1 條</strong></td><td>N−1 條</td><td>轉發（不解碼，省 CPU）</td><td>數人~上百人（主流）</td></tr>
+    <tr><td><strong>MCU</strong></td><td>伺服器解碼混成 1 路再送回</td><td>1 條</td><td><strong>1 條</strong>（混好的）</td><td>解碼+混流（吃 CPU、增延遲）</td><td>錄製/相容老設備/超弱網</td></tr>
+  </table>
+  <div class="box"><span class="label">一句話記</span><strong>Mesh client 上行爆</strong>（N−1 路各自編碼）；<strong>MCU 伺服器 CPU 爆</strong>（要解碼混流還增延遲）；<strong>SFU 取折衷</strong>——伺服器只轉發不解碼省 CPU，client 上行只 1 條，代價是 SFU 下行與出口頻寬大。大房間幾乎都選 SFU。</div>
+  <h3>simulcast / SVC 分層自適應</h3>
+  <ul>
+    <li><strong>simulcast</strong>：發送端<strong>同時編碼 high/mid/low 三層</strong>一起上行；SFU 依每個訂閱者的可用頻寬，<strong>選一層轉發給他</strong>（不需轉碼）。弱網的人收 low、好網的人收 high，互不影響。</li>
+    <li><strong>降/升階</strong>：訂閱者頻寬下降 → SFU 自動切到較低層（high→mid→low）保流暢；頻寬回升 → 升回較高層。這就是「視訊品質自適應」的伺服器側實作。</li>
+    <li><strong>SVC</strong>（可分級編碼）：單一串流內含多層，SFU 丟棄高層子流即可降階，比 simulcast 更省上行頻寬，但編碼較複雜。</li>
+  </ul>
+  <h3>active speaker 偵測</h3>
+  <p>每個 client 持續回報自己的 <strong>audio level</strong>；SFU 選出當前最大音量者為主講者，下發給所有人 → 前端把主講者畫面放大、優先給高層。Demo 即實作此「選最大音量」邏輯。</p>
+  <h3>頻寬估計 BWE</h3>
+  <p>接收端與 SFU 持續估計可用頻寬（依丟包、延遲抖動 RTT），作為 simulcast 選層的輸入。BWE 是自適應的「感測器」，選層是「執行器」。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>小房</td><td>無</td><td>P2P/Mesh，連 SFU 都省了</td></tr>
+    <tr><td>單 SFU 出口</td><td>下行頻寬（~Gbps 級）</td><td>每訂閱者選層降量；限制同時收的高層路數</td></tr>
+    <tr><td>超大房 / webinar</td><td>N×(N−1) 流數爆炸</td><td><strong>分頁訂閱</strong>：只訂閱主講者+少數可見者的流，其餘暫停下行</td></tr>
+    <tr><td>單機容量上限</td><td>單 SFU 撐不住一場大會</td><td><strong>級聯 SFU</strong>：多台 SFU 互聯，跨機只傳一份再本地扇出</td></tr>
+    <tr><td>全球延遲</td><td>跨洲 RTT</td><td><strong>地理就近</strong>：選離使用者最近的 SFU，級聯彼此互聯</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>SFU vs MCU</strong>：SFU 不解碼省 CPU、延遲低，但每訂閱者要一條下行（下行頻寬大）；MCU 混成一路省下行頻寬，但解碼混流貴又增延遲。大房選 SFU，需錄製/超弱網/相容老端才考慮 MCU。</li>
+    <li><strong>P2P vs SFU</strong>：小房 P2P 省伺服器、延遲最低；人一多 client 上行就爆（Mesh 的 N−1 路），改 SFU 把上行壓回 1 條。</li>
+    <li><strong>simulcast vs SVC vs 轉碼</strong>：simulcast 多送幾層耗上行但 SFU 零轉碼；SVC 省上行但編碼複雜；伺服器端轉碼最省上行卻吃 CPU 又增延遲（退化成 MCU 的缺點）。</li>
+    <li><strong>強一致 vs 體驗</strong>：媒體面追求低延遲與流暢，可丟包不重傳（過時的視訊幀沒意義）；信令面才需可靠交付。</li>
+    <li><strong>常見追問</strong>：對稱型 NAT 怎麼辦？→ TURN 中繼。大房怎麼不卡？→ 分頁訂閱+選層+只給主講者高層。怎麼錄製？→ 伺服器側拉流混流存檔（近似 MCU）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>信令交換與 SFU 決策邏輯</strong>（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Sfu.php</code>　核心：room/peer 管理、信令信箱（SDP/ICE 中繼）、SFU 轉發表建立、<strong>依頻寬選 simulcast 層</strong>、<strong>選 active speaker</strong>。</li>
+    <li><code>public/index.php</code>　路由：join / sdp / ice / room 狀態 / bandwidth / audio，並附簡易測試頁（建 room、多 peer 加入、貼 SDP/ICE、看轉發表、調頻寬看降階、回報音量看主講者）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8030 -t public
+# 瀏覽器開 http://localhost:8030 建 room、加多個 peer，觀察轉發表與選層</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo <strong>不含真實媒體傳輸與 WebRTC</strong>（PHP 環境無 UDP/SRTP/編解碼）；它純模擬<strong>信令中繼</strong>與 SFU 的<strong>轉發表、依頻寬選層、主講者偵測等決策邏輯</strong>——這些「決策」正是系統設計面試的核心，且<strong>邏輯為真實可執行</strong>。真實系統會把同樣的決策接到 mediasoup / Janus / Pion 等 SFU 引擎上。
+  </div>
+
+  <footer>㉚ 視訊會議 Zoom · B 即時連線/同步 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

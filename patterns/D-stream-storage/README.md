@@ -16,3 +16,7 @@
 | 01 | QR Code 生成器 | 無狀態擴展、短碼/雜湊、快取、百萬級請求（**本組範本**） |
 | 06 | Spotify 趨勢榜 | 串流計數、Top-K 近似、時間衰減、實時排行 |
 | 10 | YouTube | PB 級影片儲存、轉碼管線、CDN 分發、自適應串流 |
+| 20 | Dropbox 檔案同步 | 分塊去重、增量 delta 同步、衝突副本 |
+| 21 | 直播（Twitch） | 低延遲 HLS 滑動視窗 manifest、聊天 fan-out |
+| 22 | 廣告點擊聚合 | 去重 exactly-once、防欺詐、tumbling window |
+| 29 | 遊戲排行榜 | Redis ZSET 語意、Top-K、我的名次±鄰居、分窗榜 |

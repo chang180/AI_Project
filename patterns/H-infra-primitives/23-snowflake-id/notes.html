@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉓ 唯一 ID 產生器 Snowflake · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉓ 唯一 ID 產生器 Snowflake：分散式、無協調、可排序</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag time">建議 35 分鐘</span>
+    <span class="tag">Design a Unique ID Generator (Snowflake)</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>在多台機器上、不互相協調，就能各自產生全域唯一且大致時間有序的 64-bit ID</strong>」的問題。
+    單機自增是一行 <code>id++</code>；面試真正考的是 <em>分散式</em> 下如何同時做到<strong>唯一</strong>、<strong>趨勢遞增（可排序）</strong>、<strong>高吞吐</strong>、又<strong>不依賴中心發號者</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#layout">ID 位元佈局（核心）</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>產生<strong>全域唯一</strong>的 ID，供分散式系統當主鍵 / 訊息 id / 訂單號。</li>
+    <li><strong>趨勢遞增（roughly time-ordered）</strong>：後產生的 ID 數值通常較大，便於依時間排序、建索引。</li>
+    <li>ID 為<strong>數字</strong>且能塞進 64-bit 整數（DB BIGINT、語言 int64）。</li>
+    <li>可由 ID <strong>反解</strong>出產生時間、機器來源（除錯、分片）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高吞吐 / 低延遲</strong>：取號是熱路徑，每次 &lt; 1ms、本機記憶體運算，不該每次都打網路或 DB。</li>
+    <li><strong>高可用</strong>：發號掛了等於全站不能寫入 → 不能有單點。</li>
+    <li><strong>水平擴展</strong>：加機器就能線性提高總產量。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">為何不用 DB auto-increment？</span>
+    <ul>
+      <li><strong>協調瓶頸 / 單點</strong>：單一自增序列要嘛走單庫（吞吐天花板、單點），要嘛多庫設不同步長（運維脆弱、難擴）。</li>
+      <li><strong>跨分片不唯一</strong>：分庫分表後各自 auto-increment 會撞號。</li>
+      <li><strong>每次取號一次往返</strong>：高頻寫入時 DB 變熱點。</li>
+    </ul>
+  </div>
+  <div class="box warn">
+    <span class="label">為何不用 UUIDv4？</span>
+    <ul>
+      <li><strong>無序</strong>：隨機 128-bit，插入 B+Tree 主鍵造成<strong>頁分裂、索引碎裂</strong>、寫放大，快取局部性差。</li>
+      <li><strong>太長</strong>：128-bit / 36 字元字串，比 64-bit 整數占空間、比較慢。</li>
+    </ul>
+    Snowflake 用「時間在高位」換到<strong>趨勢遞增</strong>，同時保留分散式無協調的優點。（UUIDv7 把時間放高位也解了無序問題，見 §8 對比。）
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>佈局</th><th>推算</th></tr>
+    <tr><td>單機每毫秒</td><td>12 bit 序號</td><td>2¹² = <strong>4096</strong> 個 / ms</td></tr>
+    <tr><td>單機每秒</td><td>4096 × 1000</td><td>≈ <strong>409 萬</strong> 個 / 秒</td></tr>
+    <tr><td>叢集每秒</td><td>10 bit 機器 id</td><td>1024 機 × 409 萬 ≈ <strong>41.9 億</strong> 個 / 秒</td></tr>
+    <tr><td>時間可用年限</td><td>41 bit 毫秒</td><td>2⁴¹ ms ÷ (1000·60·60·24·365) ≈ <strong>69.7 年</strong></td></tr>
+    <tr><td>數值範圍</td><td>63 bit 正整數</td><td>最大 ~9.2×10¹⁸，落在 BIGINT / int64 內</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>瓶頸不在「能不能產生夠多」（41.9 億/秒綽綽有餘），而在<strong>時鐘</strong>（回撥、NTP 跳變）與<strong>機器 id 的分配與唯一性</strong>。整題的深度都在這兩點。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 產生一個 ID（本機記憶體運算，極低延遲）
+POST /api/id
+→ 200 { "id": 319639026040573952,
+        "decoded": { "timestamp": 1780275082414, "machineId": 1, "seq": 0 } }
+
+# 批次產生（一次取一段，攤平 RPC / 鎖成本）
+POST /api/id/batch   Body: { "n": 50 }
+→ 200 { "count": 50, "ids": [ ... ] }
+
+# 解碼（除錯用：由 ID 反推時間 / 機器 / 序號）
+GET /api/decode/{id}
+→ 200 { "timestamp": ..., "datetime": "2026-06-01 00:51:22.414 UTC",
+        "machineId": 1, "seq": 0 }
+</code></pre>
+  <div class="box"><span class="label">部署形態</span>取號器通常以<strong>函式庫</strong>內嵌在每個應用程式（如本 demo），或做成<strong>本機 sidecar / 同機服務</strong>，避免每次取號跨網路。上面的 HTTP API 主要是為了 demo 與跨語言共用。</div>
+
+  <h2 id="layout">4. ID 位元佈局（核心）</h2>
+  <p>Snowflake 把 64-bit 切成四段，<strong>時間放最高位</strong>是「趨勢遞增」的關鍵：時間大的 ID 數值一定大。</p>
+  <table>
+    <tr><th>欄位</th><th>位元數</th><th>範圍</th><th>作用</th></tr>
+    <tr><td>sign（保留）</td><td>1</td><td>固定 0</td><td>保持正整數，避免有號數變負</td></tr>
+    <tr><td>時間戳（ms）</td><td>41</td><td>0 .. 2⁴¹−1</td><td>自訂 epoch 起的毫秒；放高位 → 可排序、可用 ~69 年</td></tr>
+    <tr><td>機器 id</td><td>10</td><td>0 .. 1023</td><td>區分不同產生器；保證跨機唯一（不必協調）</td></tr>
+    <tr><td>序號 seq</td><td>12</td><td>0 .. 4095</td><td>同一毫秒內遞增，解決單機同毫秒撞號</td></tr>
+  </table>
+  <pre><code> 0 | 41 bits 時間戳(ms) | 10 bits 機器 id | 12 bits 序號
+ ^   ^                    ^                 ^
+sign 自訂 epoch 起的毫秒   0..1023           0..4095（同毫秒遞增）
+
+組合：  id = ((ts - EPOCH) &lt;&lt; 22) | (machineId &lt;&lt; 12) | seq
+EPOCH = 1704067200000   // 2024-01-01 00:00:00 UTC（毫秒）</code></pre>
+  <div class="box tip"><span class="label">為何自訂 epoch</span>用接近「上線時間」的 epoch 取代 1970，可讓 41 bit 的 ~69 年從上線那刻才開始算，最大化可用年限。位元分配可依需求調整（如機器多就多給機器 id、單機產量大就多給 seq），但總和固定 63 bit。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> App Server #1 ─┐  (內嵌 Snowflake，machineId=1)
+ App Server #2 ─┼─▶ 各自於本機記憶體取號，無中心協調 ──▶ 全域唯一 ID
+ App Server #N ─┘  (machineId=N)
+        ▲
+        │ 開機時註冊 / 領取唯一 machineId（黃色基建）
+   ┌──────────┐
+   │ ZooKeeper │  或 etcd / Redis
+   │  / etcd   │
+   └──────────┘</code></pre>
+  <ol>
+    <li><strong>無中心發號者</strong>：每台機器內嵌產生器，取號全在<strong>本機記憶體</strong>完成，不跨網路 → 無單點、極低延遲、線性擴展。</li>
+    <li><strong>唯一性怎麼來</strong>：靠 (時間戳 + 機器 id + 序號) 三者組合。只要<strong>機器 id 不重複</strong>、且<strong>同機時間單調</strong>，全域就唯一。</li>
+    <li><strong>唯一的協調點</strong>：只有「機器 id 的分配」需要一次性協調（開機時向 ZooKeeper/etcd 領一個），之後取號完全自治。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>同毫秒序號遞增</h3>
+  <p>同一毫秒內多次取號 → <code>seq = (seq + 1) &amp; 4095</code> 遞增；新的毫秒到來 → seq 歸零。</p>
+  <pre><code>if (now == lastTs) {
+    seq = (seq + 1) &amp; MAX_SEQ;        // 0..4095
+    if (seq == 0) now = waitNextMs(lastTs); // 序號用滿 → 自旋等到下一毫秒
+} else {
+    seq = 0;                          // 進入新毫秒，歸零
+}
+lastTs = now;</code></pre>
+  <div class="box"><span class="label">序號用滿（4096/ms）</span>極端高頻下單毫秒 4096 個用完 → <strong>自旋忙等</strong>到下一毫秒再發。這是 Snowflake 的硬上限，也是「為何單機產量 = 4096×1000」的由來。</div>
+
+  <h3>時鐘回撥（clock skew / NTP 校時）</h3>
+  <p>Snowflake 的單調性建立在「本機時鐘不倒退」上。但 NTP 校時、VM 暫停、閏秒都可能讓 <code>now &lt; lastTs</code>，若不處理會<strong>產生重複 ID</strong>。標準對策：</p>
+  <ul>
+    <li><strong>小幅回撥（如 ≤ 數毫秒）</strong>：<strong>自旋等待</strong>時鐘追上 <code>lastTs</code> 再發號，犧牲一點延遲換正確性。</li>
+    <li><strong>大幅回撥</strong>：<strong>拒絕發號並丟例外 / 告警</strong>，把該節點摘除，絕不冒重複風險。</li>
+    <li>進階：把 <code>lastTs</code> 週期性持久化，重啟時若發現系統時間早於它則拒絕啟動。</li>
+  </ul>
+
+  <h3>機器 id 分配（ZooKeeper / etcd）</h3>
+  <ul>
+    <li><strong>靜態設定</strong>：寫死在設定檔 / 環境變數。簡單，但容易人為設重複、擴縮容麻煩。</li>
+    <li><strong>ZooKeeper 順序節點</strong>：開機時在某路徑建立 <em>ephemeral sequential</em> 節點，取得的序號就是 machineId；節點是 ephemeral，機器掛掉 session 過期就釋放，可回收重用（Twitter 原版做法）。</li>
+    <li><strong>etcd / Redis 租約</strong>：用 lease/INCR 領一個唯一 id，定期續租；失聯則釋放。</li>
+    <li>關鍵不變式：<strong>同一時刻不得有兩台機器持有同一 machineId</strong>，否則同毫秒同 seq 會撞號。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>面向</th><th>瓶頸 / 風險</th><th>對策</th></tr>
+    <tr><td>產量</td><td>單機 4096/ms 上限</td><td>加機器（10 bit → 1024 台）；或調整位元分配多給 seq</td></tr>
+    <tr><td>機器數</td><td>10 bit 只夠 1024 台</td><td>重新分配位元（犧牲年限或 seq）；或機器 id 拆「資料中心 5 + worker 5」</td></tr>
+    <tr><td>時間年限</td><td>41 bit ≈ 69 年</td><td>用上線時間當 epoch；到期前升級佈局</td></tr>
+    <tr><td>時鐘</td><td>回撥 → 重複/亂序</td><td>回撥偵測（等待 / 拒絕）；可靠 NTP；禁用 step 大跳變</td></tr>
+    <tr><td>機器 id 唯一性</td><td>設定重複 → 撞號</td><td>ZooKeeper/etcd 集中分配 + 心跳回收</td></tr>
+    <tr><td>嚴格遞增 vs 趨勢遞增</td><td>跨機 ID 非全序</td><td>接受「趨勢遞增」即可；要全序得回到中心發號（犧牲擴展）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <table>
+    <tr><th>方案</th><th>唯一性</th><th>排序性</th><th>協調 / 依賴</th><th>適用</th></tr>
+    <tr><td><strong>Snowflake</strong></td><td>強（機器id+時間+seq）</td><td>趨勢遞增</td><td>僅機器 id 一次性分配</td><td>高吞吐、要可排序數字主鍵</td></tr>
+    <tr><td><strong>UUIDv4</strong></td><td>強（隨機）</td><td>無序</td><td>零協調、無狀態</td><td>不在乎排序、純去重</td></tr>
+    <tr><td><strong>UUIDv7</strong></td><td>強</td><td>時間有序（高位含 ms 時間）</td><td>零協調</td><td>要有序又不想管機器 id；128-bit 較長</td></tr>
+    <tr><td><strong>DB ticket server</strong></td><td>強（單一序列）</td><td>嚴格遞增</td><td>中心化、單點</td><td>量不大、要絕對全序</td></tr>
+    <tr><td><strong>號段模式 (segment)</strong></td><td>強</td><td>趨勢遞增</td><td>定期向 DB 領一段（step）</td><td>美團 Leaf；攤平 DB 往返，DB 短暫不可用也能撐</td></tr>
+  </table>
+  <ul>
+    <li><strong>Snowflake vs UUIDv7</strong>：兩者都「時間在高位 → 可排序」。Snowflake 是 64-bit、更省、能反解機器來源，但要管機器 id 與時鐘；UUIDv7 是 128-bit、零協調、標準化，但較長。現代新系統很多直接選 UUIDv7。</li>
+    <li><strong>Snowflake vs 號段模式</strong>：Snowflake 純本機、不碰 DB，但怕時鐘；號段(Leaf-segment)向 DB 批次領號、不怕時鐘，但依賴 DB 可用性、且重啟可能跳號。Leaf 也提供 snowflake 模式。</li>
+    <li><strong>常見追問</strong>：時鐘回撥怎麼辦？（§6）為何不用 DB 自增？（§1）機器 id 怎麼保證唯一且可回收？（ZooKeeper ephemeral）ID 會洩漏什麼？（產生速率、時間、機器數 → 可被推估業務量，敏感場景可加擾動或改用不可預測方案）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重<strong>Snowflake 的核心取號邏輯</strong>（也是面試真正考點），可用 PHP 內建伺服器實跑：</p>
+  <ul>
+    <li><code>src/Snowflake.php</code>　64-bit 位元組合 / 同毫秒 seq 遞增 / 序號溢位自旋 / 時鐘回撥（小幅等待、大幅丟例外）/ <code>decode()</code> 雙向還原。</li>
+    <li><code>public/index.php</code>　路由：<code>POST /api/id</code>、<code>POST /api/id/batch</code>、<code>GET /api/decode/{id}</code>，及附 bit 佈局示意的測試頁。</li>
+    <li><code>data/snowflake_state.json</code>　持久化的 <code>{last_ts, seq}</code>（自動建立、已 gitignore）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8023 -t public
+# 瀏覽器開 http://localhost:8023：產生 ID、批次看 seq 遞增、貼 ID 解碼</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    真實 Snowflake 的 <code>{lastTimestamp, sequence}</code> 常駐<strong>單機行程記憶體</strong>、以 synchronized/CAS 推進，<strong>不落盤</strong>。本 demo 因 PHP 內建伺服器<em>每個請求是獨立 process</em>、記憶體不共享，故改用<strong>檔案 + <code>flock</code> 鎖把 state 持久化到 <code>data/</code></strong>，以模擬單機記憶體中的臨界區、維持跨請求單調——這條檔案鎖路徑是<strong>教學替身</strong>，正式環境不該每次取號都讀寫檔案。<code>nextIds(n)</code> 批次只取一次鎖、在記憶體連續推進，才是最貼近真實 Snowflake 的路徑，也是測試頁能看到同毫秒 seq 連續遞增的原因。位元佈局、同毫秒遞增、時鐘回撥、雙向解碼等<strong>核心邏輯皆為真實可執行</strong>。純原生 PHP 8.4、零依賴，只用 <code>json</code> 擴充（無 mbstring / gmp / openssl / sqlite）。
+  </div>
+
+  <footer>㉓ 唯一 ID 產生器 Snowflake · H 基礎設施/平台元件 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

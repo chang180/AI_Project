@@ -3,7 +3,7 @@
 > 換電腦後先讀這份。所有進度都在 git，`git clone`/`git pull` 即可接續。
 
 ## 專案是什麼
-22 題系統設計學習專案（原 14 題核心 + 8 題進階補充）。每題產出：`notes.html`（9 段式筆記）+ `diagram.excalidraw`（架構圖）+ `demo/`（PHP，`php -S` 可跑）。全繁體中文。
+30 題系統設計學習專案（原 14 題核心 + 16 題進階補充）。每題產出：`notes.html`（9 段式筆記）+ `diagram.excalidraw`（架構圖）+ `demo/`（PHP，`php -S` 可跑）。全繁體中文。
 
 - 入口：瀏覽器開 `index.html`
 - 框架小抄：`framework.html`（每次練習前看）
@@ -12,15 +12,17 @@
 
 ## 分組（按共通模式）
 - A 通知/Fan-out：② 地震 ④ 價格追蹤 ⑧ Webhook
-- B 即時連線：⑤ RoboTaxi ⑦ Messenger ⑨ Google Docs
-- C 一致性/交易：③ Polymarket ⑫ Bookings ⑰ 數位錢包/支付
-- D 串流/儲存分發：① QR Code ⑥ Spotify ⑩ YouTube ⑳ Dropbox ㉑ 直播 ㉒ 廣告聚合
+- B 即時連線：⑤ RoboTaxi ⑦ Messenger ⑨ Google Docs ㉚ 視訊會議 Zoom
+- C 一致性/交易：③ Polymarket ⑫ Bookings ⑰ 數位錢包/支付 ㉘ 秒殺/搶票
+- D 串流/儲存分發：① QR Code ⑥ Spotify ⑩ YouTube ⑳ Dropbox ㉑ 直播 ㉒ 廣告聚合 ㉙ 排行榜
 - E AI/LLM：⑪ ChatGPT Tasks ⑬ Agoda RAG ⑭ LLM 推論
-- F 社交/Feed：⑮ News Feed（新組）
-- G 搜尋/索引/地理空間：⑯ Typeahead ⑱ 附近的人 Yelp（新組）
-- H 基礎設施/平台元件：⑲ 分散式限流器（新組）
+- F 社交/Feed：⑮ News Feed
+- G 搜尋/索引/地理空間：⑯ Typeahead ⑱ 附近的人 Yelp ㉖ 全文搜尋
+- H 基礎設施/平台元件：⑲ 分散式限流器 ㉓ Snowflake ID ㉕ Kafka 訊息佇列
+- I 認證/安全：㉔ OAuth/SSO（新組）
+- J 可觀測性：㉗ Prometheus 指標監控（新組）
 
-## 已完成 ✅ 全部 22 題
+## 已完成 ✅ 全部 30 題
 每題皆含 notes.html（9 段式）+ diagram.excalidraw + 可跑 PHP demo，並通過 `php -l` 與實跑驗證。各 demo 的核心邏輯重點：
 
 | # | 題目 | demo 核心考點（非 CRUD） | 埠 |
@@ -47,30 +49,24 @@
 | ⑳ | Dropbox 同步 | 分塊去重 + 增量 delta + 衝突副本 | 8020 |
 | ㉑ | 直播 Twitch | 低延遲 HLS 滑動視窗 manifest + 聊天 fan-out | 8021 |
 | ㉒ | 廣告點擊聚合 | 去重 exactly-once + 防欺詐 + tumbling window | 8022 |
+| ㉓ | 唯一 ID Snowflake | 64-bit 位元佈局 + 同毫秒序號遞增 + 時鐘回撥 + 雙向解碼 | 8023 |
+| ㉔ | OAuth/SSO | 授權碼單次使用 + JWT(HS256) 簽發 + refresh 輪替 + 撤銷名單 | 8024 |
+| ㉕ | Kafka 訊息佇列 | 依 key 分區(crc32) + 單調 offset + 消費者組 + 重放 + rebalance | 8025 |
+| ㉖ | 全文搜尋 | 倒排索引(term→docId→tf) + BM25 排序 + AND/OR 布林查詢 | 8026 |
+| ㉗ | Prometheus 監控 | series=name+labels + scrape + rate()(含 reset) + sum by + 告警狀態機 | 8027 |
+| ㉘ | 秒殺/搶票 | 原子條件扣減防超賣(CAS) + 冪等鍵 + 入場令牌削峰 + 每人限購 | 8028 |
+| ㉙ | 遊戲排行榜 | ZSET 語意 zadd/zrevrank/Top-K + 我的名次±鄰居 + 分窗榜 | 8029 |
+| ㉚ | 視訊會議 Zoom | 信令中繼(SDP/ICE) + SFU 轉發表 + simulcast 依頻寬選層 + active speaker | 8030 |
 
 啟動任一 demo：`cd <題目>/demo && php -S localhost:<埠> -t public`
+（H/I/J 新題實際路徑：`patterns/H-infra-primitives/23-snowflake-id`、`patterns/I-auth-security/24-oauth-sso`、`patterns/H-infra-primitives/25-message-queue`、`patterns/G-search-index/26-fulltext-search`、`patterns/J-observability/27-metrics-monitoring`、`patterns/C-consistency-txn/28-flash-sale`、`patterns/D-stream-storage/29-leaderboard`、`patterns/B-realtime-sync/30-video-conferencing`）
 
 > 8 題進階補充題的推薦理由與其餘未做題目清單，見對話紀錄（涵蓋搜尋/金流/地理/基建/社交/即時媒體/大數據等維度）。
 
 ## 待辦
 
-### ⭐ 下一批：8 題進階補充（23–30）— 規劃已定，換電腦後對 Claude 說「建那 8 題」即可接續
-沿用 ① QR Code 範本：每題 `notes.html`（9 段式）+ `diagram.excalidraw` + 可跑 PHP demo（零依賴、本機無 mbstring 故不可用 `mb_*`、data/ 已 gitignore）。
-**新增 2 分組**：🅸 認證/安全（I-auth-security）、🅹 可觀測性（J-observability）。建好後記得更新 index.html（加分組區塊與卡片、進度改 30/30）與本檔表格。
-
-| # | 題目 | 分組 / 目錄 | demo 核心考點 | 埠 |
-|---|---|---|---|---|
-| ㉓ | 唯一 ID Snowflake | H `H-infra-primitives/23-snowflake-id` | 64-bit：時間戳41+機器10+序號12、同毫秒序號遞增、時鐘回撥處理、解碼還原 | 8023 |
-| ㉔ | OAuth/SSO 認證 | **新 I** `I-auth-security/24-oauth-sso` | 授權碼流程、token 簽發/刷新/撤銷、code 單次使用、HMAC 簽 JWT | 8024 |
-| ㉕ | 分散式訊息佇列 Kafka | H `H-infra-primitives/25-message-queue` | 主題分區、依 key 分區、消費者組 offset、重放、分區內有序、rebalance | 8025 |
-| ㉖ | 全文搜尋 Twitter Search | G `G-search-index/26-fulltext-search` | 倒排索引、tokenize、BM25/TF-IDF 排序、AND/OR 查詢 | 8026 |
-| ㉗ | 指標監控 Prometheus | **新 J** `J-observability/27-metrics-monitoring` | 時序庫(name+labels)、scrape、counter/gauge、rate/聚合查詢、告警規則 firing/resolved | 8027 |
-| ㉘ | 秒殺 Ticketmaster | C `C-consistency-txn/28-flash-sale` | 極端寫熱點、原子條件扣減防超賣、入場令牌/排隊削峰、每人限購冪等 | 8028 |
-| ㉙ | 遊戲排行榜 Leaderboard | D `D-stream-storage/29-leaderboard` | Redis ZSET 語意：zadd/zrank/top-K/我的名次±鄰居、更新即重排、分窗榜 | 8029 |
-| ㉚ | 視訊會議 Zoom | B `B-realtime-sync/30-video-conferencing` | 信令交換(SDP/ICE)、SFU vs MCU、轉發表、simulcast 分層依頻寬降階、active speaker | 8030 |
-
-分組標籤：I="🅸 認證/安全"(tag "I 認證/安全")、J="🅹 可觀測性"(tag "J 可觀測性")。圓圈編號 ㉓㉔㉕㉖㉗㉘㉙㉚。建議時間：23=35 24=48 25=50 26=46 27=42 28=45 29=38 30=50 分。
-省 token 可分批（一次 2–3 題、做完就 push）。
+### ✅ 下一批 8 題（23–30）已完成（2026-06-01）
+全部 8 題已建好 notes.html + diagram.excalidraw + 可跑 demo，皆過 `php -l`、實跑 HTTP 200、diagram 合法 JSON。新增 2 分組 🅸 認證/安全、🅹 可觀測性。index.html（30/30、加 I/J 區塊與卡片）、各分組 README、本檔表格皆已更新。
 
 ### 其餘可選
 - [ ] 把各 demo 的「示意」元件換成真套件：QR→`endroid/qr-code`、RAG→真向量嵌入、LLM→真模型；系統邏輯不需改。

@@ -16,3 +16,4 @@
 | 05 | RoboTaxi | 地理空間配對、即時位置串流、路線優化 |
 | 07 | Messenger | 億級在線、fan-out、已讀回條、離線推送 |
 | 09 | Google Docs | 字元級即時同步、OT/CRDT 衝突解決、游標共享 |
+| 30 | 視訊會議（Zoom） | 信令 SDP/ICE、SFU vs MCU、simulcast 依頻寬降階、active speaker |

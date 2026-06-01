@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉖ 全文搜尋引擎 Twitter Search · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉖ 全文搜尋引擎 Twitter Search：倒排索引與 BM25 相關性排序</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag time">建議 46 分鐘</span>
+    <span class="tag">Design a Full-text Search Engine</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把文件拆成詞、建倒排索引（term → 哪些文件含此詞），查詢時用 BM25 算相關性並排序</strong>」的題目。
+    難點不在「找到含某詞的文件」（那是倒排索引的基本功），而在 <em>怎麼排出最相關的、怎麼把索引擴展到每分鐘數百萬則新貼文、怎麼做到近即時可搜</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>輸入關鍵字，回傳<strong>相關文件（貼文）並依相關性排序</strong>，而不是隨意列出。</li>
+    <li>布林查詢：<code>AND</code>（含全部詞）、<code>OR</code>（含任一詞）、片語查詢 <code>"exact phrase"</code>。</li>
+    <li>分頁（每頁 N 筆、可翻頁）、可選過濾（時間、作者、語言）。</li>
+    <li>近即時：新貼文發出後數秒內可被搜到。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：查詢 p99 &lt; 200ms。</li>
+    <li><strong>高吞吐</strong>：搜尋 QPS 高，且寫入（新貼文）也高。</li>
+    <li><strong>可擴展</strong>：文件數可到數十億，索引需分片。</li>
+    <li><strong>相關性</strong>：排序品質是核心體驗（爛排序＝沒用）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「<strong>全文搜尋 vs <code>LIKE '%word%'</code> 差在哪？</strong>」 — <code>LIKE</code> 要掃全表（O(N) 且無法用一般索引）、不能依相關性排序、不能處理大小寫/分詞/多詞。全文搜尋靠<strong>倒排索引</strong>把「詞 → 文件」預先建好，查詢變成 O(命中數)，並能用 TF-IDF / BM25 排序。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>新貼文（寫）</td><td>5 億/日</td><td>~5,800 寫 QPS（峰值 ×3 ≈ 1.7 萬）</td></tr>
+    <tr><td>搜尋（讀）</td><td>2 億次查詢/日</td><td>~2,300 讀 QPS（峰值 ≈ 7,000）</td></tr>
+    <tr><td>單篇大小</td><td>貼文 ~300 bytes</td><td>5 億×300B ≈ <strong>150 GB/日</strong> 原文</td></tr>
+    <tr><td>倒排索引大小</td><td>索引約原文 0.3～0.5×</td><td>~50～75 GB/日新增索引</td></tr>
+    <tr><td>詞典（term dictionary）</td><td>不同詞數有上限（語言）</td><td>數百萬～數千萬個 term，可常駐記憶體</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>寫入與索引大小都很大 → 必須<strong>分片（shard）</strong>；查詢要 scatter-gather 到各分片再合併排序。詞典相對小，可放記憶體加速。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 索引文件（寫）
+POST /api/v1/documents
+Body: { "title": "...", "body": "...", "author": "...", "ts": 1717200000 }
+→ 201 { "id": 12345 }
+
+# 搜尋（讀，高頻）
+GET /api/v1/search?q=inverted+index&op=and&page=1&size=10
+→ 200 {
+    "total": 42,
+    "results": [
+      { "id": 12345, "score": 7.83, "title": "...", "highlight": ["...&lt;em&gt;index&lt;/em&gt;..."] },
+      ...
+    ]
+  }
+
+# 片語查詢（需位置索引）
+GET /api/v1/search?q="full text search"
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># 倒排索引（核心）：term → postings list
+postings:
+  "index"  → [ {docId:1, tf:3, pos:[5,12,40]}, {docId:7, tf:1, pos:[2]} ]
+  "search" → [ {docId:1, tf:2}, {docId:3, tf:5}, {docId:7, tf:1} ]
+  #            ↑ tf=term frequency（該詞在該文件出現幾次）；pos 供片語查詢
+
+# 詞典 term dictionary：term → df（含此詞的文件數）+ postings 位置指標
+dict:
+  "index"  → { df: 2, ptr: ... }
+
+# 文件儲存 doc store：docId → 原文與 metadata（供回顯/highlight）
+docs:
+  1 → { title, body, author, ts, len }   # len=文件詞數，BM25 要用
+
+# 全集統計
+stats: { N: 文件總數, avgdl: 平均文件長度 }</code></pre>
+  <div class="box"><span class="label">為何要存 doc 長度與 avgdl</span>BM25 會用「文件長度 / 平均長度」做<strong>長度正規化</strong>——長文件天生會命中較多詞，需要懲罰，避免長文一律排前面。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 寫(新貼文) ─▶ Ingest ─▶ 分析器(tokenize) ─▶ 建倒排索引 ─▶ Index Shard 1..M（含副本）
+                                                              ▲
+ 讀(查詢) ──▶ Query 解析 ─▶ scatter 到各 shard ─▶ 各 shard 取 postings + BM25 評分
+                                          │
+                                          └─▶ gather 合併、全域排序 ─▶ Top-K 回傳</code></pre>
+  <ol>
+    <li><strong>Ingest → 分析器</strong>：tokenize（小寫化、切詞、去 stopwords、可選 stemming），把文件變成詞流。</li>
+    <li><strong>建倒排索引</strong>：每個詞寫進對應 postings（docId → tf、位置）；更新 df、文件長度、avgdl。</li>
+    <li><strong>Query 解析</strong>：把查詢字串也 tokenize，解析 AND/OR/片語。</li>
+    <li><strong>評分排序</strong>：各分片用 BM25 算分，scatter-gather 合併出全域 Top-K。</li>
+    <li><strong>分片 + 副本</strong>：分片解決容量與寫入吞吐，副本解決讀吞吐與高可用。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>倒排索引結構</h3>
+  <p>核心是 <code>term → postings list</code>。postings 依 docId 排序，便於做<strong>交集（AND）</strong>時雙指標歸併；常用 delta 編碼 + 壓縮（如 VByte）省空間。詞典（term dictionary）通常用 Trie / FST 存，可常駐記憶體。</p>
+  <h3>TF-IDF 與 BM25</h3>
+  <ul>
+    <li><strong>直覺</strong>：一個詞在某文件出現越多次（TF↑）→ 越相關；但這個詞若在<em>所有</em>文件都出現（如 the）→ 沒鑑別度（IDF↓），該降權。</li>
+    <li><strong>BM25 公式</strong>（業界標準，k1=1.2, b=0.75）：
+      <pre><code>idf(t)   = log( (N - df + 0.5) / (df + 0.5) + 1 )
+score(t) = idf(t) · ( tf·(k1+1) ) / ( tf + k1·(1 - b + b·dl/avgdl) )
+查詢總分 = Σ score(t)   （t 為各 query term）</code></pre>
+    </li>
+    <li><strong>BM25 比純 TF-IDF 好在</strong>：① TF 飽和（出現 100 次不會比 10 次線性高 10 倍，邊際遞減）；② 用 <code>dl/avgdl</code> 做<strong>文件長度正規化</strong>，公平對待長短文。</li>
+  </ul>
+  <h3>布林查詢：交集與聯集</h3>
+  <p><code>AND</code> = 各 query term 的 postings 取<strong>交集</strong>（雙指標歸併，因 postings 已排序）；<code>OR</code> = 取<strong>聯集</strong>。命中候選集出來後，一律用 BM25 排序。</p>
+  <h3>片語 / 位置索引</h3>
+  <p>"full text search" 要連續出現 → postings 需記每個詞的<strong>位置(position)</strong>，比對時檢查位置是否相鄰（pos<sub>text</sub> = pos<sub>full</sub>+1…）。代價是索引變大。</p>
+  <h3>分析器：stemming 與 stopwords</h3>
+  <p><strong>stemming</strong>（running→run、searches→search）讓查詢與文件詞形一致；<strong>stopwords</strong>（the/a/is）幾乎無鑑別度，可在分析階段移除以省索引與雜訊（但片語查詢時要小心被去掉）。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機索引</td><td>記憶體 / 容量裝不下</td><td>依 docId 或 term 雜湊<strong>分片(shard)</strong></td></tr>
+    <tr><td>查詢延遲</td><td>分片多、要查全部</td><td><strong>scatter-gather</strong>：併發查各 shard，gather 合併 Top-K</td></tr>
+    <tr><td>新貼文要快被搜到</td><td>整段重建索引太慢</td><td><strong>近即時 refresh</strong>：寫入小段 segment、定期 refresh（如 1s）；背景 merge</td></tr>
+    <tr><td>熱門查詢重複算</td><td>同 query 一直重算</td><td><strong>快取</strong>熱門 query 的結果（注意新文件造成失效）</td></tr>
+    <tr><td>讀吞吐</td><td>查詢 QPS 高</td><td>每 shard 多<strong>副本(replica)</strong>分攤讀，兼顧高可用</td></tr>
+  </table>
+  <div class="box"><span class="label">Lucene 的做法</span>索引是一段段<strong>不可變的 segment</strong>，寫入只追加新 segment（近即時可搜），背景把小 segment merge 成大 segment。不可變讓快取、複製都簡單。</div>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>精確 vs 相關性</strong>：資料庫 <code>LIKE</code> 精確子字串但無排序、且慢；全文搜尋給「最相關」的排序，是模糊但有用的結果。</li>
+    <li><strong>即時索引 vs 批次</strong>：近即時 refresh 讓新文件秒級可搜，但頻繁 refresh 產生大量小 segment（讀變慢，要 merge）；批次建索引吞吐高但延遲大。</li>
+    <li><strong>位置索引 vs 不存位置</strong>：存位置才能片語/鄰近查詢，但索引顯著變大、寫入變慢——按需求取捨。</li>
+    <li><strong>stopwords / stemming</strong>：提升召回與省空間，但可能傷害精確片語（"to be or not to be" 全是 stopwords）。</li>
+    <li><strong>自建 vs Elasticsearch</strong>：面試講清楚倒排索引 + BM25 + 分片副本後，務實答案常是「用 Elasticsearch / Lucene」，把心力放在 schema、分片策略、相關性調校。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>搜尋引擎的核心邏輯</strong>（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/InvertedIndex.php</code>　分析器 <code>tokenize</code>（小寫化 + 切詞 + 可選 stopwords）、倒排索引 <code>term → (docId → tf)</code>、<strong>BM25 排序</strong>（k1=1.2, b=0.75）、布林 <strong>AND/OR</strong> 查詢、索引 JSON 持久化。</li>
+    <li><code>public/index.php</code>　路由：<code>GET /</code>（搜尋框 + 選 AND/OR + 列出依分數排序的結果與命中詞）、<code>POST /api/doc</code>（加文件）、<code>GET /api/search?q=&amp;op=and|or</code>；預設塞幾筆範例貼文。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8026 -t public
+# 瀏覽器開 http://localhost:8026 搜尋「inverted index」，切 AND/OR 看排序差異</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機、記憶體 + JSON 檔</strong>的教學索引：<strong>tokenize、倒排索引、BM25 評分、AND/OR 布林查詢、持久化為真實可執行</strong>；<strong>未實作</strong>索引分片 / 副本、位置索引與片語查詢、stemming、scatter-gather、近即時 refresh、查詢快取。要上正式環境，把倒排索引與評分換成 <code>Elasticsearch / Lucene</code>，查詢與排序語意一致。
+  </div>
+
+  <footer>㉖ Full-text Search Engine (Twitter Search) · G 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

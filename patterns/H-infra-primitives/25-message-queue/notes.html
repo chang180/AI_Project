@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉕ 分散式訊息佇列 Kafka · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉕ 分散式訊息佇列 Kafka：解耦、削峰、可重放的事件骨幹</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag time">建議 50 分鐘</span>
+    <span class="tag">Design a Distributed Message Queue (Kafka)</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>一個可持久化、可分區並行、可重放的 append-only 提交日誌（commit log）</strong>」。
+    一個記憶體佇列很簡單；面試真正考的是 <em>如何讓多生產者/多消費者在分區之上同時保有「分區內有序」「水平擴展吞吐」「故障後能重放」</em>三件事。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>先問：MQ 要解決什麼？</h3>
+  <ul>
+    <li><strong>解耦</strong>：生產者不必知道誰消費、消費者掛了不影響生產 → 上下游獨立部署與擴展。</li>
+    <li><strong>削峰 / 緩衝</strong>：突發流量先進佇列，消費端依自己步調消化，保護下游不被打爆。</li>
+    <li><strong>可重放</strong>：訊息持久化在 log 中，新增的消費者或修 bug 後可從頭重新消費（事件溯源、回填）。</li>
+  </ul>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>生產者 <code>produce(topic, key, value)</code> 寫入訊息；消費者 <code>poll / commit</code> 拉取並推進進度。</li>
+    <li>同一個 <strong>topic 切成 N 個 partition</strong>，可水平並行。</li>
+    <li><strong>消費者組（consumer group）</strong>：同組內分區被瓜分、各自獨立消費；不同組互不影響（廣播）。</li>
+    <li>可 <strong>seek / replay</strong> 到任意 offset 重新消費。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高吞吐</strong>：百萬 msg/s 等級（靠順序寫磁碟 + 批次 + 零拷貝）。</li>
+    <li><strong>持久 / 可靠</strong>：訊息落盤、可設副本，broker 故障不丟。</li>
+    <li><strong>有序保證</strong>：分區內 FIFO（跨分區不保證全域序，要主動點出）。</li>
+    <li><strong>交付語意</strong>：at-least-once（預設）/ at-most-once / exactly-once（需冪等生產 + 事務）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「你要的有序粒度是什麼？」決定 key 怎麼選。要全域有序 → 只能 1 分區（犧牲並行）；要<strong>同一實體（同 user / 同訂單）有序</strong> → 用該實體當 key，靠 <code>partition = hash(key) % N</code> 把同 key 釘在同一分區即可。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>寫入吞吐</td><td>1M msg/s，每筆 1 KB</td><td>~1 GB/s 寫入 → 必須<strong>順序寫</strong> + 多分區分攤</td></tr>
+    <tr><td>分區數</td><td>單分區 ~10 MB/s 安全吞吐</td><td>1 GB/s ÷ 10 MB/s ≈ <strong>100 分區</strong>（再留餘裕）</td></tr>
+    <tr><td>保留期（retention）</td><td>保留 7 天</td><td>1 GB/s × 86400 × 7 ≈ <strong>~600 TB</strong>（含副本 ×3 ≈ 1.8 PB）</td></tr>
+    <tr><td>消費者並行度</td><td>一分區只能被同組一個 consumer 讀</td><td>組內 consumer 數 ≤ 分區數 → 想更並行就<strong>加分區</strong></td></tr>
+    <tr><td>磁碟</td><td>順序 I/O</td><td>HDD 順序寫即可達標，成本低；靠 page cache 吃讀</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>分區數同時是<strong>吞吐單位</strong>與<strong>並行消費上限</strong>。一旦定下且開始用 key 路由，<strong>事後改分區數會打亂既有 key→分區的對映</strong>，所以一開始要估寬一點。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 生產（依 key 決定分區，回傳落點 partition 與 offset）
+POST /produce
+Body: { "topic": "orders", "key": "user-42", "value": { "amount": 100 } }
+→ 200 { "partition": 1, "offset": 37 }
+
+# 消費：poll 拉取「committed offset 之後」的新訊息（不自動 commit）
+POST /poll        Body: { "group": "billing", "topic": "orders", "max": 100 }
+→ 200 { "messages": [ { "partition":1,"offset":37,"key":"user-42","value":{...} }, ... ] }
+
+# 提交進度：處理完才 commit（at-least-once 的關鍵順序）
+POST /commit      Body: { "group":"billing","topic":"orders","offsets": {"1": 38} }
+
+# 重放：把某 group 的 offset seek 回指定位移（0 = 從頭）
+POST /seek        Body: { "group":"billing","topic":"orders","to": 0 }</code></pre>
+  <div class="box"><span class="label">為何 poll 與 commit 分開</span>
+    分開才能控制交付語意：<strong>先處理、成功後再 commit</strong> = at-least-once（崩潰會重讀 → 需冪等處理）；<strong>先 commit 再處理</strong> = at-most-once（崩潰會漏）。把兩步綁死就失去這個選擇權。
+  </div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>topic
+  name           主題名
+  partitions     N（分區數，建立時定）
+
+partition log（每分區一個 append-only 檔，offset 從 0 單調遞增）
+  offset  0 : { key, value, ts }
+  offset  1 : { key, value, ts }
+  ...        ← 只 append、不可改；保留期到才整段刪（segment）
+
+consumer group offset 表（消費進度，與訊息分離儲存）
+  (group, topic, partition) → committed offset
+  例： (billing, orders, 1) → 38   表示分區1已消費到 offset 37，下一筆從 38 起</code></pre>
+  <div class="box"><span class="label">設計精髓</span>
+    <strong>訊息 log 與消費進度（offset）徹底分離</strong>。訊息是不可變的事實流；offset 只是「每個消費者組讀到哪」的書籤。正因如此，多個組能各讀各的、同一份訊息可被無限重放 —— 這就是 Kafka 與傳統「讀完即刪」佇列的根本差異。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code>                    ┌──────────── Broker（topic = orders, 3 分區）────────────┐
+ Producer ──hash(key)│  P0: [o0][o1][o2]...                                    │
+   produce ─────────▶│  P1: [o0][o1][o2][o3]...   ← 同 key 永遠落同分區          │
+                     │  P2: [o0][o1]...                                        │
+                     └──────────┬───────────────────────┬─────────────────────┘
+                                │                        │
+              Consumer Group A  │            Consumer Group B（各自有 offset 游標）
+              (P0:off=2,P1:off=4,...)        (P0:off=0,...  ← 可重放)
+                                          │
+                       ZooKeeper / KRaft （黃：協調、選主、分區指派、成員變更）</code></pre>
+  <ol>
+    <li><strong>Producer</strong>：對 key 做 <code>hash(key) % N</code> 選分區，把訊息送到對應分區的 leader。</li>
+    <li><strong>Broker</strong>：持有分區的 append-only log，順序寫盤；分區可有副本（leader + followers）。</li>
+    <li><strong>Consumer Group</strong>：組內 consumer 瓜分分區，各記 committed offset；不同組互不干擾。</li>
+    <li><strong>ZooKeeper / KRaft</strong>：叢集中繼資料、controller 選舉、分區 leader 指派、消費者組成員與 rebalance 協調。新版 Kafka 用內建 KRaft 取代 ZooKeeper。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>① 分區與 key 路由</h3>
+  <p><code>partition = crc32(key) % N</code>（Kafka 用 murmur2，原理相同）。同一個 key 永遠算出同一分區 → <strong>同一實體的訊息全部進同一條 log</strong>。無 key 時走 sticky/round-robin 求負載均衡。</p>
+  <h3>② 分區內有序（與跨分區不保證）</h3>
+  <p>單一分區是嚴格 FIFO，offset 遞增即時間序。但<strong>跨分區沒有全域順序</strong> —— P0 的 offset 5 與 P1 的 offset 5 之間沒有先後關係。所以「同一訂單的事件要有序」就把 <code>order_id</code> 當 key；「全部訂單要有序」則只能單分區（罕見且傷吞吐）。</p>
+  <h3>③ 消費者組與 offset</h3>
+  <p>每個 <code>(group, topic, partition)</code> 各記一個 committed offset。<code>poll</code> 回傳該 offset 之後的訊息，處理完 <code>commit</code> 推進。把 offset 存在 broker 端（Kafka 用內部 topic <code>__consumer_offsets</code>），消費者重啟後能接著讀。</p>
+  <h3>④ rebalance（分區指派）</h3>
+  <p>一個組內多個 consumer 時，分區要指派給 consumer，且 <strong>一個分區同一時間只能被組內一個 consumer 消費</strong>（保有序）。consumer 加入/離開（或心跳逾時）會觸發 <em>rebalance</em> 重新指派。常見策略：</p>
+  <ul>
+    <li><strong>range</strong>：把連續分區切段分給 consumer（同 topic 相鄰分區歸同一人）。</li>
+    <li><strong>round-robin</strong>：分區輪流發，負載更均勻。</li>
+  </ul>
+  <p>例：3 分區、2 consumer，range → c1:[0,1] c2:[2]；3 分區、3 consumer，round-robin → c1:[0] c2:[1] c3:[2]。Demo 的 <code>assign()</code> 實作了這兩種。</p>
+  <h3>⑤ 副本與 ISR</h3>
+  <p>每分區可有多副本：1 個 leader 收發、followers 同步。<strong>ISR（In-Sync Replicas）</strong>= 與 leader 保持同步的副本集合。<code>acks=all</code> 時訊息要寫進所有 ISR 才算成功，leader 掛了從 ISR 選新 leader → 不丟資料。Demo 為單機，不做副本（誠實聲明）。</p>
+  <h3>⑥ 重放（replay）</h3>
+  <p>因為訊息持久在 log、offset 只是書籤，把某 group 的 offset <code>seek</code> 回 0（或任意位移）即可<strong>重新消費全部歷史</strong>。用途：新消費者回填、修 bug 後重跑、重建下游狀態。Demo 的 <code>/api/seek</code> 即此。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>成因</th><th>對策</th></tr>
+    <tr><td>單分區吞吐到頂</td><td>一分區只能順序寫一條 log、只能被組內一人消費</td><td><strong>加分區</strong>提升並行（同時提高生產與消費並行度）</td></tr>
+    <tr><td>熱點分區</td><td>某 key（如某大客戶）流量遠超其他 → 該分區過載、有序消費塞車</td><td>改 key 設計（加隨機後綴打散，但犧牲該維度有序）；或熱 key 單獨 topic</td></tr>
+    <tr><td>消費者落後（lag）</td><td>消費速度 &lt; 生產速度，lag = logEnd − committed 持續變大</td><td>加 consumer（≤ 分區數）、優化處理、批次；監控 lag 告警</td></tr>
+    <tr><td>儲存爆量</td><td>高吞吐 × 長保留</td><td>設 retention（時間/大小）、壓縮（compaction 保留每 key 最新）、分層儲存到物件儲存</td></tr>
+    <tr><td>rebalance 風暴</td><td>成員頻繁進出 → 反覆重指派、消費暫停</td><td>調心跳/session 逾時、用 cooperative/sticky rebalance 減少搬動</td></tr>
+  </table>
+  <div class="box warn"><span class="label">經典陷阱</span>「加 consumer 就能無限提升消費速度」是錯的 —— <strong>組內有效並行度上限 = 分區數</strong>。consumer 多於分區數時，多出來的會閒置。要更快得先加分區。</div>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>push vs pull</strong>：Kafka 用 <em>pull</em>（消費者主動拉）。pull 讓消費者自控步調、天然支援批次與背壓，代價是空轉時要 long-poll；push 即時但易壓垮慢消費者。</li>
+    <li><strong>at-least-once vs exactly-once</strong>：預設 at-least-once（先處理後 commit，崩潰會重送 → <strong>下游要冪等</strong>）。exactly-once 需冪等生產者 + 事務（producer 端 transaction + 讀已提交），成本高，非必要不開。</li>
+    <li><strong>有序 vs 並行</strong>：有序需求越強（粒度越大）→ 能用的分區越少 → 並行越差。用 key 把「需要有序」的範圍縮到單一實體，是兩者兼得的標準解。</li>
+    <li><strong>Kafka vs RabbitMQ vs SQS</strong>：
+      <ul>
+        <li><strong>Kafka</strong>：log 型、可重放、超高吞吐、分區有序；適合事件流 / 串流處理 / 日誌。</li>
+        <li><strong>RabbitMQ</strong>：傳統 broker，靈活路由（exchange/binding）、per-message ack、讀完即移除；適合任務佇列 / 複雜路由，重放非強項。</li>
+        <li><strong>SQS</strong>：全託管、免運維、幾乎無限擴展；標準佇列無嚴格序、FIFO 佇列有序但吞吐受限；適合雲上解耦。</li>
+      </ul>
+    </li>
+    <li><strong>常見追問</strong>：訊息重複怎辦？→ 下游冪等（去重 key / upsert）。順序壞了？→ 檢查是否同 key 同分區、是否開了多分區又要全域序。消費者卡住整組停？→ 監控 lag、設處理逾時、毒訊息丟 DLQ。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦 MQ 的<strong>真實系統邏輯</strong>，用 PHP 內建伺服器即可跑：</p>
+  <ul>
+    <li><code>src/Broker.php</code>　核心：<code>createTopic</code>（設 N 分區）、<code>produce</code>（<code>crc32(key)%N</code> 路由 + 每分區單調遞增 offset，append 到該分區 log 檔）、<code>poll/commit</code>（消費者組 offset 表）、<code>seek</code>（replay）、<code>assign</code>（range / round-robin 指派）、<code>groupStatus</code>（含 lag）。所有寫入用 <code>flock</code> 保護併發。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁：建 topic 設分區數、produce 看落在哪分區、依 group 消費看 offset 前進、replay、看 rebalance 指派表。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8025 -t public
+# 瀏覽器開 http://localhost:8025
+# 試：同一 key 連 produce 數次 → 落同分區、offset 0,1,2…；換 key → 可能落別分區</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用<strong>每分區一個檔案</strong>模擬 append-only log，是<strong>單機</strong>程式：沒有副本(ISR)、沒有網路協定、沒有 ZooKeeper/KRaft 協調、沒有真正的 broker 叢集。
+    但<strong>分區與 key 路由、單調 offset、分區內有序、消費者組 committed offset、poll/commit、replay(seek)、rebalance 指派</strong>等核心邏輯<strong>皆為真實可執行</strong> —— 這些正是面試要考的部分。
+  </div>
+
+  <footer>㉕ Distributed Message Queue (Kafka) · H 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

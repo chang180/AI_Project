@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉙ 遊戲排行榜 Leaderboard · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉙ 遊戲排行榜 Leaderboard：百萬玩家的即時排名</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 38 分鐘</span>
+    <span class="tag">Design a Gaming Leaderboard</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>有序集合（sorted set）的即時維護 + 海量查詢分發</strong>」題。
+    難點不在「存分數」，而在<em>每次更新都要知道全域名次</em>：用 SQL <code>ORDER BY ... LIMIT</code> + <code>COUNT</code> 每次 O(N) 會爆掉；
+    正解是 Redis ZSET（skiplist）把 zadd / zrank 壓到 <strong>O(log N)</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（百萬玩家）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>提交分數</strong>：玩家一局結束回報分數，分數可累加或取最高（先問清楚是「最新值」「最高值」還是「累計值」）。</li>
+    <li><strong>即時排名</strong>：提交後馬上知道自己排第幾名（全域名次）。</li>
+    <li><strong>Top-K 榜</strong>：顯示前 10 / 前 100 名。</li>
+    <li><strong>查自己名次 + 鄰居</strong>：「你在第 1234 名」，並顯示上下各幾名（玩家最愛看的「我離前一名差多少」）。</li>
+    <li><strong>分窗榜</strong>：日榜 / 週榜 / 總榜（賽季榜），各自獨立、可過期重置。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：提交與查榜 p99 &lt; 100ms（遊戲內 UI 即時更新）。</li>
+    <li><strong>高寫入</strong>：熱門遊戲每秒大量對局結束 → 大量 zadd。</li>
+    <li><strong>讀多於寫</strong>：每次查榜都讀，Top-K 是熱點。</li>
+    <li><strong>可擴展</strong>：百萬甚至千萬活躍玩家。</li>
+    <li><strong>準確</strong>：名次要正確（但「精確 vs 近似」在超大規模可放寬，見 §7）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「分數語意是什麼？」（最高分 / 累計 / 最新）、「需要<em>精確</em>名次還是<em>近似</em>就好？」、「分窗榜怎麼重置（跨日/跨週）？」——這三題決定整題走向。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>活躍玩家</td><td>1000 萬 DAU</td><td>單一榜 ZSET 約 1000 萬成員</td></tr>
+    <tr><td>提交分數（寫）</td><td>每人每日 10 局</td><td>1 億次/日 ≈ <strong>~1.2k zadd QPS</strong>（峰值 ×5 ≈ 6k）</td></tr>
+    <tr><td>查榜（讀）</td><td>每人每日看榜 20 次</td><td>2 億次/日 ≈ <strong>~2.3k QPS</strong>（峰值更高，Top-K 是熱點）</td></tr>
+    <tr><td>ZSET 記憶體</td><td>每成員 member(~16B)+score(8B)+skiplist 指標</td><td>Redis 實測約 <strong>60～100 bytes/成員</strong> → 1000 萬 ≈ <strong>0.6～1 GB/榜</strong></td></tr>
+    <tr><td>分窗榜數量</td><td>日 + 週 + 總</td><td>×3 榜（日/週榜會過期回收，總榜常駐）</td></tr>
+    <tr><td>歷史明細</td><td>每局一筆落 DB</td><td>1 億/日 → 走批次/時序庫，不進 ZSET</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>單榜記憶體 ~1GB 完全放得進 Redis；真正的挑戰是<strong>更新時要維持全域有序</strong>（O(log N)）與<strong>熱榜單點</strong>（Top-K 查詢集中），而非容量。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 提交 / 更新分數（寫，高頻）
+POST /api/v1/scores
+Body: { "player": "alice", "score": 1500, "board": "daily" }
+→ 200 { "rank": 42, "score": 1500, "total": 9_823_117 }   # 回更新後的全域名次
+
+# Top-K（讀，熱點）
+GET /api/v1/leaderboard/top?k=100&board=weekly
+→ 200 { "top": [ { "rank":1, "player":"zoe", "score":99999 }, ... ] }
+
+# 我的名次 + 上下鄰居
+GET /api/v1/leaderboard/around/alice?n=5&board=daily
+→ 200 { "rank":1234, "total":9_823_117,
+        "window":[ {"rank":1229,...}, ..., {"rank":1234,"player":"alice","me":true}, ... ] }
+
+# 查單一玩家分數
+GET /api/v1/scores/alice?board=all → { "score":1500, "rank":42 }
+</code></pre>
+  <div class="box"><span class="label">對應 Redis 指令</span>
+    <code>POST /scores</code> → <code>ZADD</code>；Top-K → <code>ZREVRANGE 0 k-1 WITHSCORES</code>；名次 → <code>ZREVRANK</code>；鄰居 → 先 <code>ZREVRANK</code> 取 r，再 <code>ZREVRANGE r-n r+n</code>。
+  </div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># Redis ZSET：一個榜一個 key，member=玩家、score=分數
+lb:daily:20260601    → ZSET { alice:1500, bob:1800, ... }   # 跨日換新 key / 設 EXPIRE
+lb:weekly:2026W22    → ZSET { ... }                          # 跨週換新 key
+lb:all               → ZSET { ... }                          # 賽季/總榜，常駐
+
+# 明細落 DB（高頻 append-only，不進 ZSET）—— 走時序/列式庫或 Kafka→批次
+score_events(player, score, board, ts)   # 補榜/審計/防作弊用，可重算 ZSET</code></pre>
+  <div class="box"><span class="label">為何 ZSET 與明細分開</span>
+    ZSET 只保留「目前每位玩家的<em>當前分數</em>」（可變、要排序）；每局的歷史事件是 append-only 高頻寫，放 ZSET 沒意義，落獨立明細庫供重算 / 防作弊 / 審計。<strong>分窗 = 不同 key</strong>，跨日/跨週直接換 key 或設過期，乾淨重置。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code>            zadd 更新分數
+ 遊戲服務 ───────────────▶ Redis ZSET (skiplist, O(log N))
+   │                          │  ├─ lb:daily   (日榜 key)
+   │  每局明細                 │  ├─ lb:weekly  (週榜 key)
+   ▼                          │  └─ lb:all     (總榜 key)
+ 明細 DB / Kafka              │
+ (歷史·防作弊·可重算)          ▼
+                       查 Top-K / 我的名次±鄰居 ──▶ 玩家</code></pre>
+  <ol>
+    <li><strong>遊戲服務</strong>：對局結束 → <code>zadd</code> 同時更新日/週/總三個榜（同一玩家一局得分計入多榜）。</li>
+    <li><strong>Redis ZSET</strong>：唯一真相源（排名）；skiplist 維護全域有序，zadd / zrank O(log N)。</li>
+    <li><strong>查詢路徑</strong>：Top-K（ZREVRANGE）、名次（ZREVRANK）、鄰居視窗；Top-K 結果可再加一層短 TTL 快取扛熱點。</li>
+    <li><strong>明細 DB</strong>：每局事件落地，供補榜、防作弊、需要時重算 ZSET。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>為什麼不用 SQL <code>ORDER BY score LIMIT</code> + <code>COUNT</code>？</h3>
+  <ul>
+    <li><strong>Top-K</strong>：<code>ORDER BY score DESC LIMIT 100</code> 需掃描/排序，加索引後尚可，但每次仍是 O(N) 等級的維護成本。</li>
+    <li><strong>致命的是「我的名次」</strong>：<code>SELECT COUNT(*) WHERE score &gt; ?</code> 每次都要數一遍，1000 萬列 = 每次查名次 O(N)，百萬玩家同時查直接拖垮 DB。</li>
+    <li><strong>更新即重排</strong>：分數一改，所有人名次都可能變，SQL 沒有「便宜地拿到某列排名」的手段。</li>
+  </ul>
+  <h3>ZSET / skiplist 為何快</h3>
+  <ul>
+    <li>Redis ZSET = <strong>skiplist + hash table</strong>。hash 表 member→score 讓 <code>ZSCORE</code> O(1)；skiplist 維護有序，並在節點上記 span（跨度），讓 <code>ZRANK</code> 也能 <strong>O(log N)</strong> 算出排名——這正是 SQL 缺的關鍵能力。</li>
+    <li><code>ZADD</code> 更新：在 skiplist 中刪舊位置、插新位置，O(log N)，更新後榜即有序。</li>
+  </ul>
+  <h3>Top-K</h3>
+  <p><code>ZREVRANGE key 0 k-1 WITHSCORES</code>：從 skiplist 頂端順著走 k 步，O(log N + k)。Top-100 幾乎免費。</p>
+  <h3>我的名次 ± 鄰居</h3>
+  <p>玩家最在意「我第幾名、離上一名差多少」。做法：<code>ZREVRANK</code> 取得我的 rank r（O(log N)），再 <code>ZREVRANGE r-n r+n</code> 取上下各 n 名的視窗。本題 demo 的 <code>around()</code> 就是實作這個。</p>
+  <h3>同分 tie-break</h3>
+  <ul>
+    <li>分數相同時必須有<strong>穩定且可預期</strong>的次序，否則名次會抖動。</li>
+    <li>Redis ZSET 對同分成員以 <strong>member 字典序</strong>排。常見業務做法是把「達標時間」編進分數（如 <code>score.timestamp</code> 複合鍵：先到者排前），避免「同分但先達成的人吃虧」。</li>
+    <li>本 demo 採「先加入者排前面」（單調遞增 seq），語意等價於「先達標者優先」，已於程式碼註明與 Redis 字典序的差異。</li>
+  </ul>
+  <h3>分窗榜過期</h3>
+  <p>日榜 / 週榜 = 不同 key（如 <code>lb:daily:20260601</code>）。跨日直接寫新 key，舊 key 設 <code>EXPIRE</code> 自動回收；總榜常駐。好處：重置乾淨、不必逐筆刪、歷史榜可保留查詢。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（百萬玩家）</h2>
+  <table>
+    <tr><th>瓶頸</th><th>說明</th><th>對策</th></tr>
+    <tr><td>熱榜單點</td><td>單一榜 = 單一 ZSET key，落在單一 Redis 分片上，寫入與 Top-K 查詢都集中</td><td>Top-K 結果加短 TTL 快取（多數人看同樣的前 100 名）；讀副本擴讀</td></tr>
+    <tr><td>分片困難</td><td>名次需<strong>全域</strong>有序，無法像一般資料按 key 雜湊切——切了就算不出跨片的全域 rank</td><td>近似分桶（見下）、或單榜垂直擴容、或按「分數區間」分片再合併</td></tr>
+    <tr><td>近似排名（分桶）</td><td>百萬級「精確名次」未必必要</td><td>用<strong>百分位 / 分數直方圖</strong>：維護每個分數區間的人數，查名次時累加比我高的桶 → 近似 rank，O(桶數) 且可分片</td></tr>
+    <tr><td>百萬級 = 分段 / 百分位</td><td>玩家其實只在意「前 1%」「打贏多少人」</td><td>回傳「你贏過 87% 的玩家」而非精確第幾名，計算更便宜</td></tr>
+    <tr><td>更新合併</td><td>同一玩家短時間多次提交 → 大量 zadd</td><td>本地<strong>合併</strong>後批次寫（只保留最高/最新），削寫入峰值</td></tr>
+    <tr><td>持久化 / 重建</td><td>Redis 掛了榜不能丟</td><td>AOF/RDB + 從明細庫<strong>重算重建</strong> ZSET</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>精確排名 vs 近似排名</strong>：小規模用 ZSET 精確 O(log N)；超大規模可改分桶/百分位近似，省算力也好分片。先確認業務要不要精確。</li>
+    <li><strong>即時 vs 批次</strong>：對局結束即時 zadd（即時榜）；或事件先進 Kafka，週期性批次重算（省 Redis 壓力，但榜有延遲）。電競即時、休閒可批次。</li>
+    <li><strong>ZSET 記憶體 vs DB 持久化</strong>：ZSET 快但在記憶體、單榜 ~1GB；明細落 DB 持久但慢。兩者並存：ZSET 當熱排名、DB 當真相備援與重算來源。</li>
+    <li><strong>分數語意</strong>：最高分 / 累計 / 最新——zadd 時用 <code>GT</code>（只升不降）還是 <code>INCRBY</code> 還是直接覆寫，取決於語意。面試務必先釐清。</li>
+    <li><strong>常見追問</strong>：作弊分數怎麼防？→ 明細庫審計 + 異常偵測 + 可回滾重算。跨區玩家同榜？→ 全域 ZSET 或就近寫再合併。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重<strong>排行榜的核心資料結構語意</strong>（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/SortedSet.php</code>　模擬 Redis ZSET：<code>zadd</code>（更新即重排）、<code>zscore</code>、<code>zrevrank</code>（名次 1 起算）、<code>topK</code>（Top-K）、<code>around</code>（我的名次±鄰居視窗）；同分以「先加入者在前」tie-break；以 <code>flock</code> 保護並落地 <code>data/</code>；每個榜（日/週/總）是<strong>不同 key / 不同檔</strong>。</li>
+    <li><code>public/index.php</code>　路由：<code>POST /api/score</code>、<code>GET /api/top</code>、<code>GET /api/around/{member}</code>，並附測試頁（提交分數、看 Top-K、查名次+鄰居、切換日/週/總榜）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8029 -t public
+# 瀏覽器開 http://localhost:8029 提交分數、看榜、查自己名次±鄰居、切換榜別</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用<strong>陣列排序</strong>模擬 ZSET：<strong>語意、Top-K、我的名次±鄰居、同分 tie-break、日/週/總分窗榜、更新即重排皆為真實可執行</strong>；
+    但<strong>未達 Redis skiplist 的 O(log N)</strong>（每次查詢/更新都重排，為 O(N log N)），也無真正 skiplist，持久化用 JSON 檔（flock）而非 Redis。
+    換成真 Redis 時，<code>SortedSet</code> 各方法可一對一映射到 <code>ZADD / ZSCORE / ZREVRANK / ZREVRANGE</code>（見 <code>demo/README.md</code>）。
+  </div>
+
+  <footer>㉙ 遊戲排行榜 Leaderboard · D 串流計算/儲存分發 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

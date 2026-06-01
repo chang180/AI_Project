@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>系統設計學習專案 · 14 題</title>
+<title>系統設計學習專案 · 30 題</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -15,13 +15,13 @@
 </div>
 
 <div class="wrap">
-  <h1>系統設計面試 · 14 題實戰</h1>
-  <p class="subtitle">每題包含 <strong>HTML 筆記 · Excalidraw 架構圖 · PHP demo</strong>，依共通模式分 5 組學習。</p>
+  <h1>系統設計面試 · 30 題實戰</h1>
+  <p class="subtitle">每題包含 <strong>HTML 筆記 · Excalidraw 架構圖 · PHP demo</strong>，依共通模式分 10 組學習。</p>
 
   <div class="box tip">
     <span class="label">學習進度</span>
     <div class="progress"><span style="width:100%"></span></div>
-    <p style="margin:.4em 0 0;color:var(--text-dim)">22 / 22 題完成 🎉 每題含筆記 + 架構圖 + 可跑 PHP demo（含 8 題進階補充）</p>
+    <p style="margin:.4em 0 0;color:var(--text-dim)">30 / 30 題完成 🎉 每題含筆記 + 架構圖 + 可跑 PHP demo（含 16 題進階補充）</p>
   </div>
 
   <div id="groups">
@@ -43,6 +43,7 @@
         <a class="card" href="patterns/B-realtime-sync/05-robotaxi/notes.html"><h3><span class="num">05</span>RoboTaxi 叫車</h3><p>即時配對與路線優化 · 54 分</p></a>
         <a class="card" href="patterns/B-realtime-sync/07-messenger/notes.html"><h3><span class="num">07</span>Messenger</h3><p>億級用戶在線 · 40 分</p></a>
         <a class="card" href="patterns/B-realtime-sync/09-google-docs/notes.html"><h3><span class="num">09</span>Google Docs</h3><p>協作文檔即時同步 · 48 分</p></a>
+        <a class="card" href="patterns/B-realtime-sync/30-video-conferencing/notes.html"><h3><span class="num">30</span>視訊會議 Zoom</h3><p>SFU · simulcast · 信令 · 50 分</p></a>
       </div>
     </div>
 
@@ -53,6 +54,7 @@
         <a class="card" href="patterns/C-consistency-txn/03-polymarket/notes.html"><h3><span class="num">03</span>Polymarket</h3><p>預測市場高頻交易 · 53 分</p></a>
         <a class="card" href="patterns/C-consistency-txn/12-bookings/notes.html"><h3><span class="num">12</span>Bookings.com</h3><p>短租平台全棧設計 · 42 分</p></a>
         <a class="card" href="patterns/C-consistency-txn/17-digital-wallet/notes.html"><h3><span class="num">17</span>數位錢包 / 支付</h3><p>雙分錄帳本 · 冪等扣款 · 50 分</p></a>
+        <a class="card" href="patterns/C-consistency-txn/28-flash-sale/notes.html"><h3><span class="num">28</span>秒殺 / 搶票</h3><p>原子扣減防超賣 · 削峰 · 45 分</p></a>
       </div>
     </div>
 
@@ -66,6 +68,7 @@
         <a class="card" href="patterns/D-stream-storage/20-dropbox-sync/notes.html"><h3><span class="num">20</span>Dropbox 檔案同步</h3><p>分塊去重 · 增量同步 · 46 分</p></a>
         <a class="card" href="patterns/D-stream-storage/21-live-streaming/notes.html"><h3><span class="num">21</span>直播 Twitch</h3><p>低延遲 HLS 滑窗 · 44 分</p></a>
         <a class="card" href="patterns/D-stream-storage/22-ad-click-aggregation/notes.html"><h3><span class="num">22</span>廣告點擊聚合</h3><p>exactly-once · 防欺詐 · 45 分</p></a>
+        <a class="card" href="patterns/D-stream-storage/29-leaderboard/notes.html"><h3><span class="num">29</span>遊戲排行榜</h3><p>ZSET · Top-K · 名次±鄰居 · 38 分</p></a>
       </div>
     </div>
 
@@ -93,6 +96,7 @@
       <div class="grid">
         <a class="card" href="patterns/G-search-index/16-typeahead/notes.html"><h3><span class="num">16</span>Typeahead 自動完成</h3><p>Trie · 前綴 Top-K · 40 分</p></a>
         <a class="card" href="patterns/G-search-index/18-proximity-yelp/notes.html"><h3><span class="num">18</span>附近的人 / 地點</h3><p>Geohash 空間索引 · 42 分</p></a>
+        <a class="card" href="patterns/G-search-index/26-fulltext-search/notes.html"><h3><span class="num">26</span>全文搜尋</h3><p>倒排索引 · BM25 排序 · 46 分</p></a>
       </div>
     </div>
 
@@ -101,6 +105,24 @@
       <p class="subtitle">被無數系統共用的底層積木：原子性與分散式一致</p>
       <div class="grid">
         <a class="card" href="patterns/H-infra-primitives/19-rate-limiter/notes.html"><h3><span class="num">19</span>分散式限流器</h3><p>令牌桶 · 滑動視窗 · 35 分</p></a>
+        <a class="card" href="patterns/H-infra-primitives/23-snowflake-id/notes.html"><h3><span class="num">23</span>唯一 ID Snowflake</h3><p>64-bit 發號 · 時鐘回撥 · 35 分</p></a>
+        <a class="card" href="patterns/H-infra-primitives/25-message-queue/notes.html"><h3><span class="num">25</span>訊息佇列 Kafka</h3><p>分區 · offset · 重放 · 50 分</p></a>
+      </div>
+    </div>
+
+    <div class="group-block">
+      <h2>🅸 認證 / 安全</h2>
+      <p class="subtitle">身分驗證、授權、SSO、權杖簽發 / 驗證 / 撤銷</p>
+      <div class="grid">
+        <a class="card" href="patterns/I-auth-security/24-oauth-sso/notes.html"><h3><span class="num">24</span>OAuth 2.0 / SSO</h3><p>授權碼 · JWT · 刷新 / 撤銷 · 48 分</p></a>
+      </div>
+    </div>
+
+    <div class="group-block">
+      <h2>🅹 可觀測性</h2>
+      <p class="subtitle">metrics / logs / traces、時序資料、查詢與告警</p>
+      <div class="grid">
+        <a class="card" href="patterns/J-observability/27-metrics-monitoring/notes.html"><h3><span class="num">27</span>指標監控 Prometheus</h3><p>時序庫 · rate/聚合 · 告警 · 42 分</p></a>
       </div>
     </div>
 

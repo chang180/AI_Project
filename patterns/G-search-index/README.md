@@ -15,3 +15,4 @@
 |---|---|---|
 | 16 | Typeahead 自動完成 | Trie、每前綴 Top-K 預存、查詢頻率更新與重建 |
 | 18 | 附近的人 / 地點（Yelp） | Geohash 空間索引、鄰格邊界、半徑 / 最近 K 查詢 |
+| 26 | 全文搜尋（Twitter Search） | 倒排索引、tokenize、BM25/TF-IDF 排序、AND/OR 查詢 |

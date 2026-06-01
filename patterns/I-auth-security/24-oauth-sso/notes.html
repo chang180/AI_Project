@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉔ OAuth 2.0 / SSO 認證授權 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅸 認證/安全</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉔ OAuth 2.0 / SSO 認證授權：一次登入，安全地存取所有服務</h1>
+  <p class="subtitle">
+    <span class="tag group">I 認證/安全</span>
+    <span class="tag time">建議 48 分鐘</span>
+    <span class="tag">Design OAuth 2.0 / SSO</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把『證明你是誰』與『允許 App 代表你做什麼』拆開，用短命的票券安全傳遞</strong>」的題目。
+    重點不是寫一個登入頁，而是 <em>授權碼為何要單次</em>、<em>無狀態 JWT 如何撤銷</em>、<em>token 被偷怎麼辦</em> 這些攻防取捨。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（SSO / 授權 vs 認證 / 四種 grant）</a></li>
+      <li><a href="#estimate">規模估算（驗證 QPS / 為何用無狀態 JWT）</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構（三方 + redirect 流程）</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>SSO 是什麼？</h3>
+  <p><strong>Single Sign-On（單一登入）</strong>：使用者在一個身分提供者（Identity Provider，如 Google）登入一次，
+  就能存取多個應用（Gmail、YouTube、第三方 App），不必各自註冊密碼。OAuth 2.0 是實作 SSO 與「授權委派」最主流的協定。</p>
+
+  <h3>授權 vs 認證：最常被混淆的考點</h3>
+  <table>
+    <tr><th>面向</th><th>OAuth 2.0（授權 Authorization）</th><th>OIDC（認證 Authentication）</th></tr>
+    <tr><td>回答的問題</td><td>「這個 App <strong>能不能</strong>代表你存取某資源？」</td><td>「<strong>你是誰</strong>？」</td></tr>
+    <tr><td>產物</td><td>access_token（一串可存取資源的票券）</td><td>id_token（描述使用者身分的 JWT）</td></tr>
+    <tr><td>關係</td><td>基礎協定</td><td>建在 OAuth 2.0 之上的一層（加 id_token + userinfo）</td></tr>
+  </table>
+  <div class="box warn">
+    <span class="label">面試一句話</span>
+    OAuth 2.0 本身只管「授權」；把它拿來當「登入」用其實有坑（access_token 不保證對應到使用者身分）。
+    要做<strong>登入/認證</strong>應該用 <strong>OIDC</strong>，它在 OAuth 上補了 <code>id_token</code> 與 <code>/userinfo</code>。
+  </div>
+
+  <h3>四種 grant 類型（拿 token 的方式）</h3>
+  <ul>
+    <li><strong>Authorization Code</strong>（本題主軸）：有後端的 Web App。先拿一次性 <em>授權碼</em>，再由後端用 secret 換 token，token 不經過瀏覽器，最安全。</li>
+    <li><strong>Authorization Code + PKCE</strong>：手機 App / SPA（無法保管 secret）。用動態產生的 <code>code_verifier</code> 取代固定 secret，防授權碼被攔截。</li>
+    <li><strong>Client Credentials</strong>：機器對機器（無使用者），服務用自己的 id/secret 直接換 token。</li>
+    <li><strong>Resource Owner Password</strong>（已不建議）：App 直接收使用者密碼換 token，違反「不讓第三方碰密碼」初衷，僅遺留系統用。</li>
+  </ul>
+  <p>另有 <strong>Refresh Token</strong>（嚴格說是 grant 而非「拿第一張票」的方式）：access_token 短命，過期後用 refresh_token 換新的，免得使用者重登。</p>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>登入/發 token（寫）</td><td>1 億使用者，每人每日 2 次</td><td>2 億/日 ≈ ~2.3k QPS（峰值 ×3 ≈ 7k）</td></tr>
+    <tr><td><strong>token 驗證（讀）</strong></td><td>每次 API 呼叫都要驗，每人每日 200 次</td><td>200 億/日 ≈ <strong>~230k 驗證 QPS</strong>（峰值 ≈ 70 萬）</td></tr>
+    <tr><td>refresh</td><td>access 15 分鐘過期</td><td>相對發 token 低一階，但仍需打 DB 查 refresh 表</td></tr>
+    <tr><td>token 大小</td><td>JWT ~700~900 bytes</td><td>每請求多帶 ~1KB header</td></tr>
+  </table>
+  <div class="box tip">
+    <span class="label">關鍵洞察：驗證 QPS 遠大於發 QPS</span>
+    驗證量是發 token 的 <strong>100 倍</strong>。若每次驗證都查一次中央 DB（introspection），Auth Server 會被打爆。
+    解法：用<strong>無狀態 JWT</strong>——把使用者/scope/過期時間簽進 token，Resource Server 只需<strong>本地用金鑰驗章 + 比對 exp</strong>，
+    <strong>零 DB 查詢</strong> 即可放行。這就是 JWT 在大規模下的核心價值，也是它「難以即時撤銷」這個取捨的來源。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 1) 授權端點（瀏覽器轉導；使用者在此登入並同意）
+GET /authorize?response_type=code
+   &client_id=demo-web
+   &redirect_uri=https://app/callback
+   &scope=openid%20profile%20email
+   &state=xyz                         # 防 CSRF，原樣帶回
+   &code_challenge=...&code_challenge_method=S256   # PKCE（公開 client）
+→ 302 https://app/callback?code=<一次性授權碼>&state=xyz
+
+# 2) Token 端點（後端對後端，帶 client_secret）
+POST /token   (application/x-www-form-urlencoded)
+   grant_type=authorization_code
+   &code=<授權碼>&redirect_uri=...&client_id=...&client_secret=...
+→ 200 { "access_token":"<JWT>", "refresh_token":"...",
+        "token_type":"Bearer", "expires_in":900, "scope":"..." }
+
+# 2b) 用 refresh 換新 access
+POST /token  grant_type=refresh_token&refresh_token=...&client_id=...&client_secret=...
+
+# 3) 撤銷（RFC 7009）
+POST /revoke  token=<refresh_token>     → 200（成功一律 200，不洩漏存在與否）
+
+# 4) 受保護資源（Resource Server）
+GET /api/me   Authorization: Bearer <access_token>
+→ 200 { "sub":"user-1001", ... }   |   401 WWW-Authenticate: Bearer error="invalid_token"
+
+# 5)（OIDC）查使用者資訊 / 取公鑰
+GET /userinfo   Authorization: Bearer <access_token>
+GET /.well-known/jwks.json          # 公鑰集合，供驗 RS256 簽章</code></pre>
+  <div class="box"><span class="label">為何分 /authorize 與 /token 兩段</span>
+    /authorize 走瀏覽器（使用者親自登入＋同意），回傳的只是<strong>短命授權碼</strong>；真正的 token 在 /token 由後端用 secret 換得，
+    <strong>token 永遠不出現在瀏覽器網址列 / 歷史紀錄</strong>，大幅縮小外洩面。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>clients                      -- client 註冊表
+  client_id      VARCHAR PK
+  client_secret  VARCHAR        -- 應存「雜湊」而非明文
+  redirect_uris  JSON           -- 白名單，換 token 時嚴格比對
+  allowed_scopes JSON
+
+auth_codes                   -- 一次性授權碼（極短 TTL，可放 Redis 設 60s 過期）
+  code        VARCHAR PK
+  client_id, redirect_uri, scope, sub
+  expires_at  TIMESTAMP
+  used        BOOL             -- 用過即 true；重放偵測
+
+refresh_tokens               -- 較長命，需持久化
+  token       VARCHAR PK（或存雜湊）
+  client_id, sub, scope
+  expires_at  TIMESTAMP
+
+revoked_tokens               -- 撤銷名單（黑名單）
+  token       VARCHAR PK
+  revoked_at  TIMESTAMP
+
+# access_token 本身「不入庫」——它是無狀態 JWT，只靠簽章自我驗證。</code></pre>
+  <div class="box warn"><span class="label">注意</span>
+    <code>auth_codes</code> 與 <code>refresh_tokens</code> 都建議存「雜湊值」而非原文，DB 外洩時才不會直接被冒用；
+    本 demo 為教學清晰存原文。授權碼表很適合放 Redis：天生短命、用 TTL 自動清。</div>
+
+  <h2 id="arch">5. 高階架構（三方角色）</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code>  ┌────────┐   ①導向 /authorize    ┌──────────────────────┐
+  │ 使用者  │ ───────────────────▶ │  Authorization Server │  (發 code / token、
+  │ +Client │ ◀─② 302 回 code───── │   /authorize /token   │   存 code 表+refresh 表)
+  └────────┘                       │   /revoke  (黃=基建)   │
+       │ ③ POST /token(code+secret)└──────────┬───────────┘
+       │ ◀──────── ④ access_token(JWT)+refresh ┘
+       │
+       │ ⑤ GET /api/me  Authorization: Bearer &lt;JWT&gt;
+       ▼
+  ┌──────────────────┐   本地驗章(金鑰/JWKS)+比 exp   ┌──────────┐
+  │ Resource Server  │ ──────── 零 DB 查詢 ─────────▶ │  放行/401 │
+  └──────────────────┘                                └──────────┘</code></pre>
+  <ol>
+    <li><strong>Client（依賴方 / RP）</strong>：想代表使用者存取資源的 App。發起 /authorize，用 code 換 token。</li>
+    <li><strong>Authorization Server（授權伺服器 / IdP）</strong>：驗 client、讓使用者登入＋同意、發授權碼與 token、管 refresh 與撤銷。</li>
+    <li><strong>Resource Server（資源伺服器）</strong>：受保護 API。收到 Bearer JWT 後<strong>本地驗章</strong>即放行，不必每次回問 Auth Server。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>① 授權碼為何必須「單次使用」？</h3>
+  <p>授權碼會短暫出現在瀏覽器（redirect 的網址列、Referer、紀錄）。若它能重複換 token，攻擊者攔到一次就能無限換。
+  因此：<strong>用過即作廢，TTL 極短（30~60 秒）</strong>。更進一步——若偵測到<strong>同一 code 被換第二次</strong>，這是強烈攻擊訊號，
+  正規做法是<strong>連同這個 code 已發出的所有 token 一起撤銷</strong>。demo 的 <code>exchangeCode()</code> 用 <code>used</code> 旗標實作重放偵測。</p>
+
+  <h3>② PKCE：公開 client 如何防授權碼被攔截</h3>
+  <p>手機 App / SPA 無法安全保管 client_secret。PKCE（Proof Key for Code Exchange）讓 client：</p>
+  <ul>
+    <li>發 /authorize 前產生隨機 <code>code_verifier</code>，送出其雜湊 <code>code_challenge = SHA256(verifier)</code>。</li>
+    <li>換 token 時附上原始 <code>code_verifier</code>；Auth Server 重算雜湊比對。</li>
+  </ul>
+  <p>就算授權碼被惡意 App 攔走，沒有 <code>code_verifier</code> 也換不到 token——用「動態一次性祕密」取代「固定 secret」。</p>
+
+  <h3>③ JWT 簽章與過期</h3>
+  <p>JWT = <code>base64url(header).base64url(payload).base64url(signature)</code>。
+  Resource Server 拿到後：用金鑰重算簽章與 token 末段比對（防竄改）、檢查 <code>exp</code>（防過期重用）。
+  <strong>全程不查 DB</strong>，這是它能扛 70 萬驗證 QPS 的原因。demo 的 <code>Jwt::verify()</code> 用
+  <code>hash_equals()</code> 做<strong>常數時間比較</strong>防時序攻擊。</p>
+
+  <h3>④ Refresh 輪替（Rotation）</h3>
+  <p>access_token 故意短命（15 分鐘）；過期後用 refresh_token 換新的，使用者無感。
+  安全強化：<strong>每次 refresh 就把舊 refresh 作廢、發一個新的</strong>。若某個已被換過的舊 refresh 又被拿來用，
+  代表它被偷且原使用者已換新——Auth Server 可據此<strong>撤銷整條 token 家族</strong>。demo 的 <code>refresh()</code> 即實作此輪替。</p>
+
+  <h3>⑤ 撤銷難題：無狀態 JWT 怎麼「立即」失效？</h3>
+  <p>JWT 的優點（自我驗證、不查庫）正是它的痛點：<strong>簽出去就無法收回，直到 exp 自然過期</strong>。三種解法：</p>
+  <table>
+    <tr><th>策略</th><th>做法</th><th>取捨</th></tr>
+    <tr><td><strong>短期 access + 撤銷名單</strong>（主流）</td><td>access 設很短（5~15 分）；撤銷時把 <em>refresh</em> 加黑名單，access 靠自然過期</td><td>有最長 15 分鐘的「撤銷延遲窗口」，但驗證仍多數零查詢</td></tr>
+    <tr><td>Token Introspection</td><td>每次驗證都回問 Auth Server「這 token 還有效嗎」</td><td>可即時撤銷，但退化成有狀態、每請求一次查詢 → 失去 JWT 擴展性</td></tr>
+    <tr><td>版本號 / jti 黑名單快取</td><td>Resource Server 查一個小型 Redis 黑名單（只存「被提早撤銷」的少數 jti）</td><td>折衷：多數 token 零查詢，少數被撤的才命中黑名單</td></tr>
+  </table>
+  <p>demo 用<strong>第一種</strong>：access 短命（<code>ACCESS_TTL</code>）、撤銷作用在 refresh（<code>revoke()</code> 寫入 <code>revoked.json</code>），
+  之後該 refresh 換不到新 access，整條鏈自然枯萎。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>驗證量爆（70 萬 QPS）</td><td>若走 introspection 會打爆 Auth Server</td><td><strong>無狀態 JWT 本地驗章</strong>，驗證可隨 Resource Server 無限水平擴展（無共享狀態）</td></tr>
+    <tr><td>發 token / refresh</td><td>refresh 表查詢與寫入</td><td>refresh 表分片（依 sub 雜湊）；授權碼放 Redis 自動過期</td></tr>
+    <tr><td>金鑰外洩風險</td><td>同一把簽章金鑰用太久</td><td><strong>金鑰輪替 + JWKS</strong>：對外公開 <code>/.well-known/jwks.json</code>，token header 帶 <code>kid</code> 指定用哪把公鑰驗；舊金鑰留一段重疊期再下線</td></tr>
+    <tr><td>跨區延遲</td><td>全球使用者打單一 Auth Server</td><td>多區域部署 Auth Server；公鑰可全球快取（驗章不需回源）</td></tr>
+    <tr><td>撤銷一致性</td><td>黑名單跨區同步延遲</td><td>縮短 access TTL 降低窗口；黑名單用近即時複寫</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>JWT（自包含）vs 不透明 token + introspection</strong>：JWT 驗證零查詢、易擴展，但難即時撤銷、token 較大、payload 可被讀（別放敏感資料）；不透明 token 可即時撤銷但每次驗證要查中央庫。<em>大規模讀多 → 選 JWT + 短 TTL；強撤銷需求 → introspection 或混合黑名單。</em></li>
+    <li><strong>對稱 HS256 vs 非對稱 RS256</strong>：HS256 用單一共享密鑰，簽與驗同一把——所有 Resource Server 都拿得到密鑰，任一個被攻陷就能<strong>偽造</strong> token；RS256 用私鑰簽、公鑰驗，Resource Server 只拿公鑰<strong>無法偽造</strong>，且能透過 JWKS 輪替。<em>多服務 / 對外開放 → RS256；單一信任邊界內的內部系統 → HS256 足夠（本 demo 因無 openssl 採 HS256）。</em></li>
+    <li><strong>access TTL 長 vs 短</strong>：長 → 少 refresh、體驗順，但撤銷窗口大；短 → 撤銷快、refresh 變多。常見 5~15 分鐘。</li>
+    <li><strong>常見追問</strong>：<code>state</code> 做什麼？→ 防 CSRF，/authorize 帶出、callback 比對。為何別用 OAuth 當登入？→ access_token 不保證身分，要用 OIDC 的 id_token。token 放哪？→ SPA 放記憶體 / HttpOnly cookie，避免 localStorage 被 XSS 偷。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重<strong>授權流程與攻防邏輯</strong>（面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Jwt.php</code>　HS256 風格 JWT：base64url 自寫、<code>hash_hmac</code> 簽 + 驗、<code>exp</code> 過期檢查、<code>hash_equals</code> 常數時間比對。</li>
+    <li><code>src/AuthServer.php</code>　client 註冊表、<code>/authorize</code> 發一次性授權碼、<code>/token</code> 換 access+refresh（授權碼<strong>單次使用</strong>＋驗 secret/redirect）、refresh <strong>輪替</strong>、<code>/revoke</code> 撤銷名單、Bearer 驗證。</li>
+    <li><code>public/index.php</code>　路由 + 一鍵示範頁：就地跑完 authorize→token→/api/me，並示範<strong>授權碼重放被擋、撤銷後 refresh 失效、竄改 token 驗章失敗</strong>三種攻防。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8024 -t public
+# 瀏覽器開 http://localhost:8024，首頁逐步列出完整流程與三種攻防結果</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    本機只有 <code>json + PDO + hash</code> 擴充、<strong>無 openssl</strong>，故 JWT 簽章以對稱式
+    <code>hash_hmac('sha256', …, $secret, true)</code>（HS256）取代正式 OIDC 常見的非對稱式 RS256；
+    base64url 自寫（<code>strtr</code> + <code>rtrim '='</code>）。
+    <strong>簽章/驗章/過期、授權碼一次性、redirect_uri 比對、refresh 輪替、撤銷名單、Bearer 驗證等授權邏輯皆為真實可執行</strong>，
+    差別只在金鑰是「共享密鑰」而非「公私鑰對」。要換 RS256 只需把 <code>Jwt</code> 內的 <code>hash_hmac</code> 換成 <code>openssl_sign</code> / <code>openssl_verify</code>，其餘流程不變。
+  </div>
+
+  <footer>㉔ OAuth 2.0 / SSO · I 認證/安全 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

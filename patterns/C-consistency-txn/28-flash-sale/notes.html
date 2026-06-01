@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉘ 秒殺 / 搶票 Ticketmaster · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅲 一致性/交易</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉘ 秒殺 / 搶票 Ticketmaster：防超賣與冪等</h1>
+  <p class="subtitle">
+    <span class="tag group">C 一致性/交易</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design a Flash Sale / Ticketing System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>極端讀寫熱點下，對單一庫存 key 做零容忍超賣的並發扣減</strong>」。
+    平時的 CRUD 很簡單；秒殺真正考的是 <em>瞬間百萬人搶同一批有限庫存</em> 時，如何
+    <strong>不超賣、不重複扣、又扛得住流量</strong>——這正是一致性 × 高並發的交叉點。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（單一熱 key）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>限量商品/票券在<strong>指定開賣時間</strong>瞬間開放搶購（如 1000 張票、十萬人同時湧入）。</li>
+    <li><strong>防超賣</strong>：賣出總數<strong>絕不</strong>超過初始庫存（零容忍）。</li>
+    <li><strong>每人限購 N 張</strong>：防黃牛壟斷、保障公平。</li>
+    <li><strong>冪等下單</strong>：使用者重複點擊、網路重送、前端重試，<strong>不可重複扣庫存/重複建單</strong>。</li>
+    <li><strong>排隊 / 削峰</strong>：先發<strong>入場令牌</strong>控制進入下單環節的人數，擋住絕大多數流量。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>正確性優先</strong>：寧可少賣、慢賣，也不能超賣（超賣＝真實金錢與信譽損失）。</li>
+    <li><strong>瞬時極高並發</strong>：QPS 在開賣那一秒從 0 飆到數十萬。</li>
+    <li><strong>低延遲回饋</strong>：搶到/沒搶到要快速明確告知，避免使用者一直重試放大流量。</li>
+    <li><strong>公平性</strong>：盡量先到先得；至少不能讓機器人輕易壟斷。</li>
+    <li><strong>可用性</strong>：下單服務掛一台不能讓庫存錯亂。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「<strong>超賣的容忍度是 0 還是可少量？</strong>」決定走<strong>強一致同步扣減</strong>還是<strong>可超賣再補償</strong>。
+    Ticketmaster 這類實名票券通常零容忍 → 本筆記主軸是<strong>原子條件扣減 + 冪等 + 削峰</strong>。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>湧入人數</td><td>熱門演唱會</td><td>瞬間 100 萬人搶 1 萬張票</td></tr>
+    <tr><td>峰值 QPS</td><td>開賣 10 秒內集中</td><td>~10 萬+ 下單 QPS（讀庫存更高）</td></tr>
+    <tr><td>有效寫入</td><td>= 庫存量</td><td>最終只有 1 萬筆成功扣減，其餘全是「沒搶到」</td></tr>
+    <tr><td>熱點</td><td>同一商品庫存</td><td><strong>單一 key 寫熱點</strong>，是整題的核心瓶頸</td></tr>
+    <tr><td>無效流量</td><td>99% 的人搶不到</td><td>關鍵是<strong>盡早擋掉</strong>注定失敗的請求，別打到 DB</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    流量是個<strong>倒三角</strong>：百萬請求進來，但有效寫入只有「庫存數」這麼多。
+    設計重點是<strong>層層削峰</strong>（CDN→限流→令牌→佇列），讓真正打到庫存扣減的請求數量接近庫存量。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 1) 領入場令牌（削峰第一關，限量發放）
+POST /api/v1/sales/{id}/token
+Body: { "user": "u123" }
+→ 200 { "token": "tk_xxx" }          # 拿到才有資格下單
+→ 429 { "error": "queued" }          # 令牌已發完 → 排隊/稍後再試
+
+# 2) 下單扣庫存（帶冪等鍵，核心關鍵路徑）
+POST /api/v1/sales/{id}/buy
+Header: Idempotency-Key: &lt;uuid&gt;
+Body: { "user": "u123", "token": "tk_xxx", "qty": 1 }
+→ 200 { "order_id": "...", "status": "ok" }      # 搶到
+→ 409 { "error": "sold_out" }                    # 賣完
+→ 409 { "error": "limit_exceeded" }              # 超過每人限購
+→ 200 (同 order_id)                              # 冪等：重送回原訂單，不重扣
+
+# 3) 查庫存（高頻讀，走快取）
+GET  /api/v1/sales/{id}/stock → { "remaining": 42 }
+
+# 4) 一鍵壓測模擬（demo 用）
+POST /api/v1/sales/{id}/simulate
+Body: { "users": 1000, "stock": 100 } → 售出/拒絕統計 + 無超賣驗證</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>sales（商品/場次）
+  sale_id      PK
+  name
+  stock_total  INT            -- 初始庫存
+  per_user_limit INT          -- 每人限購
+  starts_at    TIMESTAMP
+
+stock（庫存熱 key；真實系統放 Redis）
+  sale_id      -> remaining INT   -- 原子扣減的對象（DECR / Lua / UPDATE WHERE）
+
+orders（成功落單）
+  order_id     PK
+  sale_id, user, qty, created_at
+
+idempotency（冪等去重表）
+  idem_key     PK              -- 同鍵重送直接回原結果
+  sale_id, user, order_id, result
+
+user_purchased（每人已購計數，做限購）
+  (sale_id, user) -> qty
+
+tokens（入場令牌池）
+  sale_id -> issued / capacity  -- 限量發放，削峰</code></pre>
+  <div class="box"><span class="label">為何要冪等表</span>
+    分散式下「扣了庫存但回應丟失」會讓客戶端重試 → 若無去重就<strong>重複扣</strong>。
+    用 <code>Idempotency-Key</code> 當唯一鍵：第一次成功就把 (key→order) 記下，之後同鍵一律回原訂單。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <pre><code> 百萬 User
+    │ （CDN 擋靜態 + 前端限流 + 等待頁）
+    ▼
+ [入場令牌 / 排隊削峰]  ← 限量發 token，多數人被擋在這裡（黃）
+    │ 通過者
+    ▼
+ 下單服務（無狀態，可水平擴展）
+    │ 帶 Idempotency-Key（冪等去重）
+    ▼
+ [原子條件扣減 remaining>0 才扣]（藍）──▶ 庫存熱 key（Redis，黃）
+    │ 扣減成功
+    ▼
+ 非同步落單：MQ ──▶ 訂單 DB（綠，最終一致）</code></pre>
+  <ol>
+    <li><strong>削峰漏斗</strong>：CDN/限流 → 入場令牌 → 佇列，逐層把無效流量擋在外面。</li>
+    <li><strong>原子扣減</strong>：唯一不可省的同步點。Redis <code>DECR</code>/Lua 或 DB <code>UPDATE ... WHERE stock&gt;0</code>，保證不超賣。</li>
+    <li><strong>非同步落單</strong>：扣減成功後把建單丟 MQ，DB 慢慢寫，回應使用者「搶到了」即可。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>① 原子條件扣減（防超賣的命脈）</h3>
+  <ul>
+    <li><strong>錯誤做法</strong>：<code>讀 remaining → if&gt;0 → remaining-1 → 寫回</code>。並發下兩個請求同時讀到 1，都判斷可賣 → <strong>超賣</strong>。這是經典的 read-modify-write race。</li>
+    <li><strong>Redis 方案</strong>：<code>DECR</code> 是原子的；但要防扣成負數，用 <strong>Lua 腳本</strong>把「判斷&gt;0 + 扣減」包成單一原子操作。</li>
+    <li><strong>DB 方案</strong>：<code>UPDATE stock SET remaining=remaining-1 WHERE sale_id=? AND remaining&gt;0</code>，看 <code>affected_rows</code>：1=搶到，0=賣完。資料庫的行鎖保證原子，<strong>天然防超賣</strong>。</li>
+    <li><strong>Demo 對應</strong>：單機用 <code>flock</code> 把「讀-改-寫」包成臨界區（CAS：只有 remaining&gt;0 才扣），語意等同上面兩者。</li>
+  </ul>
+  <h3>② 冪等鍵去重</h3>
+  <p>下單入口先查冪等表：<strong>命中 → 直接回原結果（不再扣）</strong>；未命中 → 扣減成功後把 (key→order) 寫入。
+  讓「重試/重送」天然安全，這也是金流系統的通用模式。</p>
+  <h3>③ 排隊削峰與令牌桶</h3>
+  <ul>
+    <li><strong>入場令牌</strong>：限量發 N 個（可略大於庫存，留緩衝），拿到才准進下單環節。99% 的人卡在發令牌這關，根本打不到庫存。</li>
+    <li><strong>等待頁 / 排隊號</strong>：拿不到令牌的人進虛擬等待室，前端輪詢，避免一直重打後端。</li>
+    <li><strong>令牌桶限流</strong>：對下單 API 再做一層 rate limit，平滑尖峰。</li>
+  </ul>
+  <h3>④ 預扣與 TTL 釋放</h3>
+  <p>進入結帳但未付款的庫存先<strong>預扣</strong>並設 TTL；逾時未付款自動<strong>釋放</strong>回庫存，避免有人占著不買。</p>
+  <h3>⑤ 防黃牛限購</h3>
+  <p>每人已購計數 + 每人限購 N；搭配實名、裝置指紋、風控規則擋機器人。限購檢查也要在臨界區內，避免並發繞過。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（單一熱 key）</h2>
+  <table>
+    <tr><th>瓶頸</th><th>問題</th><th>對策</th></tr>
+    <tr><td>單一庫存熱 key</td><td>所有扣減打同一 key，序列化成瓶頸</td><td><strong>庫存分桶 sharding</strong>：1000 張拆 10 桶各 100，請求雜湊到桶，桶內原子扣；賣完跨桶借</td></tr>
+    <tr><td>讀庫存爆</td><td>大家狂刷「還剩幾張」</td><td>快取 + 近似值；甚至只回「有/無」布林</td></tr>
+    <tr><td>寫尖峰</td><td>瞬間湧入打垮 DB</td><td>MQ <strong>削峰填谷</strong>，扣減成功後非同步落單</td></tr>
+    <tr><td>無效流量</td><td>99% 注定失敗仍打後端</td><td>令牌/排隊盡早擋；賣完後直接回快取的 sold_out</td></tr>
+    <tr><td>熱點實例</td><td>Redis 單分片熱</td><td>分桶後 key 分散到多分片；或用本地快取扛讀</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>強一致扣減 vs 最終一致</strong>：庫存扣減必須強一致（防超賣）；落單、計數、通知可最終一致（走 MQ）。把同步點壓到最小（只有扣減）。</li>
+    <li><strong>同步下單 vs 非同步</strong>：同步＝即時告知但壓力大；非同步＝扣減成功後排隊建單、回「處理中」，吞吐高但體驗稍複雜。</li>
+    <li><strong>超賣零容忍 vs 效能</strong>：零容忍要序列化扣減（慢）；可容忍少量超賣則能更激進快取/分桶，事後補償退款。看業務。</li>
+    <li><strong>單 key vs 分桶</strong>：分桶提升吞吐但帶來「某桶賣完別桶還有」的碎片，需跨桶調度。</li>
+    <li><strong>常見追問</strong>：如何防超賣？（原子條件扣減）如何防重複下單？（冪等鍵）如何扛流量？（令牌+排隊+MQ）如何防黃牛？（限購+風控）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>秒殺的真實核心邏輯</strong>（防超賣 + 冪等 + 令牌削峰），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/FlashSale.php</code>　核心：<strong>原子條件扣減</strong>（flock 包讀-改-寫，只有 remaining&gt;0 才扣）、<strong>冪等鍵去重</strong>、<strong>每人限購</strong>、<strong>入場令牌池</strong>。</li>
+    <li><code>public/index.php</code>　路由：領令牌 / 下單 / 查庫存 / 一鍵壓測模擬，並附互動測試頁。</li>
+    <li><code>data/</code>　執行期狀態（庫存、訂單、冪等記錄、令牌、每人已購），已 gitignore。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8028 -t public
+# 瀏覽器開 http://localhost:8028
+# 設庫存 → 一鍵模擬 1000 人搶 100 張 → 看售出恰為 100（不超賣）
+# 同 user 帶相同 idem_key 重送 → 回原訂單不重複扣</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 <code>flock</code> <strong>檔案鎖</strong>把「讀-改-寫」包成臨界區，<strong>模擬 Redis 原子操作 / DB 行鎖</strong>的角色——
+    這是單機教學版（非真正的分散式 Redis Lua / 叢集）。但<strong>防超賣（CAS 條件扣減）、冪等去重、每人限購、令牌削峰的邏輯都是真實可執行的</strong>：
+    模擬高並發搶購後，<strong>售出數恰等於庫存、不多不少</strong>，同 user 同 idem_key 重送<strong>不重複扣</strong>。
+  </div>
+
+  <footer>㉘ 秒殺 / 搶票 Ticketmaster · C 一致性/交易 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>
