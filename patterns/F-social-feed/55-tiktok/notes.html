@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>55 TikTok / Netflix 影片推薦流 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅵 社交/Feed 分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>55 TikTok / Netflix 影片推薦流：召回 → 排序 → 回饋迴路</h1>
+  <p class="subtitle">
+    <span class="tag group">F 社交/Feed</span>
+    <span class="tag time">建議 55 分鐘</span>
+    <span class="tag">Design TikTok / Netflix Video Feed</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>個人化推薦流（For You）＝ 召回 → 排序 → 去重 → 回饋迴路</strong>」的<strong>綜合題</strong>，
+    把 <a href="../../D-stream-storage/01-qr-code-generator/notes.html">影片分發</a>（轉碼 + CDN）、<em>推薦排序</em>、
+    <a href="15-news-feed/notes.html">Feed 分頁</a>三題揉在一起。
+    與 <a href="15-news-feed/notes.html">News Feed</a> 的關鍵差異：那題的內容來源是<strong>你關注的人</strong>（社交圖扇出）；
+    這題<strong>不靠關注</strong>，而是系統<em>主動猜你會喜歡什麼</em>（興趣推薦），來源是全站幾百萬支影片。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入（召回 / 排序 / 去重 / 回饋）</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>無限影片流（For You）</strong>：打開 App 就有一支接一支的影片，捲到底自動載入下一批。</li>
+    <li><strong>個人化</strong>：依使用者興趣推薦，<strong>不需要先追蹤任何人</strong>（與 News Feed 最大差異）。</li>
+    <li><strong>同一輪不重複</strong>：一次刷的過程中（session）不會重複推同一支。</li>
+    <li><strong>回饋學習</strong>：看完 / 按讚 / 滑掉等行為會回流，<strong>越看越準</strong>。</li>
+    <li>影片上傳 → 轉碼成多碼率 → 經 CDN 播放（沿用 YouTube 那題的分發）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>黏著（engagement）</strong>是北極星指標：推得準 → 看得久 → 留得住。系統一切為它服務。</li>
+    <li><strong>低延遲</strong>：打開即播、捲動無感（p99 取一頁 &lt; 200ms）→ 靠<strong>預載下一頁</strong>。</li>
+    <li><strong>讀遠多於寫</strong>：刷影片（讀）次數遠大於上傳（寫）；但「看影片產生的行為事件」寫入量極大。</li>
+    <li><strong>可擴展</strong>：影片庫達數十億、日活數億；召回必須能從海量裡<strong>快速縮到幾百個候選</strong>。</li>
+    <li>新鮮度 / 多樣性：要給<strong>新片曝光</strong>、避免同溫層（探索）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「推薦靠<strong>關注關係</strong>還是<strong>興趣猜測</strong>？」這題是後者（興趣推薦）→ 整題走向就是
+    <strong>召回 → 排序 → 去重 → 回饋迴路</strong>，而不是 News Feed 的推/拉扇出。確認後再問「要不要回饋學習、要不要探索新片」。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>日活（DAU）</td><td>5 億</td><td>—</td></tr>
+    <tr><td>影片庫</td><td>累積 ~50 億支</td><td>召回必須把它縮到幾百個候選才排得動</td></tr>
+    <tr><td>每次刷取幾支</td><td>一頁 ~10 支、一場 session 刷 5～10 頁</td><td>每人每日數百支曝光</td></tr>
+    <tr><td>取一頁延遲</td><td>召回 + 排序需 &lt; 100ms</td><td>靠<strong>離線預算候選 + 預載下一頁</strong>掩蓋延遲</td></tr>
+    <tr><td>行為事件（寫）</td><td>每支曝光都產生看/滑/讚事件</td><td>每日數千億事件 → 走串流（Kafka）批次聚合更新特徵</td></tr>
+    <tr><td>候選規模</td><td>召回每次取 ~數百候選</td><td>排序模型只精算這數百個，不碰 50 億全庫</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>不可能對 50 億支影片逐一打分 → 必須<strong>兩段式</strong>：<strong>召回</strong>先用便宜手段把海量縮到幾百個（快、廣、可漏抓），<strong>排序</strong>再對這幾百個用貴的模型精算。這是所有大型推薦系統的骨架。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 取一頁 For You（讀，超高頻，關鍵路徑）
+GET /api/v1/feed?user_id=1&limit=10
+→ 200 { "items": [ {video_id, tags, score, source:"interest|popular|explore"} ],
+        "next_page": [ ... ] }          # 順帶回傳預載的下一頁
+
+# 看一支影片 → 回饋（寫，量極大）
+POST /api/v1/watch
+Body: { "user_id": 1, "video_id": "v_123",
+        "action": "completed|liked|skipped", "watch_ms": 8200 }
+→ 202 Accepted（非同步入事件流，不阻塞）
+
+# 上傳影片（寫，低頻但重）
+POST /api/v1/videos   → 觸發轉碼管線（多碼率 + 縮圖）→ 完成後可被召回
+
+# 查使用者興趣狀態（除錯 / 個人化頁）
+GET /api/v1/users/{id}/interests → { "dance": 3.5, "music": 2.0, ... }
+</code></pre>
+  <div class="box"><span class="label">注意</span><code>source</code>（interest / popular / explore）在正式系統不會回傳，這裡刻意暴露「這支是<strong>因興趣</strong>、<strong>因熱門</strong>還是<strong>探索</strong>來的」，正是本題 demo 要呈現的核心。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>videos  (影片中繼資料，分片)
+  video_id     PK
+  tags         []         -- 標籤 / 類別（召回與相符度的依據）
+  popularity   BIGINT     -- 累積熱度（看完/讚聚合而來）
+  created_at   TIMESTAMP  -- 推算新鮮度
+  -- 影片本體：轉碼後多碼率檔放物件儲存 / CDN，不進此表
+
+user_interests  (使用者興趣向量，鍵值儲存)
+  user_id → { tag: 分數, ... }   -- 由行為事件回流更新（回饋迴路）
+
+watch_history  (觀看記錄，去重用)
+  user_id, session_id → [ video_id, ... ]   -- 同一輪 session 已看 → 去重
+
+candidate_pool  (召回結果，短暫快取)
+  user_id → [ video_id, ... ]   -- 多路召回合併後的候選，供排序
+
+watch_events  (行為事件，append-only，量極大)
+  user_id, video_id, action, watch_ms, ts  -- 寫 Kafka → 聚合 → 更新興趣與熱度</code></pre>
+  <div class="box"><span class="label">為何分開</span>影片中繼資料是可被多人共享的<strong>真相來源</strong>；興趣向量是<strong>每人一份</strong>且高頻更新；行為事件是<strong>高頻 append-only</strong> 走串流，不進主庫。三者的讀寫特性完全不同，所以分庫。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 上傳(寫) ─▶ 轉碼管線(多碼率+縮圖) ─▶ 物件儲存 ─▶ CDN ──(播放)──▶ 使用者
+                                          │（沿用 YouTube ⑩ 分發）
+
+ 取 For You(讀) ─▶ Feed Service
+        │
+        ├─▶ 召回：興趣路 / 熱門路 / 協同路 ─▶ 候選池(幾百個)
+        │
+        ├─▶ 排序：對候選打分(相符度×熱度×新鮮度) ─▶ Top-N
+        │
+        ├─▶ 去重(剔除本輪已看) + 探索(留名額給新片)
+        │
+        └─▶ 回一頁 + 預載下一頁
+
+ 看一支(寫) ─▶ 行為事件 ─▶ Kafka ─▶ 聚合 ─▶ 更新興趣向量 & 影片熱度
+                                              └────（回饋迴路）下次推得更準</code></pre>
+  <ol>
+    <li><strong>分發層</strong>：上傳 → 轉碼 → CDN，跟 YouTube 那題相同；推薦只負責「<strong>推哪一支</strong>」，播放交給 CDN。</li>
+    <li><strong>推薦層</strong>：召回（多路撈候選）→ 排序（特徵打分）→ 去重 + 探索 → Top-N，並預載下一頁降延遲。</li>
+    <li><strong>回饋層</strong>：看影片的行為走 Kafka，聚合後更新興趣向量與影片熱度，形成<strong>回饋迴路</strong>。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入（召回 / 排序 / 去重 / 回饋）</h2>
+  <h3>召回（candidate generation）：多路撈候選</h3>
+  <ul>
+    <li><strong>為何要召回？</strong>50 億支影片不可能逐一打分 → 先用便宜手段縮到幾百個。召回要<strong>快、廣、可漏抓</strong>（寧可多撈，排序再篩）。</li>
+    <li><strong>興趣路</strong>：用使用者偏好標籤，從倒排索引撈相符影片。</li>
+    <li><strong>熱門路</strong>：全站 / 同地區熱門影片，涵蓋面廣，也是<strong>冷啟動的後備</strong>。</li>
+    <li><strong>協同路</strong>：「看過同片的人也愛看的」——協同過濾 / 向量近鄰（ANN）。demo 用標籤共現近似。</li>
+    <li>多路結果<strong>合併去重</strong>成候選池。多路的意義：單一路會有盲點，多路互補才涵蓋得廣。</li>
+  </ul>
+  <h3>排序（ranking）：特徵打分</h3>
+  <ul>
+    <li>對候選池每支算分：<code>分數 = 相符度×w1 + 熱度×w2 + 新鮮度×w3</code>。</li>
+    <li><strong>相符度</strong>：影片標籤命中使用者興趣的分數總和（個人化主訊號）。</li>
+    <li><strong>熱度</strong>：大家都愛看的通常不會太差（配角，權重要小，否則熱門片壓過個人化）。</li>
+    <li><strong>新鮮度</strong>：新片加分，避免老片霸榜。</li>
+    <li>真實系統這一層是<strong>機器學習模型</strong>（GBDT / 深度模型，預估「看完率 / 互動率」）；可解釋的加權線性分數是它的簡化版，<strong>邏輯位置完全相同</strong>。</li>
+  </ul>
+  <h3>探索 vs 利用（explore / exploit）</h3>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    只推「已知你愛看的」會把人困在<strong>同溫層</strong>，新片也永遠沒機會曝光。所以每頁保留<strong>少量探索名額</strong>給「你沒接觸過的標籤 / 新片」。
+    探索太多 → 推不準掉黏著；太少 → 同溫層 + 新片餓死。這是推薦系統的核心張力（多臂吃角子老虎 / bandit 問題）。
+  </div>
+  <h3>去重（同一輪不重複）</h3>
+  <ul>
+    <li>記錄「本輪 session 已看」，取下一頁時<strong>剔除</strong> → 不會重複推同一支。</li>
+    <li>大規模下用 <strong>Bloom filter</strong> 做近似去重（省記憶體，可容極低誤判）。</li>
+  </ul>
+  <h3>預載降延遲</h3>
+  <ul>
+    <li>回一頁時<strong>順手算好下一頁</strong>放 <code>next_page</code>，前端可先抓、CDN 預熱下一批影片 → 捲到底瞬間顯示，掩蓋召回+排序的延遲。</li>
+  </ul>
+  <h3>冷啟動（cold start）</h3>
+  <ul>
+    <li><strong>新使用者</strong>：沒興趣訊號 → 靠<strong>熱門路 + 探索</strong>撐起第一頁；快速從前幾支的行為學出興趣。</li>
+    <li><strong>新影片</strong>：沒熱度 → 靠<strong>新鮮度加分 + 探索名額</strong>取得初始曝光，再依表現決定是否擴大推送。</li>
+  </ul>
+  <h3>回饋迴路（feedback loop）</h3>
+  <ul>
+    <li>看完 / 讚 → 把影片標籤<strong>加進使用者興趣向量</strong>（看完權重高、讚再加碼、滑掉幾乎不加），同時<strong>累積影片熱度</strong>。</li>
+    <li>下次召回更貼、排序分更高 → <strong>越看越準</strong>。這條迴路是整題（與整個 TikTok）的靈魂。</li>
+  </ul>
+  <h3>影片用 CDN 分發</h3>
+  <ul>
+    <li>推薦只決定「推哪些 video_id」；真正的影片位元組<strong>由 CDN 就近送</strong>（沿用 YouTube 轉碼 + 多碼率 + 邊緣快取），與推薦解耦。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段 / 瓶頸</th><th>問題</th><th>對策</th></tr>
+    <tr><td>候選生成規模</td><td>50 億影片無法逐一打分</td><td>兩段式：召回先縮到幾百個（倒排索引 / ANN 向量近鄰），排序只算這幾百個</td></tr>
+    <tr><td>即時特徵</td><td>興趣要隨行為即時更新，否則推不準</td><td>行為走 Kafka → 串流聚合，興趣向量近即時更新（重特徵離線批次）</td></tr>
+    <tr><td>模型服務</td><td>排序模型推論延遲高、QPS 大</td><td>模型服務水平擴展 + 特徵快取 + 只對召回後的小候選集推論</td></tr>
+    <tr><td>取頁延遲</td><td>召回+排序來不及</td><td><strong>預載下一頁</strong> + 離線預算每人候選 + CDN 預熱影片</td></tr>
+    <tr><td>去重狀態爆量</td><td>每人每輪已看清單膨脹</td><td>Bloom filter 近似去重 + session 過期清掉</td></tr>
+    <tr><td>影片分發頻寬</td><td>熱門影片同時被海量人看</td><td>CDN 邊緣快取 + 多碼率自適應（沿用 YouTube 分發）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>個人化 vs 多樣性</strong>：全推已知興趣黏著最高但困在同溫層；保留探索名額犧牲一點即時黏著、換長期留存與新片曝光。核心是 explore/exploit 的平衡。</li>
+    <li><strong>即時 vs 批次興趣更新</strong>：即時更新（看一支馬上變準）體驗好但成本高；批次（離線重算）便宜但反應慢。實務<strong>混合</strong>：輕量訊號即時、重特徵批次。</li>
+    <li><strong>新片冷啟動</strong>：沒熱度的好片如何出頭？→ 新鮮度加分 + 探索名額給初始曝光，再依早期表現（看完率）決定擴大或收手。</li>
+    <li><strong>召回為何要多路</strong>：單路有盲點（純興趣 → 困同溫層、純熱門 → 不個人化）；多路互補涵蓋廣，排序再統一篩。</li>
+    <li><strong>與 News Feed 的差異</strong>：News Feed 內容來自<strong>社交圖（你關注誰）</strong>，核心是推/拉扇出；這題內容來自<strong>全站興趣猜測</strong>，核心是召回→排序→回饋，<strong>不靠關注</strong>。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>怎麼防回饋迴路把人越推越窄？→ 探索名額 + 多樣性打散 + 興趣分數衰減。</li>
+        <li>看完率與按讚哪個訊號強？→ 看完（停留時長）通常比讚更真實，權重更高。</li>
+        <li>怎麼分頁不重複？→ session 級去重（Bloom filter），下一頁剔除已看。</li>
+        <li>影片很大怎麼秒開？→ 不是推薦的事，交給 CDN + 多碼率 + 預載。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>推薦核心邏輯</strong>（綜合題真正的考點），不是 CRUD。可用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/VideoStore.php</code>　影片庫（標籤 / 熱度 / 新鮮度）+ 使用者興趣向量 + 本輪已看記錄（JSON 檔模擬 DB）。</li>
+    <li><code>src/Recommender.php</code>　核心：<strong>多路召回 → 特徵排序打分 → 去重 → 探索/利用 → Top-N + 預載下一頁</strong>。</li>
+    <li><code>src/FeedSession.php</code>　協調：取一頁 / 看一支（<strong>回饋迴路</strong>更新興趣與熱度）/ 看狀態 / 重新一輪。</li>
+    <li><code>public/index.php</code>　路由 + 深色測試頁，可視覺化每支影片的<strong>分數、召回分路、探索標記、冷啟動</strong>。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8055 -t public
+# 瀏覽器開 http://localhost:8055
+# 流程：① 載入示範影片 → ② 取 alice 的 For You（dance/music 排前面）
+#       → 對某支按「看完 / 讚」→ ③ 再取 For You：那支被去重、同類分數變更高（更貼興趣）
+#       換 bob 看冷啟動（無興趣 → 靠熱門 + 探索）</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 JSON 檔模擬影片庫與使用者特徵、用<strong>加權線性分數</strong>模擬排序模型；<strong>無真影片、無真 ML 模型、無真轉碼/CDN</strong>。
+    但<strong>多路召回、特徵排序打分、session 去重、探索 vs 利用、冷啟動後備、預載下一頁、看一支 → 興趣回饋迴路 → 推得更準，皆為真實可執行邏輯</strong>。
+    上正式環境：召回換倒排索引 + 向量近鄰、排序換 ML 模型服務、興趣更新走 Kafka、影片走轉碼 + CDN，<strong>召回→排序→去重→回饋的骨架不變</strong>。
+  </div>
+
+  <footer>55 TikTok / Netflix 影片推薦流 · F 社交/Feed 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

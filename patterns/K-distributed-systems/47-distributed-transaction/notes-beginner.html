@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊼ 分散式交易 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊼ 分散式交易 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把機制拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這在解什麼問題）、<strong>Part 2 工程細節</strong>（怎麼真的做出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在解什麼</a></li>
+      <li><a href="#why">為什麼「跨兩家轉帳」這麼難？</a></li>
+      <li><a href="#steps">兩階段提交：拆成 2 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要付出多少代價？（估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會卡住、怎麼救？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在解什麼</h2>
+  <p>你要從<strong>銀行 A 的帳戶</strong>轉 200 元到<strong>銀行 B 的帳戶</strong>。這件事有兩步：<strong>A 扣 200、B 加 200</strong>。</p>
+  <p>聽起來很簡單，但魔鬼藏在「<strong>萬一只做了一半</strong>」：A 扣了 200，B 卻因為當機沒收到——錢就<strong>憑空消失</strong>了。反過來 B 加了、A 沒扣，錢就<strong>憑空多出來</strong>。</p>
+  <p>所以這題要保證的就一句話：<strong>「兩步要嘛都成功、要嘛都不做，絕不能只做一半。」</strong>這在資料庫叫<strong>原子性</strong>。當這兩步落在<strong>不同機器</strong>上時，要做到原子性就變得很難——這就是<strong>分散式交易</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    分散式交易 = <strong>讓散在好幾台機器上的多個步驟，像一個動作一樣「全做或全不做」</strong>。最經典的做法叫<strong>兩階段提交（2PC）</strong>：<strong>先一個一個問「你準備好了嗎」，全都說好，才一起真的下手。</strong>
+  </div>
+
+  <h2 id="why">2. 為什麼「跨兩家轉帳」這麼難？</h2>
+  <p>很多人想：「不就 A 減、B 加嗎？寫兩行就好。」——這想法漏掉了一個會出大事的真相：<strong>機器會在任何時刻當機、網路會斷</strong>。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：兩個人同時簽合約</span>
+    你和遠方一個夥伴要簽同一份合約，必須<strong>兩個人都簽才生效</strong>。
+    如果你先簽了、把合約寄出去，結果對方臨時反悔不簽——你已經簽的那份就<strong>尷尬地懸在半空</strong>。
+    聰明的做法是：<strong>先各自說「我願意簽」（口頭承諾），等雙方都點頭，再同時落筆。</strong>這樣就不會有人單方面被綁住。
+  </div>
+  <p>分散式交易的難關正是這個：你<strong>不能</strong>「叫 A 先扣、再叫 B 加」，因為中間任何一步都可能掛掉，留下「做一半」的爛攤子。</p>
+  <p class="pause">💭 停一下：為什麼不能「先讓 A 扣款，成功後再叫 B 入帳」就好？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為 A 扣完之後、輪到 B 入帳之前，B 可能<strong>剛好當機</strong>或<strong>餘額/規則不允許</strong>。這時 A 的錢已經扣了，B 卻沒加——錢憑空消失。
+    而且你也<strong>沒法簡單把 A 的扣款收回</strong>（萬一收回的指令也掛了呢？）。所以要<strong>先問清楚大家都行，再一起動手</strong>，這就是 2PC。
+  </details>
+
+  <h2 id="steps">3. 兩階段提交：拆成 2 個關卡</h2>
+  <p>2PC 的名字就告訴你它分兩關。中間有個「主持人」叫<strong>協調者</strong>，被問的各方叫<strong>參與者</strong>（這裡就是銀行 A 和 B）。</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>第一關 prepare：先問「你準備好了嗎？」</h3>
+    <p>協調者<strong>一個一個問</strong>每個參與者：「我要做這筆交易，<strong>你能不能提交？</strong>」</p>
+    <div class="analogy">
+      <span class="label">🍽️ 比喻：訂位前先確認</span>
+      辦一場聚餐要訂三家店配合。你先打電話<strong>一家一家問</strong>：「這天這時段，你能不能保留位子？」
+      店家會<strong>先把位子圈起來（預留、先別給別人）</strong>，然後回你「可以」或「不行」。
+    </div>
+    <p>每個參與者收到 prepare 會做三件事：① <strong>檢查能不能做</strong>（A 餘額夠嗎？）② <strong>把這筆變更先記在小抄上、但還沒真的改餘額</strong>（這張小抄叫「<strong>預寫日誌</strong>」）③ <strong>把相關帳戶鎖起來</strong>（先別讓別人動），然後回答 <strong>YES（我準備好了）</strong> 或 <strong>NO（我不行）</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>第二關 commit / abort：全說好才下手，有人不行就全退</h3>
+    <p>協調者收集所有人的回答，然後<strong>只有兩種結局</strong>：</p>
+    <ul>
+      <li><strong>大家都說 YES</strong> → 協調者下令「<strong>commit（真的提交）</strong>」：每個參與者把小抄上的變更<strong>真正套用</strong>（A 真的扣、B 真的加），然後解鎖。✅ 全部成功。</li>
+      <li><strong>有任何一個說 NO（或不回應/逾時）</strong> → 協調者下令「<strong>abort（取消回滾）</strong>」：每個參與者<strong>把小抄撕掉、解鎖</strong>，餘額<strong>從頭到尾沒被動過</strong>。❌ 全部當沒發生。</li>
+    </ul>
+    <div class="analogy">
+      <span class="label">🍽️ 比喻：訂位的第二通電話</span>
+      三家店都說「可以保留」→ 你再打第二通：「<strong>那就訂了！</strong>」三家確認成交。
+      只要<strong>有一家說「抱歉客滿」</strong>→ 你打第二通跟另外兩家說：「<strong>不好意思取消</strong>」，他們把圈起來的位子放開。沒有人被白白綁住。
+    </div>
+    <p>這就是原子性的祕密：<strong>「真的下手」永遠延到第二關，而且要全員點過頭。</strong>所以絕不會出現「A 扣了、B 沒加」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 兩關一句話</span>
+    ① <strong>prepare</strong>：協調者問大家「能提交嗎？」，各自<strong>預留+鎖定</strong>並投票 → ② <strong>全 YES 就 commit（真做）、任一 NO 就 abort（全退）</strong>。要嘛都成功、要嘛都回滾。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+
+  <div class="fear">
+    <span class="label">😱 怕「做一半」</span>
+    這是<strong>最致命</strong>的怕：A 扣了 B 沒加，錢就不見了。2PC 就是為了避開它——<strong>先問再做、全員同意才動手</strong>，讓「做一半」變成不可能。
+    <em>寧可整筆取消，也不要做一半。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「主持人突然消失」</span>
+    大家都投了 YES、把帳戶<strong>鎖起來等指令</strong>，結果<strong>協調者（主持人）突然當機</strong>，再也沒人下「commit 還是 abort」。
+    參與者就<strong>卡在那裡、帳戶一直鎖著</strong>動不了——這叫<strong>阻塞</strong>，是 2PC 最有名的痛點。
+    解法：協調者<strong>先把決定寫在紙上（落盤）</strong>，這樣它<strong>重開機後能照紙上重發指令</strong>；更進階是把協調者<strong>做好幾個備份</strong>，掛一個還有別的頂上。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「鎖太久、大家排隊」</span>
+    從 prepare 到 commit 這段，帳戶是<strong>鎖著的</strong>，別人想動同一個帳戶只能排隊。參與者越多、協調者越慢，<strong>鎖越久、塞車越嚴重</strong>。
+    所以工程上會<strong>盡量讓相關資料放在同一台機器</strong>（不用跨機就不用 2PC），真要跨才用，而且盡量<strong>把這段鎖定時間縮到最短</strong>。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由上往下看：</p>
+  <ul>
+    <li>👤 <strong>你</strong>發起「A 轉 200 給 B」→</li>
+    <li>🧑‍⚖️ <strong>協調者（主持人）</strong>接手，先把「打算做這筆」記下來 →</li>
+    <li>📞 第一關 <strong>prepare</strong>：分別問 <strong>參與者 A、參與者 B</strong>「能提交嗎？」，兩邊各自<strong>把變更寫小抄、鎖帳戶</strong>，回 YES/NO →</li>
+    <li>🧾 協調者看投票結果，<strong>把最終決定寫進日誌</strong>（這步很重要，當機才救得回來）→</li>
+    <li>✅ 第二關：<strong>全 YES → 叫兩邊 commit（真改）；任一 NO → 叫兩邊 abort（撕小抄、回滾）</strong> →</li>
+    <li>💰 結果：兩邊<strong>要嘛都改、要嘛都沒改</strong>，全系統的錢<strong>總額永遠不變</strong>。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都懂了，這裡把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><td>分散式交易</td><td>散在多台機器的好幾步，要像一個動作一樣「全做或全不做」</td></tr>
+    <tr><td>原子性 (Atomicity)</td><td>「全做或全不做」這個保證本身（A 的 ACID 之首）</td></tr>
+    <tr><td>2PC（兩階段提交）</td><td>先問大家「能提交嗎」（prepare），全說好才一起真做（commit），否則全退（abort）</td></tr>
+    <tr><td>協調者 (Coordinator/TM)</td><td>主持人：發起交易、收集投票、下最終命令、負責當機後恢復</td></tr>
+    <tr><td>參與者 (Participant/分片)</td><td>被問的各方：各管一份資料，回答 prepare、執行 commit/abort</td></tr>
+    <tr><td>prepare（第一階段）</td><td>「你能不能提交？」——各自檢查、預留、鎖定、投票 YES/NO</td></tr>
+    <tr><td>commit / abort（第二階段）</td><td>真的做 / 取消回滾</td></tr>
+    <tr><td>預寫日誌 (WAL)</td><td>那張「先記下要改什麼、但還沒真改」的小抄；當機後靠它恢復</td></tr>
+    <tr><td>鎖定 (lock)</td><td>prepare 後先把帳戶圈起來，別讓別人同時動</td></tr>
+    <tr><td>阻塞 (blocking)</td><td>協調者掛了，參與者卡著鎖等指令、動不了</td></tr>
+    <tr><td>Saga</td><td>另一種做法：每步先各自做完，出錯再用「補償動作」反向修正（最終一致）</td></tr>
+    <tr><td>NewSQL（Spanner 等）</td><td>把這一整套內建好的資料庫，讓你像用單機一樣寫分散式強一致交易</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手做，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要付出多少代價？（估算）</h2>
+  <div class="analogy">
+    <span class="label">📞 比喻：每次都要打兩輪電話</span>
+    2PC 每筆交易都得「<strong>打一輪確認電話（prepare）+ 打一輪拍板電話（commit）</strong>」。
+    電話來回是要花時間的——這就是 2PC 的主要代價：<strong>比單機慢、而且講電話期間位子一直圈著</strong>。
+  </div>
+  <table>
+    <tr><th>估什麼</th><th>大概感覺</th><th>所以呢？</th></tr>
+    <tr><td>一筆跨機交易要幾輪來回</td><td>至少 2 輪（prepare + commit）</td><td>比單機交易慢約一倍 → 能不跨機就不跨</td></tr>
+    <tr><td>帳戶鎖多久</td><td>整個 prepare→commit 期間</td><td>主持人越慢、參與者越多 → 鎖越久、別人越塞</td></tr>
+    <tr><td>多少交易其實要跨機</td><td>通常只有少數</td><td>把相關資料放同一台（colocation），大多數就走快速單機路</td></tr>
+    <tr><td>主持人要不要存紀錄</td><td>每筆都要把決定落盤</td><td>多一次寫硬碟，但這是當機能救回來的命根子</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：最省的招是「根本不跨機」</span>
+    2PC 再聰明也有代價。所以第一原則是<strong>盡量把要一起改的資料放在同一台機器</strong>，這樣就用普通的單機交易、又快又不卡。
+    <strong>只有真的非跨不可，才動用 2PC</strong>，而且把參與者數量壓到最少、鎖定時間壓到最短。
+  </div>
+  <p class="pause">💭 停一下：既然 2PC 又慢又會卡，為什麼還要用它？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為在<strong>錢、庫存</strong>這種場景，「做一半」是絕對不能發生的。2PC 用「慢一點、會卡一點」換來<strong>鐵一般的原子性</strong>。
+    如果你的場景<strong>能容忍短暫不一致</strong>（例如電商下單後慢慢出貨），就改用<strong>Saga</strong>（後面取捨會講），用補償換高可用。選哪個看你「最不能忍受什麼」。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是系統之間講好的「<strong>點餐單格式</strong>」。這題的點餐單分兩種：<strong>對外</strong>（你發起轉帳）和<strong>對內</strong>（協調者跟參與者講的兩階段悄悄話）。
+  </div>
+  <pre><code>① 你發起一筆轉帳（對外）
+   POST /api/transfer
+   給我：{ 從哪(A:alice), 到哪(B:bob), 金額 }
+   我回：{ 結果: COMMIT 或 ABORT, 兩邊各投了 YES/NO }</code></pre>
+  <pre><code>② 協調者跟參與者的兩階段悄悄話（對內）
+   prepare(交易編號, 要改什麼)  → 回 YES / NO   ← 第一關：能提交嗎
+   commit(交易編號)             → 真的改
+   abort(交易編號)              → 撕小抄、回滾</code></pre>
+  <p class="codecaption">注意：你只碰得到第①張（發起轉帳）。第②組是協調者在<strong>背後</strong>跟各參與者跑的兩階段，你看不到，但結果（COMMIT/ABORT）會回給你。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：主持人一本帳、每個參與者各兩本</span>
+    主持人要記「<strong>每筆交易最後決定是成交還是取消</strong>」；每個參與者要記「<strong>我的正式餘額</strong>」和「<strong>還沒拍板的小抄</strong>」。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧑‍⚖️</span>主持人的「決議日誌」</h3>
+    <p>每筆交易一列：<code>交易編號、最終決定(COMMITTED / ABORTED)、牽涉哪些參與者</code>。
+    <strong>這本最重要</strong>：主持人當機重開後，靠它知道「這筆我之前決定成交了沒」，才能重發正確指令、不讓參與者卡死。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">💰</span>參與者的「正式餘額」</h3>
+    <p>每個帳戶一列：<code>帳戶、餘額</code>。<strong>只有 commit 那一刻才會被改</strong>；prepare 階段碰都不碰它。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>參與者的「小抄（預寫日誌 WAL）」</h3>
+    <p>每筆還沒拍板的交易一列：<code>交易編號、要改什麼(alice -200)、鎖了哪些帳戶</code>。
+    commit 就是<strong>把小抄套到正式餘額</strong>；abort 就是<strong>把小抄撕了</strong>；當機重開看到小抄還在，就知道「我有一筆懸著的交易」，去問主持人結果。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會卡住、怎麼救？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出最容易塞車的路口，先救它</span>
+    系統變大時總有地方先卡。2PC 的卡點很集中，一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會卡</th><th>怎麼救</th></tr>
+    <tr><td>鎖定期間別人排隊（最常見）</td><td>盡量把相關資料放同一台、別跨機；真跨也把鎖定時間縮到最短、參與者壓最少</td></tr>
+    <tr><td>主持人當機 → 參與者卡死</td><td>主持人<strong>決定先落盤</strong>（重開能重發）；更進階：把主持人<strong>做好幾個備份</strong>（Raft 高可用）</td></tr>
+    <tr><td>跨城市/跨國，電話來回特別久</td><td>資料就近放；跨國交易改用<strong>非同步 / Saga</strong>；Spanner 用特殊時鐘技巧換一致性</td></tr>
+    <tr><td>兩筆交易互相鎖住對方（死結）</td><td>規定<strong>固定的加鎖順序</strong>、設逾時自動放棄重來</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <div class="fear"><span class="label">⚖️ 2PC（先問再做） vs Saga（先做再補償）</span>
+    <strong>2PC</strong>：先問大家、全同意才動手，<strong>真原子、別人看不到做一半的中間態</strong>；但<strong>會鎖、會卡、主持人是單點</strong>。
+    <strong>Saga</strong>：每步先各自做完（先扣款、再出貨…），哪步失敗就跑<strong>反向補償</strong>（退款）；<strong>不鎖、高可用</strong>，但<strong>只有最終一致、看得到中間態、要自己寫補償</strong>。
+    錢/庫存這種「絕不能做一半」用 2PC；長流程、跨好多服務、能忍一下不一致用 Saga。</div>
+  <div class="fear"><span class="label">⚖️ 一致性 vs 可用性</span>
+    2PC 選的是<strong>一致性</strong>：遇到當機或網路斷，它寧可<strong>卡住（不可用）</strong>也不讓資料錯。這就是它「會卡」的本質原因，不是 bug，是它的選擇。</div>
+  <div class="fear"><span class="label">⚖️ 自己刻 vs 用 NewSQL</span>
+    自己用 2PC 拼很容易出錯（恢復、死結都難）。現在多半直接用 <strong>NewSQL（Google Spanner、CockroachDB、TiDB）</strong>——它把 2PC + 多副本 + 全球時鐘<strong>都內建好了</strong>，你就像寫單機 SQL 一樣，背後自動幫你跑分散式強一致交易。</div>
+  <details class="qa"><summary>💭 追問：協調者在「收齊投票後、還沒下令前」當機，會怎樣？</summary>
+    投了 YES 的參與者會<strong>卡在「鎖著、等指令」的狀態</strong>（這就是阻塞）。救法：協調者重開後讀<strong>決議日誌</strong>，知道這筆該 commit 還是 abort，<strong>重發一次指令</strong>把大家解開。所以「決定先落盤」才那麼關鍵。</details>
+  <details class="qa"><summary>💭 追問：那為什麼不乾脆用「三階段提交(3PC)」來解卡死？</summary>
+    3PC 多加一關，理論上參與者能在主持人掛掉時自己逾時做決定、比較不卡。但代價是<strong>每筆更慢（多一輪電話）</strong>，而且<strong>網路一斷照樣可能不一致</strong>。所以實務上大家寧可用「2PC + 把主持人做好幾個備份」來解單點，而不是 3PC。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「prepare → commit / abort」兩階段：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8047 -t public
+# 然後瀏覽器打開 http://localhost:8047</code></pre>
+  <ol>
+    <li><strong>正常轉帳</strong>：alice(A) 轉 200 給 bob(B)。看兩邊都 <strong>prepare → YES</strong>、主持人決議 <strong>COMMIT</strong>、兩邊 commit。總額還是 2000。</li>
+    <li><strong>注入失敗看回滾</strong>：把分片 B 設成「prepare 投 NO」，再轉一次。看 A 投 YES、B 投 NO → 主持人決議 <strong>ABORT</strong> → A 把小抄撕掉回滾。<strong>alice 的錢沒少、總額還是 2000！</strong></li>
+    <li>試試轉一筆<strong>超過 alice 餘額</strong>的金額：A 在 prepare 就投 NO，整筆 abort。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>第 2 步是這題的精髓：明明 A 已經願意（投 YES、鎖好、寫了小抄），只因為 B 不行，<strong>整筆就全部退回</strong>，A 一毛都沒被扣。這就是<strong>原子性</strong>——<strong>全做或全不做，總額永遠守恆</strong>。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「兩階段到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心就<strong>兩個角色</strong>——主持人（Coordinator）和參與者（Participant）。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個角色 = 兩個檔</span>
+    <strong>Coordinator</strong>（主持人，跑兩階段、下最終決定）→ <strong>Participant</strong>（參與者，回答 prepare、執行 commit/abort）。一筆交易就是主持人指揮所有參與者跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>第一關 prepare：參與者「能不能提交？」（Participant）</h3>
+    <p>參與者收到 prepare，先<strong>檢查 → 寫小抄 → 鎖定 → 投票</strong>：</p>
+<pre><code>function prepare(交易編號, 要改什麼) {
+    // ① 檢查可不可行（例如：扣完會不會變負的？）
+    if (餘額 + 變動 &lt; 0) return NO;        // ← 不行 → 投 NO
+    // ② 寫小抄(WAL)：記下要改什麼，但『還沒』真的改餘額
+    小抄[交易編號] = 要改什麼
+    // ③ 鎖定這些帳戶，先別讓別人動
+    鎖定(相關帳戶)
+    return YES                              // ← 我準備好了 → 投 YES
+}</code></pre>
+    <p class="codecaption">重點：prepare 完，<strong>正式餘額一點都沒變</strong>，只是寫了小抄 + 鎖起來。這就是為什麼後面要 abort 時，只要<strong>撕掉小抄</strong>就乾乾淨淨回滾了。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>第二關：主持人收票，全 YES 才 commit（Coordinator）</h3>
+    <p>這是<strong>全題的心臟</strong>。主持人問完所有人，<strong>只有全票通過才下 commit</strong>：</p>
+<pre><code>function transfer(從, 到, 金額) {
+    交易編號 = 產生一個
+    要改的 = { A: alice -金額, B: bob +金額 }
+
+    // ===== 第一關：一個一個問 prepare =====
+    全部YES = true
+    for (每個參與者 in 要改的) {
+        if (participant.prepare(交易編號, 它要改的) == NO) {
+            全部YES = false; break       // ← 有人投 NO，不用再問了
+        }
+    }
+
+    // ===== 第二關：依投票結果決定 =====
+    if (全部YES) {
+        寫決議日誌(交易編號, "COMMIT")    // ← 先落盤！當機才救得回
+        for (每個參與者) participant.commit(交易編號)   // 真的改
+    } else {
+        寫決議日誌(交易編號, "ABORT")
+        for (投過票的參與者) participant.abort(交易編號) // 撕小抄、回滾
+    }
+}</code></pre>
+    <p class="codecaption">看到了嗎？<strong>「真的改」(commit) 永遠在第二關、而且要先確認全員 YES。</strong>這一個 <code>if (全部YES)</code> 就是原子性的來源。還有那行「<strong>先寫決議日誌再下令</strong>」——少了它，主持人一當機大家就卡死了。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>commit 真的改、abort 乾淨退（Participant）</h3>
+    <p>主持人下令後，參與者執行——這兩個動作簡單到不行，因為前面 prepare 已經把功課做好了：</p>
+<pre><code>function commit(交易編號) {
+    把小抄[交易編號]的變更『真的套用』到餘額   // alice 真的 -200
+    刪掉小抄、解鎖                              // 收工
+}
+function abort(交易編號) {
+    刪掉小抄、解鎖                              // ← 餘額從頭沒被動過，撕了就回滾完成
+}</code></pre>
+    <p class="codecaption">abort 之所以這麼乾淨，正是因為 prepare 階段<strong>只寫小抄、沒動正式餘額</strong>。要回滾？把小抄撕了就好，餘額自然像沒發生過。這是 2PC 設計的巧妙之處。</p>
+    <p class="pause">💭 停一下：為什麼 commit 之前要「先把決定寫進日誌」，而不是直接叫大家 commit？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為主持人可能<strong>在叫到一半時當機</strong>。如果決定沒落盤，重開後它就<strong>不知道這筆到底該 commit 還是 abort</strong>，參與者就永遠卡著。先把「COMMIT」寫進日誌，重開後一看就知道「我承諾過要成交」，<strong>重發 commit 把大家推完</strong>。日誌是恢復的命根子。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① prepare：能提交嗎</td><td>Participant</td><td><code>prepare()</code>：檢查 + 寫小抄 + 鎖定 + 投票</td></tr>
+      <tr><td>② 全 YES 才 commit</td><td>Coordinator</td><td><code>transfer()</code> 的 <code>if (全部YES)</code></td></tr>
+      <tr><td>恢復命根子</td><td>Coordinator</td><td>commit 前「先寫決議日誌」</td></tr>
+      <tr><td>真做 / 回滾</td><td>Participant</td><td><code>commit()</code> 套用、<code>abort()</code> 撕小抄</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 同一個程式裡呼叫」換成「真資料庫 + 跨機 RPC」，
+  但<strong>上面這兩階段的判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先別看答案，自己用<strong>講給朋友聽</strong>的方式回答看看：</p>
+  <details class="qa"><summary>Q1：用「兩人簽合約」解釋，2PC 為什麼要先 prepare 再 commit？</summary>
+    因為不能讓任何一方「單方面先做」而被綁住。先各自口頭承諾「我願意簽（prepare 投 YES、預留鎖定）」，等雙方都點頭，才同時落筆（commit）。任何一方不肯，就大家都不簽（abort）。這樣絕不會「一方簽了、另一方沒簽」。</details>
+  <details class="qa"><summary>Q2：prepare 階段參與者會做哪三件事？</summary>
+    ① 檢查能不能做（如餘額夠不夠）；② 把要改的內容寫進「小抄」(預寫日誌 WAL)，但還沒真的改餘額；③ 鎖定相關帳戶。然後回 YES 或 NO。</details>
+  <details class="qa"><summary>Q3：為什麼 abort 回滾可以那麼乾淨？</summary>
+    因為 prepare 階段<strong>只寫了小抄、沒動正式餘額</strong>。要回滾只要把小抄撕掉、解鎖，餘額自然像沒發生過——不需要「反向再扣一次」那種麻煩補償。</details>
+  <details class="qa"><summary>Q4：2PC 最有名的痛點是什麼？怎麼緩解？</summary>
+    阻塞：協調者在「收齊投票後、下令前」當機，投了 YES 的參與者會卡著鎖等指令、動不了。緩解：協調者把最終決定<strong>先落盤</strong>（重開能重發），再進階就把協調者<strong>做成多副本（Raft 高可用）</strong>。</details>
+  <details class="qa"><summary>Q5：什麼時候該用 2PC、什麼時候該用 Saga？</summary>
+    錢/庫存這種「絕不能做一半、不能讓人看到中間態」用 2PC（強一致，代價是鎖+卡）。長流程、跨好多微服務、能容忍短暫不一致用 Saga（每步先做、出錯用補償反向修正，高可用但最終一致）。</details>
+  <details class="qa"><summary>Q6（工程）：協調者下 commit 前一定要先做什麼？為什麼？</summary>
+    先把決議（COMMIT/ABORT）寫進日誌並落盤。因為它可能下令到一半當機，重開後得靠日誌知道「這筆該成交還是取消」，才能重發正確指令把參與者解開，不然大家永遠卡著。</details>
+  <details class="qa"><summary>Q7（工程）：NewSQL（如 Spanner）是怎麼幫你把這些藏起來的？</summary>
+    它把 <strong>2PC（跨分片原子）+ Paxos/Raft（每個分片做多副本高可用）+ TrueTime（全球一致的時間戳排序）</strong> 全部內建。你就像寫單機 SQL 一樣下交易，背後自動跑分散式強一致，連恢復、排序都幫你處理好。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>分散式交易 = 讓散在多台機器的好幾步，像一個動作一樣「全做或全不做」。</strong></p>
+    <p><strong>2 個關卡（2PC）：</strong>① <strong>prepare</strong>：主持人問大家「能提交嗎」，各自<strong>檢查+寫小抄+鎖定+投票</strong> → ② <strong>全 YES 就 commit（真做）、任一 NO 就 abort（撕小抄回滾）</strong>。</p>
+    <p><strong>3 個怕：</strong>怕做一半（2PC 先問再做避開它）、怕主持人消失（決議先落盤 + 做多副本）、怕鎖太久（盡量不跨機、縮短鎖定）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>真正下手永遠延到第二關、且要全員點頭 → 用「點餐單(API)」溝通、主持人記決議日誌、參與者記正式餘額+小抄(WAL) → 找出最會卡的「鎖定」與「主持人單點」各自救 → 真要又快又穩，直接用 NewSQL（Spanner/CockroachDB/TiDB）把整套內建。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊼ 分散式交易 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 1018 488" width="1018" height="488" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+</defs>
+<rect x="16" y="0" width="1018" height="488" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">E2EE Messaging — 端到端加密（裝置加解密=綠 伺服器只中繼密文=黃 金鑰交換=藍）</tspan>
+</text>
+<rect x="40" y="120" width="170" height="70" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="127" y="132" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="127" dy="0">📱 裝置 A</tspan>
+<tspan x="127" dy="17.5">私鑰+棘輪(本機)</tspan>
+<tspan x="127" dy="17.5">明文→加密</tspan>
+</text>
+<rect x="430" y="120" width="180" height="70" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="522" y="132" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="522" dy="0">🖥️ 伺服器 (中繼)</tspan>
+<tspan x="522" dy="17.5">密文信箱</tspan>
+<tspan x="522" dy="17.5">只見密文！</tspan>
+</text>
+<rect x="840" y="120" width="170" height="70" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="927" y="132" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="927" dy="0">📱 裝置 B</tspan>
+<tspan x="927" dy="17.5">私鑰+棘輪(本機)</tspan>
+<tspan x="927" dy="17.5">密文→解密</tspan>
+</text>
+<rect x="430" y="290" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="522" y="302" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="522" dy="0">🔑 金鑰伺服器</tspan>
+<tspan x="522" dy="17.5">只發布公鑰</tspan>
+</text>
+<text x="230" y="96" font-size="13" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="230" dy="0">上傳密文 (n, cipher)</tspan>
+</text>
+<text x="632" y="96" font-size="13" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="632" dy="0">下載密文 → 棘輪解密</tspan>
+</text>
+<text x="120" y="420" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="120" dy="0">金鑰交換：A、B 各領對方公鑰 → DH 算出相同共享祕密 → KDF 導根金鑰 → 開棘輪。</tspan>
+<tspan x="120" dy="17.5">竊聽者(含伺服器)只看到公鑰與密文，算不出共享祕密、解不開訊息 → 端到端加密。</tspan>
+</text>
+<polyline points="212,155 426,155" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="612,155 836,155" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="200,290 432,192" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="850,290 610,192" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="250" y="235" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="250" dy="0">領對方公鑰</tspan>
+</text>
+</svg>

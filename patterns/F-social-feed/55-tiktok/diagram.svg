@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 -4 808 526" width="808" height="526" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="-4" width="808" height="526" fill="#ffffff"/>
+<text x="40" y="20" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">TikTok For You — 召回→排序→去重 + 回饋迴路（讀=綠 寫/回饋=藍 基建=黃）</tspan>
+</text>
+<text x="40" y="70" font-size="14" fill="#e8590c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">── 上傳 / 分發（沿用 YouTube）──</tspan>
+</text>
+<rect x="40" y="100" width="150" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="118" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">上傳影片 (寫)</tspan>
+</text>
+<rect x="250" y="100" width="150" height="56" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="325" y="110" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="325" dy="0">轉碼管線</tspan>
+<tspan x="325" dy="16.25">(多碼率+縮圖)</tspan>
+</text>
+<rect x="460" y="100" width="150" height="56" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="535" y="110" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="535" dy="0">物件儲存 → CDN</tspan>
+<tspan x="535" dy="16.25">(影片就近播放)</tspan>
+</text>
+<text x="40" y="200" font-size="14" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">── 取 For You（讀）：召回→排序→去重 ──</tspan>
+</text>
+<rect x="40" y="232" width="130" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="105" y="250" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="105" dy="0">使用者取頁</tspan>
+</text>
+<rect x="230" y="232" width="150" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="305" y="242" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="305" dy="0">召回 多路</tspan>
+<tspan x="305" dy="16.25">興趣/熱門/協同</tspan>
+</text>
+<rect x="440" y="232" width="150" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="515" y="242" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="515" dy="0">排序 打分</tspan>
+<tspan x="515" dy="16.25">相符×熱度×新鮮</tspan>
+</text>
+<rect x="650" y="232" width="150" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="725" y="242" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="725" dy="0">去重+探索</tspan>
+<tspan x="725" dy="16.25">Top-N + 預載</tspan>
+</text>
+<rect x="230" y="320" width="170" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="315" y="336" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">影片庫 + 標籤/熱度</tspan>
+</text>
+<rect x="440" y="320" width="170" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="525" y="336" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="525" dy="0">使用者興趣向量</tspan>
+</text>
+<text x="40" y="410" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">── 看影片（寫）：回饋迴路更新興趣與熱度 ──</tspan>
+</text>
+<rect x="40" y="442" width="150" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="452" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">看一支</tspan>
+<tspan x="115" dy="16.25">(看完/讚/滑掉)</tspan>
+</text>
+<rect x="250" y="442" width="150" height="56" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="325" y="452" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="325" dy="0">行為事件流</tspan>
+<tspan x="325" dy="16.25">(Kafka 非同步)</tspan>
+</text>
+<rect x="460" y="442" width="150" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="535" y="452" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="535" dy="0">聚合</tspan>
+<tspan x="535" dy="16.25">更新興趣&amp;熱度</tspan>
+</text>
+<polyline points="192,128 248,128" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="402,128 458,128" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="172,260 228,260" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="382,260 438,260" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="592,260 648,260" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="305,320 305,288" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="515,320 515,288" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,470 248,470" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="402,470 458,470" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="535,442 535,370" fill="none" stroke="#1971c2" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="545" y="392" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="545" dy="0">回饋迴路：更新興趣 → 下次更準</tspan>
+</text>
+<polyline points="535,156 335,196 145,226" fill="none" stroke="#2f9e44" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="200" y="188" font-size="12" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="200" dy="0">推哪些 id → 影片由 CDN 就近播放</tspan>
+</text>
+</svg>

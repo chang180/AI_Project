@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>系統設計學習專案 · 43 題</title>
+<title>系統設計學習專案 · 60 題</title>
 <link rel="stylesheet" href="assets/style.css">
 </head>
 <body>
@@ -16,14 +16,14 @@
 </div>
 
 <div class="wrap">
-  <h1>系統設計面試 · 43 題實戰</h1>
+  <h1>系統設計面試 · 60 題實戰</h1>
   <p class="subtitle">每題包含 <strong>HTML 筆記 · 內嵌 SVG 架構圖 · PHP demo</strong>，依共通模式分 13 組學習。<br>
   🌱 <strong>每一題都有「初學者友善版」</strong>——用生活比喻＋自我測驗，看不懂工程版時的入口（卡片上有 🌱 角標）。</p>
 
   <div class="box tip">
     <span class="label">學習進度</span>
     <div class="progress"><span style="width:100%"></span></div>
-    <p style="margin:.4em 0 0;color:var(--text-dim)">43 / 43 題完成 🎉 每題含筆記 + 內嵌 SVG 架構圖 + 可跑 PHP demo（含 29 題進階補充）</p>
+    <p style="margin:.4em 0 0;color:var(--text-dim)">60 / 60 題完成 🎉 每題含筆記 + 內嵌 SVG 架構圖 + 可跑 PHP demo（含 46 題進階補充）</p>
   </div>
 
   <div id="groups">
@@ -46,6 +46,8 @@
         <a class="card has-beginner" href="patterns/B-realtime-sync/07-messenger/notes.html"><h3><span class="num">07</span>Messenger</h3><p>億級用戶在線 · 40 分</p></a>
         <a class="card has-beginner" href="patterns/B-realtime-sync/09-google-docs/notes.html"><h3><span class="num">09</span>Google Docs</h3><p>協作文檔即時同步 · 48 分</p></a>
         <a class="card has-beginner" href="patterns/B-realtime-sync/30-video-conferencing/notes.html"><h3><span class="num">30</span>視訊會議 Zoom</h3><p>SFU · simulcast · 信令 · 50 分</p></a>
+        <a class="card has-beginner" href="patterns/B-realtime-sync/57-food-delivery/notes.html"><h3><span class="num">57</span>外送 DoorDash</h3><p>地理媒合 · 即時追蹤 · ETA · 50 分</p></a>
+        <a class="card has-beginner" href="patterns/B-realtime-sync/60-e2ee-messaging/notes.html"><h3><span class="num">60</span>E2EE 加密通訊</h3><p>DH · 棘輪 · 前向保密 · 48 分</p></a>
       </div>
     </div>
 
@@ -57,6 +59,7 @@
         <a class="card has-beginner" href="patterns/C-consistency-txn/12-bookings/notes.html"><h3><span class="num">12</span>Bookings.com</h3><p>短租平台全棧設計 · 42 分</p></a>
         <a class="card has-beginner" href="patterns/C-consistency-txn/17-digital-wallet/notes.html"><h3><span class="num">17</span>數位錢包 / 支付</h3><p>雙分錄帳本 · 冪等扣款 · 50 分</p></a>
         <a class="card has-beginner" href="patterns/C-consistency-txn/28-flash-sale/notes.html"><h3><span class="num">28</span>秒殺 / 搶票</h3><p>原子扣減防超賣 · 削峰 · 45 分</p></a>
+        <a class="card has-beginner" href="patterns/C-consistency-txn/56-ecommerce-order/notes.html"><h3><span class="num">56</span>電商訂單系統</h3><p>狀態機 · saga 補償 · 冪等 · 48 分</p></a>
       </div>
     </div>
 
@@ -71,6 +74,10 @@
         <a class="card has-beginner" href="patterns/D-stream-storage/21-live-streaming/notes.html"><h3><span class="num">21</span>直播 Twitch</h3><p>低延遲 HLS 滑窗 · 44 分</p></a>
         <a class="card has-beginner" href="patterns/D-stream-storage/22-ad-click-aggregation/notes.html"><h3><span class="num">22</span>廣告點擊聚合</h3><p>exactly-once · 防欺詐 · 45 分</p></a>
         <a class="card has-beginner" href="patterns/D-stream-storage/29-leaderboard/notes.html"><h3><span class="num">29</span>遊戲排行榜</h3><p>ZSET · Top-K · 名次±鄰居 · 38 分</p></a>
+        <a class="card has-beginner" href="patterns/D-stream-storage/48-cdc-pipeline/notes.html"><h3><span class="num">48</span>CDC 資料管線</h3><p>binlog · 有序 · 冪等套用 · 45 分</p></a>
+        <a class="card has-beginner" href="patterns/D-stream-storage/53-mapreduce/notes.html"><h3><span class="num">53</span>MapReduce</h3><p>map · shuffle · reduce · 48 分</p></a>
+        <a class="card has-beginner" href="patterns/D-stream-storage/54-olap-columnar/notes.html"><h3><span class="num">54</span>OLAP 列式儲存</h3><p>列式 · 向量化聚合 · 45 分</p></a>
+        <a class="card has-beginner" href="patterns/D-stream-storage/59-fraud-detection/notes.html"><h3><span class="num">59</span>反詐騙風控</h3><p>滑動視窗 · 規則引擎 · 48 分</p></a>
       </div>
     </div>
 
@@ -90,6 +97,7 @@
       <p class="subtitle">內容分發到大量追蹤者時間線、推/拉/hybrid fan-out</p>
       <div class="grid">
         <a class="card has-beginner" href="patterns/F-social-feed/15-news-feed/notes.html"><h3><span class="num">15</span>News Feed 動態牆</h3><p>推/拉/hybrid · 名人問題 · 50 分</p></a>
+        <a class="card has-beginner" href="patterns/F-social-feed/55-tiktok/notes.html"><h3><span class="num">55</span>TikTok 短影音流</h3><p>召回 · 排序 · 興趣回饋 · 50 分</p></a>
       </div>
     </div>
 
@@ -100,6 +108,8 @@
         <a class="card has-beginner" href="patterns/G-search-index/16-typeahead/notes.html"><h3><span class="num">16</span>Typeahead 自動完成</h3><p>Trie · 前綴 Top-K · 40 分</p></a>
         <a class="card has-beginner" href="patterns/G-search-index/18-proximity-yelp/notes.html"><h3><span class="num">18</span>附近的人 / 地點</h3><p>Geohash 空間索引 · 42 分</p></a>
         <a class="card has-beginner" href="patterns/G-search-index/26-fulltext-search/notes.html"><h3><span class="num">26</span>全文搜尋</h3><p>倒排索引 · BM25 排序 · 46 分</p></a>
+        <a class="card has-beginner" href="patterns/G-search-index/52-vector-search/notes.html"><h3><span class="num">52</span>向量檢索 / ANN</h3><p>IVF · 召回 vs 速度 · 46 分</p></a>
+        <a class="card has-beginner" href="patterns/G-search-index/58-tinder-matching/notes.html"><h3><span class="num">58</span>Tinder 配對</h3><p>geohash 候選 · 雙向配對 · 42 分</p></a>
       </div>
     </div>
 
@@ -110,6 +120,9 @@
         <a class="card has-beginner" href="patterns/H-infra-primitives/19-rate-limiter/notes.html"><h3><span class="num">19</span>分散式限流器</h3><p>令牌桶 · 滑動視窗 · 35 分</p></a>
         <a class="card has-beginner" href="patterns/H-infra-primitives/23-snowflake-id/notes.html"><h3><span class="num">23</span>唯一 ID Snowflake</h3><p>64-bit 發號 · 時鐘回撥 · 35 分</p></a>
         <a class="card has-beginner" href="patterns/H-infra-primitives/25-message-queue/notes.html"><h3><span class="num">25</span>訊息佇列 Kafka</h3><p>分區 · offset · 重放 · 50 分</p></a>
+        <a class="card has-beginner" href="patterns/H-infra-primitives/49-api-gateway/notes.html"><h3><span class="num">49</span>API Gateway / LB</h3><p>路由 · 負載均衡 · 熔斷 · 48 分</p></a>
+        <a class="card has-beginner" href="patterns/H-infra-primitives/50-dns-system/notes.html"><h3><span class="num">50</span>DNS 系統</h3><p>遞迴解析 · 快取 · GeoDNS · 40 分</p></a>
+        <a class="card has-beginner" href="patterns/H-infra-primitives/51-cdn/notes.html"><h3><span class="num">51</span>CDN 內容分發</h3><p>邊緣快取 · 回源 · purge · 44 分</p></a>
       </div>
     </div>
 
@@ -126,6 +139,8 @@
       <p class="subtitle">metrics / logs / traces、時序資料、查詢與告警</p>
       <div class="grid">
         <a class="card has-beginner" href="patterns/J-observability/27-metrics-monitoring/notes.html"><h3><span class="num">27</span>指標監控 Prometheus</h3><p>時序庫 · rate/聚合 · 告警 · 42 分</p></a>
+        <a class="card has-beginner" href="patterns/J-observability/44-distributed-tracing/notes.html"><h3><span class="num">44</span>分散式追蹤</h3><p>trace 樹 · 關鍵路徑 · 取樣 · 44 分</p></a>
+        <a class="card has-beginner" href="patterns/J-observability/45-log-aggregation/notes.html"><h3><span class="num">45</span>日誌系統 ELK</h3><p>攝取 · 倒排索引 · 查詢 · 42 分</p></a>
       </div>
     </div>
 
@@ -139,6 +154,8 @@
         <a class="card has-beginner" href="patterns/K-distributed-systems/34-distributed-cache/notes.html"><h3><span class="num">34</span>分散式快取</h3><p>slot 分片 · LRU/LFU · 穿透擊穿雪崩 · 45 分</p></a>
         <a class="card has-beginner" href="patterns/K-distributed-systems/35-raft-consensus/notes.html"><h3><span class="num">35</span>共識 Raft</h3><p>選舉 · 日誌複製 · commit · 55 分</p></a>
         <a class="card has-beginner" href="patterns/K-distributed-systems/36-distributed-lock/notes.html"><h3><span class="num">36</span>分散式鎖 + 服務發現</h3><p>租約 · fencing token · watch · 45 分</p></a>
+        <a class="card has-beginner" href="patterns/K-distributed-systems/46-db-sharding/notes.html"><h3><span class="num">46</span>MySQL 分庫分表</h3><p>分片 · scatter-gather · re-shard · 50 分</p></a>
+        <a class="card has-beginner" href="patterns/K-distributed-systems/47-distributed-transaction/notes.html"><h3><span class="num">47</span>分散式交易 NewSQL</h3><p>2PC · 跨片 ACID · 50 分</p></a>
       </div>
     </div>
 

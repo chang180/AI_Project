@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>51 內容傳遞網路 CDN · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>51 內容傳遞網路 CDN · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「存檔案」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在台灣打開一個網站，網站的圖片和影片其實放在<strong>美國</strong>的伺服器。如果每次都從美國拉過來，
+  訊號要漂洋過海、繞地球半圈，又慢又卡。</p>
+  <p><strong>CDN（內容傳遞網路）</strong>做的事就是：<strong>事先把這些檔案複製一份，放到離你最近的機房</strong>（例如台北就有一台）。
+  你要圖片時，從台北那台直接拿，<strong>又快又不打擾遠在美國的「總部」</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    CDN = <strong>遍布全球的「便利商店」</strong>：總倉庫（origin）在很遠的地方，但每個社區都有一家便利商店（邊緣節點）
+    囤著熱賣商品。你要東西，<strong>走幾步到巷口便利商店就有</strong>，不用大老遠跑去總倉庫。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「存檔案」？</h2>
+  <p>很多人第一次看這題會想：「不就是把檔案多複製幾份放各地嗎？」——這想法漏掉了兩個會把系統搞砸的真正難關。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：便利商店的兩個頭痛問題</span>
+    開連鎖便利商店，真正難的不是「進貨」，而是：①<strong>架上的牛奶過期了怎麼辦？</strong>（總倉庫換了新配方，但各分店架上還是舊的）
+    ②<strong>新品上市，全國分店同時擠爆總倉庫叫貨</strong>，總倉庫當場被叫貨電話打爆。
+  </div>
+  <p>CDN 的第一個難關就是 ①：總部的內容更新了（圖片改了、程式換新版），
+  但<strong>各地便利商店架上還是舊的</strong>——怎麼讓它們「換掉舊貨」？這叫<strong>快取失效（purge）</strong>。</p>
+  <p>第二個難關是 ②：某個熱門檔案<strong>剛好同時過期</strong>，那一瞬間全球的便利商店都發現「架上沒貨了」，
+  <strong>同時衝去總倉庫叫貨</strong>，把總倉庫打爆。這叫<strong>回源洪峰（cache stampede）</strong>。</p>
+  <p class="pause">💭 停一下：為什麼「每次都直接從美國總部拿」這麼簡單的做法不行？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為太慢（訊號繞半個地球）、而且總部會被全世界的人同時打爆。CDN 的核心就是「<strong>就近放一份</strong>」——
+    讓 99% 的請求在巷口便利商店就解決，只有極少數需要回總部。剩下的所有難題（怎麼換新貨、怎麼別擠爆總部）都是為了維持這個「就近」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>就近：找到離你最近的那家店</h3>
+    <p>你要拿檔案，系統得先<strong>把你導到最近的便利商店</strong>（邊緣節點），而不是大老遠的總倉庫。</p>
+    <div class="analogy">
+      <span class="label">🗺️ 比喻：導航帶你去最近的分店</span>
+      你打開地圖搜「便利商店」，它<strong>自動列出離你最近的那家</strong>，不會叫你開三小時去隔壁城市。
+      CDN 靠 <strong>anycast / GeoDNS</strong> 做同一件事：看你從哪裡上網，把你導到最近的邊緣節點。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>命中或回源：店裡有沒有貨？</h3>
+    <p>到了最近的店，問一句：「<strong>架上有沒有我要的東西？</strong>」</p>
+    <ul>
+      <li>✅ <strong>有（命中 hit）</strong>：直接拿走，超快！</li>
+      <li>❌ <strong>沒有（未命中 miss）</strong>：店員只好<strong>打電話跟總倉庫叫貨（回源）</strong>，拿到後給你，<strong>順便放一份在架上</strong>，下一個人來就有了。</li>
+    </ul>
+    <div class="analogy">
+      <span class="label">🥛 比喻：第一個買的人要等，後面的人就快了</span>
+      你是今天第一個要這款牛奶的人 → 店裡沒貨 → 店員叫貨（你等一下，這叫 miss）。
+      貨到後放上架，<strong>後面來買的人直接拿（hit）</strong>。所以「第一個使用者」承擔了那次慢。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>保鮮期：架上的貨放多久要換？</h3>
+    <p>架上的貨不能放到天荒地老。每樣東西都有一個<strong>保鮮期（TTL）</strong>，這是<strong>總倉庫決定的</strong>：
+    圖片之類不太會變的，保鮮期很長（放一天）；常變的設定檔，保鮮期很短（放 10 秒就要重新叫貨）。</p>
+    <div class="analogy">
+      <span class="label">📅 比喻：架上的有效期限標籤</span>
+      每件商品貼一張「<strong>到期日</strong>」。過了期，店員就把它當「沒貨」，下一個人來買時重新跟總倉庫叫一份新的。
+      保鮮期長 = 少叫貨（省事）但可能有點舊；保鮮期短 = 常保新鮮但常打擾總倉庫。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>換貨：總部出新版，怎麼把舊的全清掉？</h3>
+    <p>總部突然改了內容（圖片換了、程式修了 bug）。但各地店裡架上<strong>還是舊的、而且保鮮期還沒到</strong>，
+    怎麼辦？總部發一道命令：「<strong>所有分店，把這個商品從架上拿掉！</strong>」這就是 <strong>purge（失效）</strong>。</p>
+    <div class="analogy">
+      <span class="label">📢 比喻：總部下令全國下架</span>
+      就像食品被驗出問題，總部一聲令下「<strong>全國分店立刻下架</strong>」。下架後，下一個來買的人就會「沒貨 → 重新叫貨」，
+      拿到的自然是<strong>新版本</strong>。還有個更聰明的招：直接<strong>給新商品換個新名字</strong>（版本化），這樣根本不用下架舊的。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>就近</strong>導到最近的店 → ② 架上有就拿（hit）、沒有就<strong>叫貨</strong>（miss 回源）→ ③ 每件貨有<strong>保鮮期（TTL）</strong> → ④ 總部出新版就<strong>下架舊的（purge）</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「給了過期的舊貨」</span>
+    總部明明換了新版，使用者卻一直拿到舊的（因為店裡架上還是舊貨、保鮮期沒到）。
+    所以才需要 <strong>purge（下架）+ 版本化命名 + 合理的保鮮期</strong>，讓「該換的時候真的換掉」。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「擠爆總倉庫」（回源洪峰）</span>
+    一個熱門檔案剛好同時過期，全球分店<strong>同時衝去叫貨</strong>，把總倉庫打到當機。
+    所以要做<strong>叫貨合併</strong>：同一個東西大家排隊，<strong>只派一個人去叫</strong>，叫回來大家一起用。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「慢 / 沒就近」</span>
+    如果導錯店（叫台灣人去美國拿）或命中率太低（架上老是沒貨、一直叫貨），CDN 就失去意義了。
+    所以要靠 <strong>anycast 就近 + 高命中率</strong>，讓絕大多數請求在巷口就解決。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀：</p>
+  <ul>
+    <li>🗺️ <strong>DNS / anycast</strong>先把你<strong>導到最近的便利商店（邊緣 PoP）</strong> →</li>
+    <li>🏪 <strong>邊緣 PoP</strong>查架上有沒有：<strong>有 → 直接給你（hit）</strong>；</li>
+    <li>📞 <strong>沒有 → 打電話跟總倉庫叫貨（miss 回源）</strong>，拿到後放上架（記下保鮮期 TTL），再給你 →</li>
+    <li>🏭 <strong>Origin 總倉庫</strong>是真正的貨源，只有 miss 時才會被打擾 →</li>
+    <li>📢 <strong>Purge 控制器</strong>在內容更新時，命令<strong>所有分店下架</strong>舊版本。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>CDN</td><td>遍布全球的便利商店網，把內容放到離你最近的地方</td></tr>
+    <tr><td>邊緣節點 / PoP</td><td>離使用者近的「巷口便利商店」（一個機房）</td></tr>
+    <tr><td>Origin（來源）</td><td>真正的貨源「總倉庫」，只在沒貨時被叫貨</td></tr>
+    <tr><td>命中 (hit)</td><td>店裡架上有 → 直接拿，超快</td></tr>
+    <tr><td>未命中 (miss)</td><td>架上沒有 → 店員去總倉庫叫貨（你要等）</td></tr>
+    <tr><td>回源 (origin fetch)</td><td>邊緣去總倉庫「叫貨」的動作</td></tr>
+    <tr><td>TTL（保鮮期）</td><td>架上的貨放多久要當過期、重新叫貨（總倉庫決定）</td></tr>
+    <tr><td>Cache-Control</td><td>總倉庫貼在貨上的「保鮮期標籤」</td></tr>
+    <tr><td>purge（失效）</td><td>總部下令全國分店「立刻下架」這個東西</td></tr>
+    <tr><td>版本化 URL</td><td>新內容直接換個新名字，舊的不用下架</td></tr>
+    <tr><td>命中率</td><td>100 次裡有幾次「架上就有」（越高越省、越快）</td></tr>
+    <tr><td>回源比</td><td>有多少比例的請求得「去總倉庫叫貨」（越低越好）</td></tr>
+    <tr><td>回源洪峰 / cache stampede</td><td>熱門貨同時過期，全國同時叫貨打爆總倉庫</td></tr>
+    <tr><td>叫貨合併 / single-flight</td><td>同一個東西只派一個人去叫，大家一起用</td></tr>
+    <tr><td>anycast / GeoDNS</td><td>自動把你導到「最近的那家店」的機制</td></tr>
+    <tr><td>一致性雜湊</td><td>決定「哪個貨放哪家店」的聰明分配法，加減分店時擾動最小</td></tr>
+    <tr><td>push vs pull CDN</td><td>pull＝有人問才叫貨；push＝開賣前先鋪好貨</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定要準備多少料。系統設計也一樣：先估數字，才知道要準備多大。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少次請求</td><td>~100 億次（每秒十幾萬筆）</td><td>不可能全打總倉庫 → 要靠就近的邊緣吸收</td></tr>
+    <tr><td>命中率（架上就有的比例）</td><td>目標 95% 以上</td><td>只剩 5% 要叫貨 → 總倉庫壓力小 20 倍</td></tr>
+    <tr><td>頻寬省多少</td><td>命中 95% → 總倉庫出貨量降到 1/20</td><td>這就是 CDN 最值錢的地方</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：一切都看「命中率」</span>
+    命中率<strong>每高一點</strong>，省下的時間和頻寬都是放大效應。所以整個系統的目標就是：
+    <strong>把熱門的東西留在架上（高命中）+ 該換的時候正確換掉（失效做對）</strong>。
+  </div>
+  <p class="pause">💭 停一下：為什麼命中率從 90% 升到 95%，省的不只是「5%」？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為要看的是「<strong>需要叫貨的比例</strong>」：90% 命中 = 10% 要叫貨；95% 命中 = 5% 要叫貨。
+    叫貨量從 10% 直接<strong>砍半</strong>到 5%！對總倉庫來說壓力少一半，這就是命中率的放大效應。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「點餐單格式」。CDN 的點餐單超簡單，因為對使用者來說就是普通的拿檔案。
+  </div>
+  <pre><code>① 拿檔案（最常用，就是一般 GET）
+   GET https://cdn.example.com/app.js
+   我回：檔案內容 + 一張標籤「X-Cache: HIT 或 MISS」（告訴你是不是架上就有）
+        還有「Cache-Control: max-age=3600」（這東西的保鮮期是 3600 秒）</code></pre>
+  <pre><code>② 下架（管理用）
+   POST /admin/purge   給我：{ 要下架哪個檔案 }
+   → 命令所有分店把它從架上清掉，下次有人要就重新叫貨（拿到新版）</code></pre>
+  <pre><code>③ 看營運數字
+   GET /admin/stats
+   我回：{ 命中率, 回源比, 各區域分別多少 }</code></pre>
+  <p class="codecaption">注意第 ① 張的「<strong>保鮮期是總倉庫貼的</strong>」——快取多久不是分店自己決定，是內容擁有者（origin）說了算。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：三本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題主要用三本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏭</span>總倉庫清單（origin 有哪些貨）</h3>
+    <p>每件貨一列：<code>檔案路徑、內容、<strong>保鮮期 TTL</strong></code>。保鮮期就是貼在貨上的標籤，分店叫貨時會一起拿到。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏪</span>各分店的架上（邊緣快取）</h3>
+    <p>每個分店一本，記<strong>架上現在有哪些貨、各自的「到期時間」</strong>：<code>檔案、內容、expires_at（什麼時候過期）</code>。
+    來客人時就翻這本：<strong>有且沒過期 → 命中；否則 → 叫貨</strong>。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📊</span>記帳本（命中率統計）</h3>
+    <p>每個區域記<strong>命中幾次、沒命中幾次</strong>，就能算出命中率和回源比，知道哪家分店表現好不好。</p>
+  </div>
+  <div class="analogy"><span class="label">那「哪個貨放哪家店」誰決定？</span>
+    如果一個區域有<strong>好幾台機器</strong>，要決定某個檔案歸哪一台管，用的是<strong>一致性雜湊</strong>——
+    一種聰明的分配法，好處是<strong>加減機器時，只有一小部分貨要搬家</strong>，不會整批大風吹（那會讓快取大規模失效）。</div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>熱門貨同時過期 → 全國同時叫貨打爆總倉庫</td><td><strong>叫貨合併</strong>：同一個東西只派一個人去叫；還能「先給舊的、背景偷偷換新」</td></tr>
+    <tr><td>某個爆紅檔案把單一分店擠爆</td><td>分店裡放多份 + 用一致性雜湊把熱門貨分散到多台機器；中間再加一層「區域倉庫」</td></tr>
+    <tr><td>下架命令要送到全球所有分店，慢又可能漏</td><td>盡量改用<strong>版本化命名</strong>（換新名字就不用下架）；真要下架就用可靠廣播 + 對帳</td></tr>
+    <tr><td>加減分店時快取大規模失效</td><td>用<strong>一致性雜湊</strong>，只搬相鄰一小段</td></tr>
+    <tr><td>命中率太低（架上老是沒貨）</td><td>把「同一個東西」正規化成同一個格子別存成好幾份、保鮮期設合理、加區域中間層吸長尾</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 保鮮期長 vs 短</span>
+    長 → 很少叫貨（省、快），但內容更新後可能舊一陣子；短 → 常保新鮮，但一直叫貨、命中率掉。
+    常見折衷：<strong>保鮮期設很長 + 用版本化命名</strong>——既很少叫貨，又能瞬間換新版。</div>
+  <div class="fear"><span class="label">⚖️ 開賣前先鋪貨(push) vs 有人問才叫貨(pull)</span>
+    pull 簡單、自動只囤被買過的貨，缺點是「第一個人要等」；push 開賣前先把貨鋪到各分店，第一個人就有，但要管理鋪貨。
+    日常用 pull，<strong>大型發布 / 影片首播</strong>用 push 先鋪好。</div>
+  <div class="fear"><span class="label">⚖️ 要不要追求「全國同步」？</span>
+    CDN 接受<strong>各分店短時間版本不太一樣</strong>（最終一致）。硬要全國分秒同步代價極高、也失去就近快取的意義。</div>
+  <details class="qa"><summary>💭 追問：內容更新了，要讓使用者「立刻」拿到新版，有哪兩招？</summary>
+    ① <strong>purge（下架）</strong>：命令各分店清掉舊的，下次叫貨拿新版；② <strong>版本化命名</strong>：新內容換個新檔名，
+    新名字天然就「架上沒有 → 叫貨」，連下架都不用。後者最乾淨，靜態檔首選。</details>
+  <details class="qa"><summary>💭 追問：為什麼加減分店不能用「檔名 ÷ 分店數 取餘數」來分配？</summary>
+    因為分店數一變，餘數全變，<strong>幾乎每個檔案的歸屬都改了 → 等於全部重新叫貨</strong>，瞬間打爆總倉庫。
+    用一致性雜湊就只動相鄰一小段，其他不變。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到 hit/miss/回源/purge：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8051 -t public
+# 然後瀏覽器打開 http://localhost:8051</code></pre>
+  <ol>
+    <li>選一個<strong>資產 + 區域</strong>，按「請求」：第一次會是 <strong>MISS</strong>（架上沒貨 → 去總倉庫叫貨）。</li>
+    <li><strong>同一區再請求一次</strong>：變成 <strong>HIT</strong>（架上已有，直接拿）。</li>
+    <li>對它按 <strong>purge（下架）</strong>，再請求一次：又變回 <strong>MISS</strong>（被清掉了，重新叫貨）。</li>
+    <li>看下方<strong>各邊緣命中率</strong>和<strong>目前各分店架上有什麼（剩多少保鮮期）</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>
+    換<strong>不同區域</strong>請求同一個資產，看是不是各區「第一次都要各自叫一次貨」（每家分店各自囤貨）——這就是「就近」的代價與好處。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>HashRing</strong>（決定哪個貨歸哪家店的分配器）→ <strong>Origin</strong>（總倉庫，負責被叫貨）→ <strong>Cdn</strong>（店長大腦：查架上、叫貨、下架、記帳）。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>查架上：有就拿、沒有就叫貨（Cdn 的 fetch）</h3>
+    <p>這是<strong>全題的心臟</strong>。一個請求進來，先就近選店，再問「架上有沒有、過期沒」：</p>
+<pre><code>function 拿資產(資產, 區域) {
+    店 = 依「區域」選最近的那家           // ← 就近路由
+    架上 = 店的快取[資產]
+    if (架上存在 且 還沒過期) {
+        記一筆 命中(hit)
+        return 直接從架上給             // ← HIT！超快
+    }
+    // 架上沒有 / 過期了 → 叫貨
+    貨 = 總倉庫.叫貨(資產)              // ← 回源（昂貴、慢）
+    保鮮期 = 貨帶的 Cache-Control TTL
+    店的快取[資產] = { 內容:貨, 到期時間: 現在 + 保鮮期 }   // ← 放上架，記到期日
+    記一筆 未命中(miss)
+    return 從剛叫到的貨給
+}</code></pre>
+    <p class="codecaption">「<strong>存在且沒過期 → HIT；否則叫貨 → MISS</strong>」這短短幾行就是 CDN 的核心。注意叫貨後<strong>順手放上架並記下到期時間</strong>，下一個人就能 HIT。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>下架：總部一聲令下，全國清貨（Cdn 的 purge）</h3>
+    <p>內容更新時，要把<strong>所有分店</strong>架上的舊版本清掉：</p>
+<pre><code>function 下架(資產) {
+    for (每一家分店) {
+        if (這家架上有 資產)
+            從架上拿掉(資產)           // ← 清掉舊版本
+    }
+    // 之後任何人來要，都會「架上沒有 → 叫貨」拿到新版
+}</code></pre>
+    <p class="codecaption">下架不是去「換成新的」，而是<strong>直接拿掉</strong>。拿掉後下一次請求自然 MISS → 叫貨，拿到的就是總倉庫的最新版——簡單又可靠。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>分配器：哪個貨歸哪家店（HashRing）</h3>
+    <p>如果一個區域有好幾台機器，要決定某個資產歸哪一台。最笨的做法是「<strong>編號 ÷ 機器數 取餘數</strong>」，
+    但機器一加減，餘數全變、貨全部要搬家。一致性雜湊用<strong>一個「環」</strong>來避免這件事：</p>
+<pre><code>function 找節點(資產) {
+    h = 把資產雜湊成環上的一個座標
+    // 在環上「順時針」找第一個機器點
+    return 第一個 >= h 的機器（繞一圈回到開頭也算）
+}</code></pre>
+    <p class="codecaption">妙處在於：<strong>加一台機器，只有它「身後相鄰那一小段」的貨要搬，其他全不動</strong>。
+    比起「取餘數」會全部大風吹，這讓加減節點時的快取擾動降到最小。demo 還給每台機器在環上放<strong>很多個虛擬點</strong>，讓貨分得更平均。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 就近導到最近的店</td><td>Cdn</td><td><code>拿資產()</code> 開頭的「依區域選店」</td></tr>
+      <tr><td>② 命中或回源</td><td>Cdn</td><td><code>拿資產()</code> 的 hit/叫貨 if</td></tr>
+      <tr><td>③ 保鮮期 TTL</td><td>Cdn + Origin</td><td>放上架時記的「到期時間」</td></tr>
+      <tr><td>④ 下架</td><td>Cdn</td><td><code>下架()</code> 清各分店</td></tr>
+      <tr><td>（哪個貨歸哪家店）</td><td>HashRing</td><td><code>找節點()</code> 環上順時針找</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + flock」換成「各 PoP 的本地快取（Varnish/nginx）+ 物件儲存 + anycast」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「便利商店」解釋什麼是 CDN？</summary>
+    總倉庫（origin）很遠，CDN 在每個社區開便利商店（邊緣節點）囤熱賣商品。你要東西走到巷口就有（就近、低延遲），
+    不用大老遠跑去總倉庫，也不會大家一起把總倉庫擠爆。</details>
+  <details class="qa"><summary>Q2：hit 和 miss 差在哪？miss 時系統做了什麼？</summary>
+    hit＝架上就有，直接拿（快）；miss＝架上沒有，店員去總倉庫「叫貨」（回源，要等），拿到後<strong>順手放上架並記下保鮮期</strong>，下一個人就能 hit。</details>
+  <details class="qa"><summary>Q3：保鮮期（TTL）是誰決定的？長短各有什麼代價？</summary>
+    由總倉庫（origin）透過 Cache-Control 決定。長 → 少叫貨（省、快）但可能舊；短 → 常保新鮮但常叫貨、命中率掉。常見折衷是「長保鮮期 + 版本化命名」。</details>
+  <details class="qa"><summary>Q4：內容更新後要讓大家拿到新版，有哪兩招？</summary>
+    ① purge（下架）：命令各分店清掉舊的，下次叫貨拿新版；② 版本化命名：新內容換新檔名，根本不用下架。後者最乾淨。</details>
+  <details class="qa"><summary>Q5：什麼是「回源洪峰（cache stampede）」？怎麼防？</summary>
+    熱門檔案剛好同時過期，全球分店同時衝去叫貨，打爆總倉庫。解法是「叫貨合併」：同一個東西只派一個人去叫，叫回來大家一起用；還能先給舊的、背景偷偷更新。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼加減邊緣節點不能用「取餘數」分配？該用什麼？</summary>
+    取餘數時節點數一變，幾乎所有資產的歸屬都改 → 全部重新叫貨打爆 origin。改用一致性雜湊（環），加減節點只搬相鄰一小段。</details>
+  <details class="qa"><summary>Q7（工程）：命中率從 90% 升到 95%，為什麼很有感？</summary>
+    因為要看的是「要叫貨的比例」：10% → 5%，叫貨量直接砍半，總倉庫壓力少一半。命中率的好處是放大的。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>CDN = 遍布全球的便利商店，把內容放到離你最近的地方。</strong></p>
+    <p><strong>4 個關卡：</strong>① <strong>就近</strong>導到最近的店 → ② 架上有就拿（hit）、沒有就<strong>叫貨</strong>（miss 回源、順手放上架）→ ③ 每件貨有<strong>保鮮期（TTL）</strong> → ④ 總部出新版就<strong>下架舊的（purge）</strong>。</p>
+    <p><strong>3 個怕：</strong>怕給過期舊貨（purge + 版本化 + 合理 TTL）、怕擠爆總倉庫（叫貨合併）、怕慢/沒就近（anycast + 高命中率）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>一切看命中率 → 用 hit/miss + TTL 管快取、用 purge 或版本化做失效、用一致性雜湊分配資產不亂、用叫貨合併擋回源洪峰。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>51 CDN · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

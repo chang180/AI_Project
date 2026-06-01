@@ -21,3 +21,5 @@
 | 34 | 分散式快取（Redis Cluster） | 16384 slot 路由與重分片、主從、LRU/LFU 淘汰、穿透/擊穿/雪崩、hot key |
 | 35 | 共識演算法 Raft | leader election、log replication、多數 commit、選舉限制、故障重選不丟 log |
 | 36 | 分散式鎖 + 服務發現 | 租約鎖、fencing token 防過期誤寫、watch、leader election、服務註冊/設定中心 |
+| 46 | MySQL 分庫分表（Vitess） | 分片鍵路由、跨片 scatter-gather/JOIN 之痛、分散式自增 ID、re-shard 搬遷（vs 一致性雜湊 KV） |
+| 47 | 分散式交易 / NewSQL（Spanner） | 2PC prepare/commit/abort 回滾、跨片強一致 ACID、Percolator/TrueTime、vs Saga |

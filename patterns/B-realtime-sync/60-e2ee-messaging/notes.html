@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>60 端到端加密訊息 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>60 端到端加密訊息：只有收發雙方能讀</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design End-to-End Encrypted Messaging (Signal)</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把金鑰交換與棘輪拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是在 ⑦ Messenger 的「<strong>中繼存轉</strong>」之上，疊一層「<strong>只有收發雙方持有金鑰</strong>」的密碼學：
+    伺服器退化成<em>不識內容的郵差</em>，只看得到密文。面試真正考的是 <em>雙方怎麼在不信任伺服器的前提下協商出共享金鑰（DH）</em>、
+    以及 <em>怎麼讓每則訊息用不同金鑰、舊金鑰外洩也救不回舊訊息（棘輪 / 前向保密）</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>端到端加密</strong>：訊息只有<strong>收發雙方</strong>能讀，伺服器與任何中間人<strong>看不到明文</strong>。</li>
+    <li><strong>金鑰協商</strong>：雙方在不互傳私鑰、不信任伺服器的前提下，協商出一把共享對稱金鑰。</li>
+    <li><strong>前向保密（Forward Secrecy）</strong>：就算某把金鑰日後外洩，<strong>先前</strong>的訊息仍解不開。</li>
+    <li><strong>後向保密 / 自我修復（Post-compromise Security）</strong>：金鑰一度外洩後，<strong>後續</strong>訊息能恢復安全。</li>
+    <li>離線投遞（對方不在線時密文先存伺服器）、多裝置、防中間人（金鑰驗證）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>機密性 / 完整性</strong>：密文不可被解、不可被竄改而不被察覺（需帶認證的加密）。</li>
+    <li><strong>伺服器零信任</strong>：即使伺服器被入侵 / 被法院索取資料，也拿不到明文。</li>
+    <li><strong>低延遲、可離線</strong>：對方離線也能先送（需離線金鑰預發 prekey）。</li>
+    <li><strong>可擴展</strong>：億級裝置、海量金鑰與密文中繼。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「E2EE 是<strong>必要</strong>還是<strong>加分</strong>？要不要前向保密、後向保密、多裝置？」
+    這決定要不要走 Signal 等級（X3DH + Double Ratchet）還是簡化版（單把對稱金鑰）。
+    也要釐清：E2EE 後伺服器端搜尋、內容審核、防濫用<strong>都做不到了</strong>（取捨見 §8）。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>使用者 / 裝置</td><td>2 億 DAU，平均 1.5 裝置</td><td>~3 億把身分金鑰對</td></tr>
+    <tr><td>預付金鑰 prekey</td><td>每裝置預存 100 把一次性金鑰</td><td>3 億 × 100 = <strong>300 億</strong>把（用完要補）</td></tr>
+    <tr><td>訊息量（密文中繼）</td><td>每人每日 40 則</td><td>2億×40/86400 ≈ 9.3 萬 寫 QPS（峰值 ×3 ≈ 28 萬）</td></tr>
+    <tr><td>密文額外開銷</td><td>每則附帶金鑰材料 / header</td><td>密文比明文略大（~+數十 bytes/則），可接受</td></tr>
+    <tr><td>金鑰伺服器讀</td><td>建 session 才查公鑰，可快取</td><td>讀多於寫，公鑰目錄易快取/CDN</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>密文中繼的「量」跟一般 Messenger 差不多（瓶頸仍是長連線與投遞）；E2EE 真正<strong>新增</strong>的負擔是<strong>金鑰管理</strong>：身分金鑰、一次性 prekey 的<strong>預發與補充</strong>、以及每則訊息的棘輪狀態。<strong>計算不在伺服器、而在裝置端</strong>。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 註冊 / 發布金鑰（裝置產生私鑰，只上傳公鑰）
+POST /api/v1/keys
+Body: { "identity_key": "<公鑰>", "signed_prekey": "...", "one_time_prekeys": ["...","..."] }
+→ 201 { "fingerprint": "安全碼，供雙方比對防中間人" }
+
+# 領取對方的公鑰束（建立 session 用，X3DH）
+GET  /api/v1/keys/{user}
+→ { "identity_key":"...", "signed_prekey":"...", "one_time_prekey":"..." }  # 一次性金鑰領走即用掉
+
+# 送密文（伺服器只中繼，看不到明文）
+POST /api/v1/messages
+Body: { "to":"B", "n": 7, "ciphertext":"<密文>", "header":"<棘輪/DH 公鑰材料>" }
+→ 201 { "message_id": 123 }
+
+# 收密文（收件人裝置端解密）
+GET  /api/v1/inbox?after_id=120
+→ [ { "from":"A", "n":7, "ciphertext":"...", "header":"..." }, ... ]
+</code></pre>
+  <div class="box"><span class="label">為何上傳公鑰而非私鑰</span>私鑰<strong>永遠不離開裝置</strong>。伺服器只是公鑰目錄 + 密文郵局；它握有再多資料也解不開訊息——這就是「零信任伺服器」的具體落地。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># 伺服器端（只存公鑰與密文，無明文、無私鑰）
+key_directory
+  user_id, identity_pubkey, signed_prekey, [one_time_prekeys]   -- 公鑰束
+ciphertext_mailbox (依收件人，append-only)
+  message_id, from, to, n(棘輪序號), header, ciphertext, put_at  -- 只有密文！
+
+# 裝置端（本機安全儲存，永不上傳）
+identity_keypair
+  private_key, public_key                       -- 身分金鑰
+session_state (每個對話一份)
+  root_key, send_chain_key, recv_chain_key       -- 棘輪鏈金鑰
+  send_n, recv_n                                 -- 已推進次數（對齊金鑰）
+  skipped_message_keys[]                          -- 亂序到達時暫存的金鑰</code></pre>
+  <div class="box"><span class="label">為何切兩半</span>把資料切成「<strong>伺服器端（公鑰 + 密文）</strong>」與「<strong>裝置端（私鑰 + 棘輪狀態）</strong>」是這題的核心。只要私鑰與棘輪狀態不離開裝置，伺服器無論如何都看不到明文。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 📱裝置A ─明文─▶[本機:DH/棘輪取金鑰→加密]─密文─▶ 🖥️伺服器(密文信箱) ─密文─▶ [本機:棘輪取金鑰→解密]─明文─▶ 📱裝置B
+                         ▲                                 │ 只看得到密文！                ▲
+                         └──── 🔑金鑰伺服器(只發布公鑰) ◀──┴──────────────────────────────┘
+              建 session：A、B 各領對方公鑰 → DH 算出「相同共享祕密」→ KDF 導根金鑰 → 開棘輪</code></pre>
+  <ol>
+    <li><strong>裝置端（綠）</strong>：私鑰、共享祕密、棘輪狀態全留本機；負責加密與解密。<strong>密碼學計算發生在這裡。</strong></li>
+    <li><strong>伺服器（黃）</strong>：跟 ⑦ Messenger 一樣負責存轉 + 離線佇列，但<strong>只經手密文</strong>，是「不識內容的郵差」。</li>
+    <li><strong>金鑰伺服器（藍）</strong>：發布公鑰束（含一次性 prekey），讓對方就算離線也能先建 session（X3DH）。<strong>只存公鑰，無私鑰。</strong></li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>① Diffie-Hellman 金鑰交換：不傳私鑰也能共享一把金鑰</h3>
+  <p>公開參數 <code>g, p</code>。A 私鑰 <code>a</code>、公鑰 <code>A = g^a mod p</code>；B 私鑰 <code>b</code>、公鑰 <code>B = g^b mod p</code>。雙方交換<strong>公鑰</strong>後各自算：
+  <code>A 算 B^a = g^(ab)</code>、<code>B 算 A^b = g^(ab)</code> → <strong>得到相同的共享祕密</strong>。竊聽者只看到 <code>A、B</code>，要反推 <code>a/b</code> 是離散對數難題（大數下不可行）。</p>
+  <h3>② KDF：把共享祕密導成對稱金鑰</h3>
+  <p>共享祕密本身不直接當金鑰，而是經 <strong>KDF（金鑰導出函式，如 HKDF）</strong> 導出根金鑰與鏈金鑰。KDF 內部以 HMAC/hash 為基礎——<strong>單向</strong>性是後面棘輪能成立的關鍵。</p>
+  <h3>③ 對稱加密：實際加密訊息</h3>
+  <p>用導出的訊息金鑰對明文做<strong>帶認證的對稱加密（AES-GCM）</strong>：既保密又能驗證未被竄改。對稱加密快，適合每則訊息；DH 只用來協商金鑰。</p>
+  <h3>④ Double Ratchet（雙棘輪）：前向保密 + 後向保密</h3>
+  <ul>
+    <li><strong>對稱鏈棘輪</strong>：每發 / 收一則，就把鏈金鑰用 KDF 單向推進一次（<code>newKey = KDF(oldKey)</code>）。每則訊息金鑰不同；推進後<strong>舊金鑰被覆蓋、算不回來</strong> → <strong>前向保密</strong>（舊金鑰外洩，先前訊息仍安全）。</li>
+    <li><strong>DH 棘輪</strong>：雙方定期換新的 DH 金鑰對、重算共享祕密注入根金鑰 → 即使某輪金鑰被攻破，<strong>下一輪會「自我修復」</strong> → <strong>後向保密</strong>。</li>
+    <li>兩條棘輪交織，就是 Signal 的 <strong>Double Ratchet</strong>。</li>
+  </ul>
+  <h3>⑤ 多裝置</h3>
+  <p>同一帳號多台裝置，各有自己的身分金鑰；發訊息時對<strong>每台收件裝置各建一條 session、各自加密一份</strong>（sender 端 fan-out 到 N 台）。或用「sender key」群組金鑰優化群播。</p>
+  <h3>⑥ 金鑰驗證：防中間人（MITM）</h3>
+  <p>伺服器若偷換公鑰，可發動中間人攻擊。對策：雙方比對<strong>公鑰指紋 / 安全碼（safety number）</strong>（掃 QR 或唸數字），一致即確認對方公鑰沒被掉包。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>離線建 session</td><td>對方離線，無法即時做 DH</td><td><strong>一次性預付金鑰（prekey）</strong>：離線金鑰預發到金鑰伺服器，對方領一把就能單向建 session（X3DH）</td></tr>
+    <tr><td>prekey 耗盡</td><td>一次性金鑰被領光</td><td>裝置上線時<strong>補充</strong>；耗盡時退回用 signed prekey（安全性略降）</td></tr>
+    <tr><td>群組金鑰</td><td>N 人群組，兩兩配對 DH 爆炸</td><td><strong>sender key</strong>：每人發一把群組鏈金鑰給成員，群播只加密一次</td></tr>
+    <tr><td>多裝置同步</td><td>同帳號多裝置金鑰 / 歷史一致</td><td>每裝置獨立 session；新裝置需<strong>安全地</strong>同步或重新驗證</td></tr>
+    <tr><td>密文中繼量</td><td>同 Messenger 的長連線 / 投遞</td><td>沿用 ⑦ 的連線註冊表 + Pub/Sub + 離線佇列（架構不變，只是內容變密文）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>E2EE vs 伺服器端功能</strong>：加密後伺服器看不到明文 → <strong>全文搜尋、內容審核、防濫用、垃圾訊息過濾、雲端歷史備份</strong>都變難或做不到。這是 E2EE 最大的取捨：隱私 ↔ 功能。</li>
+    <li><strong>金鑰備份 vs 安全</strong>：使用者換機 / 丟失裝置，私鑰也沒了 → 舊訊息永遠解不開。提供雲端金鑰備份（如用密碼加密的 backup）會<strong>擴大攻擊面</strong>；不提供則使用者體驗差。</li>
+    <li><strong>metadata 仍會外洩</strong>：E2EE 保護<strong>內容</strong>，但「誰在何時跟誰聊、頻率、IP」等<strong>中繼資料</strong>伺服器仍看得到。要進一步隱藏需 sealed sender / 混淆路由等額外設計。</li>
+    <li><strong>前向 vs 後向保密</strong>：對稱棘輪給前向保密（成本低）；後向保密需 DH 棘輪（多一次金鑰交換）。依威脅模型取捨。</li>
+    <li><strong>常見追問</strong>：伺服器被法院索取資料能交出什麼？→ 只有密文與中繼資料，交不出明文。如何防中間人？→ safety number 驗證。亂序 / 遲到的訊息怎麼解？→ 暫存 skipped message keys 以序號對齊。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於 E2EE 的<strong>系統核心邏輯</strong>（金鑰交換 + 棘輪 + 伺服器只見密文），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/ToyCrypto.php</code>　玩具版密碼學：DH 模冪、KDF（hash）、棘輪推進、XOR 對稱加密。</li>
+    <li><code>src/KeyServer.php</code>　金鑰伺服器：發布 / 領取公鑰（<strong>只存公鑰</strong>）+ 指紋。</li>
+    <li><code>src/DeviceStore.php</code>　裝置端：身分私鑰 + 每對話的棘輪狀態（send / recv 鏈，<strong>永不上伺服器</strong>）。</li>
+    <li><code>src/Mailbox.php</code>　伺服器端密文信箱：只存 <code>{ from, to, n, cipher }</code>，<strong>無明文</strong>。</li>
+    <li><code>src/E2EEService.php</code>　流程編排：register → openSession(DH) → send(加密) → receive(解密) → 前向保密示範。</li>
+    <li><code>public/index.php</code>　路由：建 session / 加密送 / 收取解密 / 伺服器視角 / 前向保密，並附 A、B 雙裝置測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8060 -t public
+# 瀏覽器開 http://localhost:8060
+# ① A、B 建 session（DH 算出「相同」共享祕密）→ A 加密送 B（伺服器只見密文）
+# → B 端棘輪解出明文 → 每則金鑰推進 → ② 用舊金鑰解舊訊息（解不開 = 前向保密）</code></pre>
+  <div class="box warn"><span class="label">⚠️ 嚴正誠實聲明（務必閱讀）</span>
+    Demo 用 <strong>小數字 Diffie-Hellman（p=467）+ XOR 對稱加密</strong>，純為「看得懂」的<strong>教學示意</strong>，
+    <strong>絕對不是安全加密</strong>：小質數可被秒破、XOR 無完整性驗證可被竄改。
+    但底層<strong>概念為真、與 Signal Protocol 一致</strong>：DH 雙方算出<strong>相同共享祕密</strong>（竊聽者僅見公鑰算不出）、
+    KDF 導金鑰、棘輪每則<strong>單向推進</strong>（舊金鑰算不出新的）達成<strong>前向保密</strong>、伺服器<strong>只中繼密文</strong>。
+    真實系統用 <code>X3DH</code> 初始協商 + <code>Double Ratchet</code> + <code>AES-GCM</code> / <code>Curve25519</code>，把玩具密碼學替換掉後架構與流程不變。
+  </div>
+
+  <footer>60 端到端加密訊息 · B 即時連線/同步 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

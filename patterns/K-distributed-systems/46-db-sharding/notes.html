@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊻ 資料庫分片 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊻ 資料庫分片：分庫分表 × scatter-gather × 全域 ID × re-shard</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag time">建議 55 分鐘</span>
+    <span class="tag">Design Database Sharding (Vitess)</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用「圖書館分館、找書 vs 數全館的書、館員號碼牌、開新分館要搬書」的比喻把核心講清楚，再回來看這份工程速查。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>單機關聯式資料庫（MySQL）裝不下 / 扛不住，把一張大表水平切到多台</strong>」——也就是 Vitess / ProxySQL / Citus 那一類。
+    面試真正考的不是「怎麼切」，而是切完之後冒出的四個痛：
+    <em>分片鍵選擇與熱點</em>、<em>沒帶分片鍵的查詢只能 scatter-gather（跨片 JOIN / 聚合很貴）</em>、
+    <em>跨片不能用單一 auto_increment（全域 ID）</em>、<em>加機器要搬資料（re-shard）</em>。
+  </div>
+
+  <div class="box warn">
+    <span class="label">與第 ㉛ 題（分散式 KV）的差異——別答混了</span>
+    ㉛ 是 <strong>NoSQL KV</strong>：用<strong>一致性雜湊環 + vnode</strong>，天生無 JOIN / 無交易，加機器只搬 ~1/N。
+    本題是 <strong>關聯式分片</strong>：保留 SQL（JOIN、交易、二級索引、ORDER BY LIMIT），所以痛點完全不同——
+    取模分片加機器幾乎<strong>全搬</strong>、沒帶分片鍵就退化成 <strong>scatter-gather</strong>、自增主鍵跨片<strong>會撞號</strong>。
+    面試官常用這題測你「<strong>有沒有意識到關聯式分片放棄了單機 SQL 的哪些好處</strong>」。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（為何要分片 / 與 NoSQL 差異）</a></li>
+      <li><a href="#estimate">規模估算（資料量、QPS、分片數）</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型（分片鍵、路由表、全域 ID）</a></li>
+      <li><a href="#arch">高階架構（中介層 → 多 MySQL）</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>把<strong>單一邏輯大表</strong>（如 <code>orders</code>、<code>users</code>）水平切到 N 台 MySQL，對應用<strong>盡量透明</strong>。</li>
+    <li>帶分片鍵的查詢（如 <code>WHERE user_id=?</code>）能<strong>直達單一分片</strong>。</li>
+    <li>支援不帶分片鍵的查詢（範圍、聚合、排序）——退化為跨片合併但仍要能跑。</li>
+    <li>主鍵<strong>全域唯一</strong>（跨片不撞號）。</li>
+    <li>能<strong>線上加分片（re-shard）</strong>並搬遷資料，不停機。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>容量 / 吞吐線性擴展</strong>：加機器就能增加總容量與 QPS。</li>
+    <li><strong>低延遲</strong>：單片查詢 p99 個位數毫秒；避免「每個查詢都打全部片」。</li>
+    <li><strong>保留關聯式語意</strong>：交易、二級索引、JOIN（至少同片內）仍可用。</li>
+    <li><strong>可運維</strong>：搬遷可控（限流、可回退），分片鍵選擇可演進。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問：為什麼不先用副本 / 垂直分？</span>
+    分片是<strong>最後手段</strong>，先窮盡便宜招：① <strong>讀副本</strong>（讀寫分離，解讀爆）② <strong>垂直分庫</strong>（把不同表 / 大欄位拆到不同庫）③ <strong>快取</strong>。
+    只有當<strong>單表寫入 / 單庫容量</strong>成為瓶頸（一台 MySQL 裝不下、單主寫不動）才水平分片——因為分片會<strong>犧牲跨片 JOIN / 跨片交易 / 全域排序</strong>，代價很高。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>資料量</td><td>20 億筆訂單 × 每筆 1 KB</td><td>~2 TB；加索引 ×2 → ~4 TB，單機 MySQL 吃緊</td></tr>
+    <tr><td>寫 QPS</td><td>尖峰 8 萬寫/s</td><td>單主 MySQL ~幾千~上萬寫/s → 必須切多主</td></tr>
+    <tr><td>分片數</td><td>每片目標 &lt; 500 GB、&lt; 1 萬寫/s</td><td>4 TB / 500 GB ≈ 8 片起；預留成長取 <strong>16~32 片</strong></td></tr>
+    <tr><td>讀寫比</td><td>讀:寫 ≈ 10:1</td><td>每片再掛 2 讀副本分擔讀（讀寫分離）</td></tr>
+    <tr><td>分片鍵基數</td><td>user_id 上億、分佈均勻</td><td>基數高、均勻 → 適合當分片鍵（避熱點）</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    分片數要<strong>一開始就預切足夠多</strong>（甚至遠多於機器數，多個 shard 擺一台，之後再搬到新機器）。
+    因為 re-shard 很痛——預切多 shard 讓「擴容＝搬整個 shard」而非「重算每個 key 落點」，把搬遷量從「幾乎全搬」降成「搬幾個 shard」。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 應用面對的仍是「一張邏輯表」，分片中介層負責路由
+# 帶分片鍵 → 單片
+GET  /orders?user_id=1001            → 直達 shard = hash(1001) % N
+POST /orders  { user_id, amount }    → 路由到該片 insert，回傳全域 id
+
+# 不帶分片鍵 → scatter-gather（中介層打所有片再合併）
+GET  /orders?status=PAID&sort=amount&limit=20   → 每片各查 top-20 → 合併再取 top-20
+GET  /orders/stats?metric=sum_amount            → 每片各算 sum → 相加
+
+# 內部：全域發號器
+POST /idgen/next  { table:"orders" }            → 回傳全域唯一 id（號段批發）
+
+# 運維：re-shard
+POST /admin/reshard  { from:16, to:32 }         → 線上複製 + 切流（VReplication）
+</code></pre>
+  <div class="box"><span class="label">設計重點</span>
+    API 表面看不出分片，但<strong>每個端點都要標註「帶不帶分片鍵」</strong>——這決定它是單片直達還是 scatter-gather。
+    面試時主動指出「這個查詢沒帶分片鍵，會掃所有片，要嘛加二級路由、要嘛用搜尋引擎旁路」是加分點。
+  </div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>邏輯表 orders（被水平切到 N 片）
+  id          BIGINT  PRIMARY KEY     -- 全域唯一（非各片 auto_increment！）
+  user_id     BIGINT                  -- ★ 分片鍵：shard = hash(user_id) % N
+  amount      DECIMAL
+  status      VARCHAR
+  created_at  TIMESTAMP
+
+分片路由（中介層的 vschema / 路由表）
+  keyspace: orders_ks
+  shard_key: user_id
+  策略: hash(user_id) % N   （或：範圍分片 / 目錄分片 directory-based）
+
+全域 ID 三種做法
+  ① 號段(segment)：全域發號器批量發「不重疊區段」給各片，本地遞增（高效，Vitess/Leaf）
+  ② Snowflake：時間戳 + 機器號 + 序號，趨勢遞增、無中心瓶頸
+  ③ 各片 auto_increment 設不同 step/offset（片0:1,1+N；片1:2,2+N…）簡單但加片難調</code></pre>
+  <div class="box warn"><span class="label">分片鍵一旦選錯，幾乎要重建</span>
+    分片鍵決定「資料落哪片」與「哪些查詢能單片直達」。選 <code>user_id</code>：查某用戶的訂單超快，但「查某商品的所有訂單」要 scatter-gather。
+    沒有完美分片鍵——選<strong>最高頻查詢的條件欄位</strong>，且基數高、分佈均勻、寫入不集中（避熱點）。改分片鍵＝幾乎重灌，務必慎選。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>                       ┌──────────────────────────┐
+ 應用 ──(一張邏輯表)──▶ │  分片中介層 (Vitess/ProxySQL) │
+                       │  shard = hash(key) % N      │
+                       │  帶 key→單片；不帶→scatter   │──┬─▶ MySQL 分片0 (主) ─▶ 讀副本
+                       └──────────────────────────┘  ├─▶ MySQL 分片1 (主) ─▶ 讀副本
+                                  │                    └─▶ MySQL 分片2…(主) ─▶ 讀副本
+                                  ▼
+                          全域發號器 (號段 / snowflake)
+                          re-shard: 線上複製 + 切流 (VReplication)</code></pre>
+  <ol>
+    <li><strong>分片中介層</strong>：應用只看到「一張表」；中介層依分片鍵算落點、做路由、scatter-gather 合併、跨片排序/聚合的二次計算。</li>
+    <li><strong>每片一主多副本</strong>：主寫、副本讀（讀寫分離），分擔該片的讀流量。</li>
+    <li><strong>全域發號器</strong>：保證跨片主鍵唯一。</li>
+    <li><strong>re-shard 管線</strong>：Vitess 用 VReplication 把舊片資料串流複製到新片，追上後切流，無停機。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>① 分片鍵選擇與熱點</h3>
+  <ul>
+    <li><strong>準則</strong>：選<strong>最高頻查詢的等值條件欄位</strong>（讓多數查詢單片直達）+ 基數高 + 分佈均勻 + 寫入分散。</li>
+    <li><strong>熱點</strong>：用「時間」當分片鍵 → 最新那片被狂寫（時間熱點）；用「大客戶 id」→ 該片被打爆（資料傾斜）。對策：<strong>複合分片鍵</strong>（如 <code>hash(user_id, order_id)</code>）、<strong>加鹽打散</strong>大客戶、或對熱點再切。</li>
+    <li><strong>取模 vs 範圍 vs 目錄</strong>：取模均勻但 re-shard 痛、不支援範圍查；範圍支援範圍查但易熱點；目錄（查路由表）最靈活但多一跳 + 路由表自己要高可用。</li>
+  </ul>
+
+  <h3>② 跨片查詢 scatter-gather 與 JOIN 之痛</h3>
+  <ul>
+    <li><strong>scatter-gather</strong>：沒帶分片鍵的查詢 → 中介層把同一條 SQL <strong>廣播到所有片</strong>，各片回部分結果，中介層<strong>合併</strong>。延遲 = <strong>最慢那片</strong>（長尾放大）。</li>
+    <li><strong>ORDER BY ... LIMIT k</strong>：不能只各片取 k 就好——要各片取 k、彙整後<strong>再排序取 k</strong>（中介層二次排序）；OFFSET 大時更糟（要拉回大量列）。</li>
+    <li><strong>聚合</strong>：<code>COUNT/SUM</code> 可下推到各片再相加；<code>COUNT(DISTINCT)</code>、<code>AVG</code>、<code>GROUP BY</code> 跨片要小心（AVG 要拆成 sum/count 分別下推）。</li>
+    <li><strong>跨片 JOIN 之痛</strong>：兩張表分片鍵不同 → JOIN 要跨片拉資料到中介層做（昂貴）。對策：<strong>同分片鍵共置（co-location）</strong>讓相關表落同片可本地 JOIN；或<strong>反正規化</strong>把要 JOIN 的欄位冗餘進來；或對小表做<strong>全片複製（reference table）</strong>。</li>
+  </ul>
+
+  <h3>③ 分散式自增 ID（全域唯一）</h3>
+  <ul>
+    <li><strong>問題</strong>：各片各自 <code>auto_increment</code> 會撞號（兩片都產生 id=1）。</li>
+    <li><strong>號段(segment)</strong>：全域發號器一次批發一段（如 1~1000）給某片，片內本地遞增；用完再領下一段。<strong>避免每筆寫都搶全域計數器</strong>（那會變熱點），是 Vitess/美團 Leaf 的主流做法。</li>
+    <li><strong>Snowflake</strong>：<code>時間戳(41b) + 機器號(10b) + 序號(12b)</code>，<strong>趨勢遞增、無中心瓶頸</strong>，但依賴時鐘（時鐘回撥要處理）。</li>
+    <li><strong>權衡</strong>：號段更緊湊、可去重；snowflake 無中心、含時間資訊但較長且可被推測產生速率。</li>
+  </ul>
+
+  <h3>④ re-shard 搬遷</h3>
+  <ul>
+    <li><strong>取模分片的致命傷</strong>：<code>N → N+1</code> 時幾乎每個 key 的 <code>hash % N</code> 都變 → <strong>大部分資料要換家</strong>（本題 demo 可實測到接近 100%）。</li>
+    <li><strong>對策一：預切多 shard</strong>：一開始就切成 32/64 個邏輯 shard（多個擺一台），擴容＝把整個 shard 搬到新機器（<strong>shard 數不變、key 落點不變</strong>），搬遷量只是「幾個 shard」而非「重算所有 key」。</li>
+    <li><strong>對策二：一致性雜湊 / 範圍分片</strong>：加機器只影響相鄰一段（~1/N），如同第 ㉛ 題。</li>
+    <li><strong>線上搬遷</strong>：Vitess VReplication——新片<strong>串流複製</strong>舊片資料 + 追 binlog 增量，追上後<strong>切讀、再切寫</strong>，雙寫驗證一致再下線舊路由，全程不停機、可回退。</li>
+  </ul>
+
+  <h3>⑤ 讀寫分離與副本</h3>
+  <ul>
+    <li>每片一主多從：<strong>寫走主、讀走副本</strong>，分擔讀流量。</li>
+    <li><strong>複製延遲</strong>：副本落後主 → 可能<strong>讀到舊值</strong>。需要「讀自己的寫」時，把該讀<strong>強制走主</strong>（read-your-writes），或用 GTID 等副本追上再讀。</li>
+    <li>中介層可做<strong>讀流量負載均衡</strong>與副本健康剔除。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td>熱點分片</td><td>某片被狂讀/寫（大客戶、時間熱點）</td><td>複合分片鍵 / 加鹽打散 / 熱點再切 / 前置快取</td></tr>
+    <tr><td>跨片查詢爆</td><td>大量不帶分片鍵的查詢做 scatter-gather</td><td>共置相關表、反正規化、二級路由表、搜尋引擎(ES)旁路做檢索</td></tr>
+    <tr><td>跨片交易</td><td>一筆交易跨多片，要 2PC（慢且易卡）</td><td>盡量讓交易落單片（用同分片鍵共置）；真要跨片用 Saga / 最終一致</td></tr>
+    <tr><td>re-shard 成本</td><td>擴容要搬大量資料、影響線上</td><td>預切多 shard + 線上 VReplication 限流搬遷 + 可回退</td></tr>
+    <tr><td>跨片排序分頁</td><td>ORDER BY + 大 OFFSET 拉回海量列</td><td>改游標分頁(seek/keyset)、限制深分頁、把排序欄位下推</td></tr>
+    <tr><td>分散式唯一約束</td><td>跨片的 UNIQUE / 外鍵無法強制</td><td>把唯一欄位也當分片鍵、或用獨立去重服務</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>分片鍵選錯很痛</strong>：它同時決定「落點」與「哪些查詢單片直達」，改它幾乎要重灌。先盤點最高頻查詢，選能讓它們單片直達且分佈均勻的鍵——這是這題最大的得分點。</li>
+    <li><strong>垂直 vs 水平分</strong>：垂直分（不同表/欄位拆庫）先做、便宜、不犧牲單表 SQL；水平分（同表切多片）是擴展上限但犧牲跨片 JOIN/交易。順序：副本 → 垂直 → 水平。</li>
+    <li><strong>範圍 vs 雜湊分片</strong>：雜湊均勻、避熱點，但不支援範圍查、re-shard 痛；範圍支援範圍查與「就近搬」，但易產生時間/字母熱點。常見折衷：雜湊 + 預切多 shard。</li>
+    <li><strong>分片 = 放棄了什麼</strong>：跨片 JOIN、跨片交易、全域唯一約束、全域 ORDER BY/AVG/DISTINCT 都變貴或不可用。能講清楚「放棄了什麼、怎麼補（共置/反正規化/Saga/ES）」才算真懂。</li>
+    <li><strong>常見追問</strong>：怎麼不停機 re-shard？（VReplication 複製+切流）跨片唯一怎麼辦？（唯一欄當分片鍵 / 去重服務）熱點大客戶？（加鹽 / 單獨成片）跨片分頁？（keyset 游標）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 在<strong>單一 PHP process</strong> 內，用「<strong>每個分片一個 JSON 檔</strong>」假裝成一台獨立 MySQL，把關聯式分片真正的考點跑起來：</p>
+  <ul>
+    <li><code>src/ShardRouter.php</code>　分片核心：<code>shardOf()</code>＝<code>crc32(key) % N</code> 路由、<code>insert/getByKey</code> 單片直達、<code>aggregate()</code> scatter-gather（count/sum/top 跨片合併排序）、<code>nextId()</code> 號段全域 ID、<code>addShard()</code> re-shard 並算出哪些 key 換家、搬遷比例。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁：設分片數、插入看落哪片、依 key 單片點查、跨片聚合、加分片看 re-shard。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8046 -t public
+# 瀏覽器開 http://localhost:8046
+# 試：一鍵塞 12 筆 → 依 key 點查(shards_scanned=1) → 跨片聚合(shards_scanned=N)
+#     → 加 1 片看 moved_pct 接近 100%（取模分片 re-shard 之痛）</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 是<strong>單一 process、JSON 檔模擬多台 MySQL</strong>：<strong>沒有</strong>真實 MySQL、<strong>沒有</strong>跨片 2PC 分散式交易、<strong>沒有</strong>線上不停機搬遷（VReplication）。
+    但<strong>取模分片路由、scatter-gather 跨片聚合、號段全域 ID、re-shard 換家計算與搬遷的邏輯皆為真實可執行</strong>——這正是關聯式分片的核心考點。
+    要變成真系統，把「各分片一個 JSON 檔」換成「各分片一台 MySQL + 分片中介層」即可，路由與合併演算法不變。僅用 <code>json + hash(crc32)</code>，每檔 <code>declare(strict_types=1);</code>，以 <code>flock</code> 原子化。
+  </div>
+
+  <footer>㊻ 資料庫分片 · K 組（分散式系統）· 系統設計學習專案</footer>
+</div>
+</body>
+</html>

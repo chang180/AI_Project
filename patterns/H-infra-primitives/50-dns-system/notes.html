@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊿ DNS 系統 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊿ DNS 系統：把名字翻成 IP，全球、要快、要就近</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag time">建議 40 分鐘</span>
+    <span class="tag">Design the DNS System</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把人類好記的網域名（www.example.com）翻成機器用的 IP，而且要全球、要快、要就近</strong>」的問題。
+    單機查一張對照表很簡單；面試真正考的是 <em>階層式遞迴解析</em>、<em>多層快取與 TTL</em>、以及 <em>GeoDNS/anycast 如何讓全球使用者就近命中最近的伺服器</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API / 查詢介面</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入（遞迴 / 快取 / 記錄型別 / GeoDNS）</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>輸入網域名（如 <code>www.example.com</code>）→ 回傳對應的 <strong>IP（A 記錄）</strong>。</li>
+    <li>支援常見記錄型別：<strong>A</strong>（名字→IP）、<strong>CNAME</strong>（別名→另一個名字，要再跟一次）、<strong>NS</strong>（委派權威）。</li>
+    <li><strong>階層解析</strong>：透過 root → TLD → authoritative 三層逐級問出答案。</li>
+    <li><strong>GeoDNS</strong>：同一個名字，依使用者所在區域回<strong>最近</strong>的 IP。</li>
+    <li>網域擁有者可<strong>新增 / 修改記錄</strong>（並能控制變更多久生效 = TTL）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：解析在每一次連線前的關鍵路徑上，p99 要 &lt; 數十 ms；命中快取應 &lt; 1ms。</li>
+    <li><strong>極高可用</strong>：DNS 掛了 = 全網「失明」，需 &gt; 99.999%（anycast + 多副本）。</li>
+    <li><strong>讀遠多於寫</strong>：查詢（讀）量巨大、記錄變更（寫）罕見 → 整個設計圍繞「<strong>快取</strong>」。</li>
+    <li><strong>全球可擴展</strong>：使用者遍布全球，要就近服務 + 抗 DDoS。</li>
+    <li><strong>最終一致可接受</strong>：改記錄後靠 TTL 自然過期收斂，不追求即時全球一致。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「設計的是 <strong>recursive resolver</strong>（幫使用者跑完整遞迴的那台，如 8.8.8.8）還是 <strong>authoritative</strong>（持有某網域權威資料的那台）？」與「<strong>TTL 大概多長</strong>（決定快取效率 vs 變更生效速度）？」這兩問決定整題走向。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>查詢量（讀）</td><td>大型 public resolver</td><td>~1 兆查詢/日 ≈ <strong>千萬級 QPS</strong>（峰值更高）</td></tr>
+    <tr><td>快取命中率</td><td>熱門網域高度集中</td><td>resolver 快取命中可達 <strong>80~90%+</strong> → 真正打到權威的只剩零頭</td></tr>
+    <tr><td>記錄變更（寫）</td><td>網域記錄很少改</td><td>讀寫比可達 <strong>百萬:1</strong> → 寫不是瓶頸，讀才是</td></tr>
+    <tr><td>記錄資料量</td><td>每網域數筆記錄 × 數億網域</td><td>數十 GB 級，輕鬆放進記憶體</td></tr>
+    <tr><td>封包大小</td><td>UDP/53 單包 ~512B（EDNS 更大）</td><td>小封包、無連線 → 適合 anycast 廣布</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>查詢量天文數字但<strong>高度可快取</strong>。設計重點不是「算得多快」，而是「<strong>讓絕大多數查詢在快取就回掉</strong>（多層快取 + TTL）」與「<strong>就近命中（anycast/GeoDNS）</strong>」。</div>
+
+  <h2 id="api">3. API / 查詢介面</h2>
+  <pre><code># DNS 沒有「業務 REST API」，它的介面是 DNS 協定本身（UDP/TCP port 53）：
+# 一次查詢 = (QNAME, QTYPE, QCLASS)
+QNAME = www.example.com
+QTYPE = A          # 想要的記錄型別：A / AAAA / CNAME / NS / MX ...
+→ 回應 = { answer: 93.184.216.34, type: A, TTL: 300 }   # 帶 TTL 告訴你能快取多久
+
+# 跟隨 CNAME：
+QNAME=blog.example.com QTYPE=A
+→ blog.example.com  CNAME  www.example.com   # 別名，resolver 自己再查一次
+→ www.example.com   A      203.0.113.10       # 直到拿到 A 才算解析完成
+
+# 管理面（網域擁有者改記錄，本 demo 對應 POST /api/record）：
+PUT  zone/example.com/records
+Body: { "name":"www.example.com", "type":"A", "ttl":300, "value":"203.0.113.10" }
+# GeoDNS：同名多筆，依 client 區域挑一筆回
+</code></pre>
+  <div class="box"><span class="label">為何回 TTL</span>TTL 是 DNS 的靈魂：它告訴每一層快取「<strong>這個答案可以重用多久</strong>」。TTL 決定了「改記錄後多久全球生效」與「快取能擋掉多少查詢」之間的取捨（§8 詳述）。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># 權威區域檔（zone file）：某網域的所有記錄
+zone example.com
+  example.com.      A      300   93.184.216.34
+  www.example.com.  A      60    203.0.113.10     # 短 TTL（常變/要 Geo）
+  blog.example.com. CNAME  300   www.example.com. # 別名 → 再跟一次
+  example.com.      NS      ...   ns1.example.com. # 委派：誰是這網域的權威
+
+# GeoDNS：同一個名字，依區域不同筆
+  www.example.com (region=tw) A 203.0.113.10   # 亞太節點
+  www.example.com (region=us) A 198.51.100.20  # 北美節點
+  www.example.com (region=eu) A 192.0.2.30     # 歐洲節點
+
+# Recursive resolver 的快取（靠 TTL 自動回收）
+  KEY  name|type|region  ->  { answer, expire_at }   # 過期即重查</code></pre>
+  <div class="box"><span class="label">為何分「權威」與「快取」兩份</span>權威（authoritative）是<strong>真相來源</strong>，由網域擁有者維護；快取（recursive resolver 內）是<strong>就近的副本</strong>，靠 TTL 與真相收斂。讀路徑幾乎只碰快取，這就是 DNS 能扛千萬 QPS 的祕密。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> Client(stub) ──查 www.example.com──▶ Recursive Resolver ──先查快取(命中即回)
+                                            │ (未命中 → 遞迴)
+                                            ├──①──▶ Root (.)       回：去找 .com 權威
+                                            ├──②──▶ TLD (.com)     回：example.com 的 NS
+                                            └──③──▶ Authoritative  回：A / CNAME
+                                                       │
+                                          GeoDNS/anycast：依區域回最近的 IP
+                                            │
+                       結果依 TTL 寫回快取 ◀┘  下次同名查詢直接命中</code></pre>
+  <ol>
+    <li><strong>Stub resolver</strong>（作業系統內）：把查詢丟給設定好的 recursive resolver。</li>
+    <li><strong>Recursive resolver</strong>（如 8.8.8.8）：<strong>有快取</strong>；命中直接回，未命中才代替你跑完整遞迴。這是讀路徑的主力。</li>
+    <li><strong>Root → TLD → Authoritative</strong>：三層權威階層，逐級把你「導向下一層」，最後由權威給出 A/CNAME。</li>
+    <li><strong>GeoDNS / anycast</strong>：權威依使用者區域回最近的 IP；anycast 讓「同一個 IP」在全球多地廣播，封包自動走到最近節點。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>遞迴 vs 迭代解析</h3>
+  <ul>
+    <li><strong>遞迴解析（recursive）</strong>：client 只問一句「給我 IP」，<strong>recursive resolver 幫你跑完所有層</strong>（root→TLD→權威）再把最終答案交給你。客戶端輕鬆。</li>
+    <li><strong>迭代解析（iterative）</strong>：每一層只回「下一步去問誰」，由<strong>發問方自己一層層追下去</strong>。recursive resolver 對上游權威用的就是迭代（root/TLD 只給 referral，不幫你跑完）。</li>
+    <li>一句話：<strong>client→resolver 是遞迴，resolver→權威階層是迭代</strong>。</li>
+  </ul>
+  <h3>快取與 TTL（讀路徑的命脈）</h3>
+  <ul>
+    <li>每筆記錄帶 <strong>TTL</strong>，resolver 把答案快取到 TTL 過期。命中時<strong>整段遞迴都省掉</strong>（demo 的解析鏈會從 5 步縮到 1 步）。</li>
+    <li>快取分層：瀏覽器 → 作業系統 → recursive resolver → 權威，<strong>越靠近使用者命中越省</strong>。</li>
+    <li>TTL 過期即失效，下次查詢重新遞迴並更新——這就是「改記錄後靠 TTL 自然生效」的機制。</li>
+  </ul>
+  <h3>記錄型別：A 與 CNAME</h3>
+  <ul>
+    <li><strong>A</strong>：名字直接對應一個 IPv4（<code>AAAA</code> 則對 IPv6）。解析的終點。</li>
+    <li><strong>CNAME</strong>：名字是另一個名字的<strong>別名</strong>。拿到 CNAME 不算結束，要<strong>再跟一次</strong>去解析目標名，直到拿到 A。常用於把 <code>www</code> 指到 CDN 的網域。</li>
+    <li><strong>NS</strong>：委派——告訴你「這個子網域/網域的權威伺服器是誰」，是階層階接的關鍵。</li>
+  </ul>
+  <h3>GeoDNS / anycast：就近</h3>
+  <ul>
+    <li><strong>GeoDNS</strong>：權威依 client 來源（IP 或 EDNS Client Subnet）判斷區域，<strong>同一個名字回不同 IP</strong>，把使用者導向最近的資料中心 / CDN 邊緣節點。</li>
+    <li><strong>anycast</strong>：把<strong>同一個 IP</strong> 在全球多個節點同時宣告，路由（BGP）自動把封包送到網路上最近的節點。root server 與大型 resolver 都靠它就近 + 抗 DDoS。</li>
+    <li>兩者常並用：GeoDNS 在「答案內容」就近，anycast 在「封包路徑」就近。</li>
+  </ul>
+  <h3>負面快取（negative caching）</h3>
+  <p>查無此名（<strong>NXDOMAIN</strong>）也要快取一小段時間（由 SOA 的 minimum TTL 決定），避免「不存在的名字」被反覆查詢一直打穿到權威——這也是抗（誤）放大的一環。</p>
+  <div class="box danger"><span class="label">常見陷阱</span>把 TTL 設超長以為「省快取」，結果改記錄後<strong>數小時/數天</strong>全球才生效，緊急切換（如故障轉移）做不到。對「會變/要做容錯切換」的記錄（如 <code>www</code> 指向 CDN）通常用<strong>短 TTL（30~60s）</strong>。</div>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單一權威</td><td>查詢全打權威、單點故障</td><td>多副本 + <strong>recursive resolver 多層快取</strong>擋掉 90%+ 查詢</td></tr>
+    <tr><td>熱門網域</td><td>少數爆紅網域查詢集中</td><td>高命中率快取 + anycast 把負載攤到全球節點</td></tr>
+    <tr><td>全球延遲</td><td>跨洲問權威 RTT 高</td><td><strong>anycast</strong>（就近節點）+ <strong>GeoDNS</strong>（就近答案）+ 邊緣快取</td></tr>
+    <tr><td>DDoS / 放大攻擊</td><td>偽造來源 IP 用 DNS 做<strong>放大反射</strong>打別人</td><td>anycast 吸收 + 限速 + Response Rate Limiting + 關閉開放遞迴</td></tr>
+    <tr><td>記錄變更生效</td><td>長 TTL 下改不動</td><td>對需變更的記錄用<strong>短 TTL</strong>；切換前先預先調低 TTL</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>TTL 長 vs 短</strong>：長 TTL → 快取命中高、權威負載低，但<strong>改記錄要等很久才生效</strong>；短 TTL → 變更快生效、容錯切換靈活，但<strong>快取命中低、權威更忙</strong>。核心折衷，看記錄「多常變 / 要不要快速切換」決定。</li>
+    <li><strong>anycast vs unicast</strong>：anycast 就近 + 抗 DDoS + 故障自動繞路，但路由收斂與「同一連線可能換節點」需處理（DNS 多為單包查詢，影響小，所以特別適合 anycast）。</li>
+    <li><strong>遞迴 vs 迭代</strong>：把遞迴集中在 resolver（客戶端簡單、可共用快取）；權威階層只做迭代 referral（權威不替別人跑遞迴，否則易被當放大器）。</li>
+    <li><strong>GeoDNS 的快取難題</strong>：依區域回不同答案 → 不能全球共用一份快取，需靠 <strong>EDNS Client Subnet</strong> 把區域資訊帶進去，<strong>分區快取</strong>（本 demo 的快取鍵就帶了區域）。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>解析慢在哪？→ 多半是<strong>未命中時的遞迴 RTT</strong>；靠快取 + anycast 就近壓低。</li>
+        <li>改了 IP 為何還連到舊的？→ <strong>TTL 還沒過期</strong>，各層快取仍是舊答案。</li>
+        <li>CNAME 與 A 差在哪？→ CNAME 是別名要<strong>再跟一次</strong>，A 是終點。</li>
+        <li>DNS 放大攻擊？→ 小查詢觸發大回應 + 偽造來源 → 反射打受害者；用 RRL/限速/anycast 緩解。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦 <strong>DNS 的核心解析邏輯</strong>（也是面試真正考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Resolver.php</code>　核心：<strong>階層遞迴解析</strong>（root→TLD→authoritative，回傳完整解析鏈）、<strong>解析快取含 TTL</strong>（命中省去遞迴、過期重查）、<strong>A/CNAME</strong>（CNAME 再跟一次）、<strong>GeoDNS</strong>（依 client 區域回最近 IP，分區快取），用 <code>flock</code> 原子更新狀態。</li>
+    <li><code>public/index.php</code>　路由：解析（看解析鏈 + 快取命中）/ 加記錄 / 區域切換 / 快取狀態，附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8050 -t public
+# 瀏覽器開 http://localhost:8050
+# 解析 www.example.com（tw）→ 看完整遞迴鏈；立刻再解析一次 → 快取命中(省遞迴)
+# 區域切 us/eu 再解析 → GeoDNS 回不同 IP；解析 blog.example.com → CNAME 再跟一次</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用<strong>記憶體 + JSON 檔模擬 root / TLD / authoritative 三層區域表</strong>，沒有真正的 DNS 封包與網路傳輸（單機示意）。
+    但<strong>階層遞迴解析（完整解析鏈）、解析快取與 TTL、A/CNAME 再跟一次、GeoDNS 依區域回不同 IP、改記錄即失效快取</strong>等 DNS 邏輯<strong>為真實可執行</strong>。要上線只需把記憶體查表換成真正向 root/TLD/權威發送 DNS 查詢，解析與快取邏輯不變。
+  </div>
+
+  <footer>㊿ DNS System · H 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

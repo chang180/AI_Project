@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>55 TikTok 影片推薦流 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅵 社交/Feed 分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>55 TikTok 影片推薦流 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">F 社交/Feed</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼難的不是「播影片」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你打開 TikTok，<strong>沒追蹤任何人</strong>，但一支接一支的影片就是莫名好看，一不小心滑了一小時——這就是 <strong>For You（為你推薦）</strong>。</p>
+  <p>神奇的地方是：你<strong>沒告訴它你喜歡什麼</strong>，它卻越推越準。秘密在於它<strong>偷偷觀察你的行為</strong>：哪支看完、哪支秒滑、哪支按讚，然後<strong>不斷調整</strong>下一支推什麼。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    For You = <strong>一個會察言觀色的 DJ</strong>：先放幾首大眾金曲探你口味 → 看你跟著點頭還是皺眉 →
+    慢慢換成「<strong>你會喜歡</strong>」的歌，越放越懂你。它<strong>不需要你先說喜好</strong>，從你的反應就學會了。
+  </div>
+
+  <h2 id="why">2. 為什麼難的不是「播影片」？</h2>
+  <p>很多人第一次看這題會想：「不就是一支一支播影片嗎？」——這想法漏掉了真正難的兩件事。</p>
+  <div class="analogy">
+    <span class="label">📚 比喻：在巨大圖書館幫你挑書</span>
+    想像一座有<strong>50 億本書</strong>的圖書館，你走進去，館員要<strong>馬上</strong>遞給你「你會想看」的 10 本。
+    他<strong>不可能</strong>把 50 億本都翻一遍再挑（翻到天荒地老）。他得先<strong>飛快地縮到一小疊「大概有興趣的」</strong>，再從那一小疊裡<strong>細挑</strong>出最好的 10 本。
+  </div>
+  <p>第一個難關就是這個：影片多到爆，要<strong>飛快地從海量縮到一小撮，再細挑</strong>。工程上叫「<strong>召回 → 排序</strong>」兩段式。</p>
+  <p>第二個難關更隱形：你<strong>沒說過你喜歡什麼</strong>。系統只能<strong>從你的行為偷學</strong>——看完代表喜歡、秒滑代表不愛——然後<strong>邊推邊學、越推越準</strong>。這個「<strong>推 → 看你反應 → 學起來 → 推得更準</strong>」的循環，就是第二個難關（叫<strong>回饋迴路</strong>）。</p>
+  <p class="pause">💭 停一下：為什麼館員不能「把 50 億本都評分一次再挑前 10」？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為太慢、太貴。細評分一本書要花時間，50 億本逐一評你會等到睡著。
+    所以要<strong>先用便宜快速的方法</strong>（看書架分類）粗篩出幾百本「可能有興趣的」，<strong>只對這幾百本</strong>做仔細評分。這就是「召回（粗篩）→ 排序（細挑）」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「推薦系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>召回：從海量飛快粗篩出一小撮</h3>
+    <p>50 億支影片，先<strong>快速縮到幾百個「可能有興趣」的候選</strong>。這關要快、要廣，<strong>寧可多撈一點</strong>（後面還會再篩），不求精準。</p>
+    <div class="analogy">
+      <span class="label">🛒 比喻：逛超市先衝幾個區</span>
+      你進超市要快速買晚餐，不會每個貨架都看。你<strong>直奔幾個區</strong>：常買的「熟食區」（你的興趣）、大家都在搶的「特價區」（熱門）、還有「跟你買過同款的人也愛逛的區」（協同）。
+      這幾區的東西先全丟進推車——這就是<strong>多路召回</strong>。
+    </div>
+    <p>👉 為什麼要「多路」（好幾區一起逛）？因為只逛一區會有盲點：只看熟食區永遠吃一樣的、只看特價區又不合你口味。<strong>多區互補</strong>才撈得廣。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>排序：從那一小撮裡細挑出最好的</h3>
+    <p>推車裡有幾百樣，但今晚只煮 10 道。要<strong>幫每樣打分</strong>，挑出最高分的。</p>
+    <div class="analogy">
+      <span class="label">⭐ 比喻：幫每道菜打分</span>
+      每樣食材打三種分：<strong>「你有多愛」</strong>（相符你口味）＋<strong>「大家有多愛」</strong>（熱門）＋<strong>「新不新鮮」</strong>（新上架）。
+      三分加起來，挑最高的那 10 樣。<strong>「你有多愛」權重最大</strong>——畢竟是煮給你吃的。
+    </div>
+    <p>真實的 TikTok 這一步用的是 <strong>AI 模型</strong>（預測「你會不會看完」）。但<strong>骨架一樣</strong>：給候選打分、挑最高。我們的小程式用「三種分加起來」來示範，邏輯位置一模一樣。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>去重 + 探索：別重複，也別困在同溫層</h3>
+    <p>挑好了，發之前還有兩個小心機：</p>
+    <ul>
+      <li><strong>去重</strong>：這一輪剛給你看過的，<strong>別再推一次</strong>（不然你會覺得「怎麼又是這支」）。</li>
+      <li><strong>探索</strong>：每次<strong>偷渡一兩支「你沒接觸過的類型」</strong>。萬一你愛上了呢？這也讓<strong>新影片有機會被看到</strong>。</li>
+    </ul>
+    <div class="analogy">
+      <span class="label">🍣 比喻：吃迴轉壽司</span>
+      你愛鮭魚，店家當然多給你鮭魚（利用）。但<strong>偶爾推一盤你沒吃過的</strong>（探索）——說不定你會發現新最愛。
+      如果<strong>只給鮭魚</strong>，你很快就膩了，而且其他好料永遠輪不到。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>回饋：看你反應，偷偷學起來</h3>
+    <p>影片推出去後，<strong>戲才剛開始</strong>。系統盯著你的反應：<strong>看完了？按讚了？還是 0.5 秒就滑掉？</strong></p>
+    <div class="analogy">
+      <span class="label">👀 比喻：會看臉色的服務生</span>
+      好的服務生看你<strong>把某道菜吃光</strong>，下次就多上那類；看你<strong>動都沒動</strong>，就默默撤掉不再上。
+      系統也一樣：你<strong>看完/按讚</strong>的類型，<strong>分數加上去</strong>，下次召回和排序都更偏這類——<strong>越看越準</strong>。
+    </div>
+    <p>這個「<strong>推 → 看反應 → 更新喜好 → 推得更準</strong>」轉個不停的循環，就是 <strong>回饋迴路</strong>，是整個 TikTok 的靈魂。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>召回</strong>（從海量粗篩一小撮）→ ② <strong>排序</strong>（打分細挑最好的）→ ③ <strong>去重 + 探索</strong>（別重複、偷渡新口味）→ ④ <strong>回饋</strong>（看反應、學起來、下次更準）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「慢 / 算不動」</span>
+    50 億支影片，如果每支都仔細打分，打到天亮也打不完，你早就關 App 了。
+    所以要<strong>兩段式</strong>：召回先用便宜方法縮到幾百個，排序只對這幾百個細算。還要<strong>預載下一頁</strong>（先偷偷算好），你捲到底時瞬間就有。<em>只細算必要的，別做白工。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「越推越窄（同溫層）」</span>
+    只推你已知愛看的，你會被困在<strong>同溫層</strong>，越看越膩；而且新影片永遠沒機會曝光。
+    所以要<strong>探索</strong>：每頁偷渡一點新口味，打破迴圈、給新片機會。<em>大多給你愛的，但留一點驚喜。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「冷啟動：新人/新片不知道怎麼推」</span>
+    新使用者<strong>還沒留下任何行為</strong>，系統不知道他愛什麼；新影片<strong>還沒人看過</strong>，不知道好不好。
+    對策：<strong>新人先推熱門 + 探索</strong>（從前幾支反應快速學）；<strong>新片靠新鮮加分 + 探索名額</strong>拿到初始曝光。<em>不認識你，先給安全牌再慢慢學。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分成「上傳」「取影片」「看影片」三條路：</p>
+  <ul>
+    <li>📤 <strong>上傳</strong>：影片上傳 → <strong>轉碼</strong>（轉成各種畫質）→ 放 <strong>CDN</strong>（離你最近的倉庫）等著被播放。</li>
+    <li>📲 <strong>取 For You</strong>：① <strong>召回</strong>（多路粗篩一小撮）→ ② <strong>排序</strong>（打分細挑）→ ③ <strong>去重 + 探索</strong> → 回一頁，<strong>順手算好下一頁</strong>先備著。</li>
+    <li>👀 <strong>看影片</strong>：你的反應（看完 / 讚 / 滑掉）→ 走 <strong>事件流</strong> → <strong>更新你的喜好 + 影片熱度</strong> → 下次推得更準（這就是<strong>回饋迴路</strong>，圖上那條繞回去的箭頭）。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>For You（推薦流）</td><td>不用你追蹤誰，系統自己猜你愛看而推的無限影片流</td></tr>
+    <tr><td>召回（candidate generation）</td><td>從海量影片飛快粗篩出一小撮候選（逛幾個區把東西丟進推車）</td></tr>
+    <tr><td>多路召回</td><td>同時逛好幾區：興趣區 + 熱門區 + 「同好也愛」區，互補涵蓋廣</td></tr>
+    <tr><td>排序（ranking）</td><td>幫候選打分、細挑最好的（相符度 + 熱度 + 新鮮度）</td></tr>
+    <tr><td>相符度</td><td>這支影片跟你口味有多合（最重要的分數）</td></tr>
+    <tr><td>去重</td><td>這一輪看過的別再推（不然「怎麼又是這支」）</td></tr>
+    <tr><td>探索 vs 利用</td><td>大多給你愛的（利用）＋偷渡一點新口味（探索），別困同溫層</td></tr>
+    <tr><td>回饋迴路</td><td>推 → 看你反應 → 更新喜好 → 推得更準，轉個不停</td></tr>
+    <tr><td>冷啟動</td><td>新人/新片還沒資料，怎麼開頭推（先熱門 + 探索）</td></tr>
+    <tr><td>預載</td><td>先偷偷算好下一頁，你捲到底瞬間就有，不用等</td></tr>
+    <tr><td>轉碼</td><td>把上傳的影片轉成各種畫質，網路差也能順播</td></tr>
+    <tr><td>CDN</td><td>遍布各地的「就近倉庫」，影片從最近的送你最快</td></tr>
+    <tr><td>事件流 (Kafka)</td><td>你的每個動作排成一條輸送帶，後台慢慢消化更新喜好</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>有多少人在用</td><td>每天 5 億人</td><td>取影片這條路超高頻 → 要快、要能水平擴展</td></tr>
+    <tr><td>有多少影片</td><td>累積 ~50 億支</td><td>不可能逐一打分 → 一定要「召回先粗篩、排序再細挑」</td></tr>
+    <tr><td>取一頁要多快</td><td>&lt; 0.1 秒</td><td>來不及細算 → 靠<strong>預載下一頁</strong>偷偷先算好</td></tr>
+    <tr><td>每天多少「行為」要消化</td><td>每支看/滑/讚都算一筆，數千億筆/日</td><td>不能即時硬算 → 走<strong>事件流</strong>後台慢慢聚合</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：壓力在「海量挑選」和「海量行為」</span>
+    難不在「播一支影片」（那是 CDN 的事），而在<strong>「從 50 億裡飛快挑出你會愛的 10 支」</strong>＋<strong>「消化你每天上百次的反應、即時更新喜好」</strong>。
+    所以「召回→排序」（快速挑）和「回饋迴路」（消化反應）才是設計核心。
+  </div>
+  <p class="pause">💭 停一下：每天行為事件多到數千億筆，為什麼不「看一支就立刻把整套喜好重算一遍」？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為太貴、會卡。每個動作都觸發一次大重算，伺服器瞬間爆掉。
+    所以把行為<strong>丟上一條輸送帶（事件流）</strong>，後台<strong>慢慢聚合</strong>更新喜好。輕量的訊號（剛按的讚）可以近即時反映，重的計算則排隊批次做——這叫<strong>即時 + 批次混合</strong>。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 取一頁 For You（最常用）
+   GET /api/v1/feed?user_id=1&limit=10
+   我回：{ items:[ {影片id, 標籤, 分數, 來源:興趣/熱門/探索} ],
+          next_page:[ ... ] }   ← 順便附上「先算好的下一頁」</code></pre>
+  <p class="codecaption">注意回傳裡有 <code>next_page</code>（預載的下一頁）和每支的 <strong>來源</strong>標記——正式產品不會給你看來源，這裡<strong>故意秀出來</strong>讓你看懂「這支是因興趣、因熱門還是探索來的」。</p>
+  <pre><code>② 看一支影片 → 回饋（量超大）
+   POST /api/v1/watch
+   給我：{ 哪個人, 哪支影片, 動作:看完/讚/滑掉, 看了幾秒 }
+   我回：202（收到了！丟去後台慢慢消化，不卡你）</code></pre>
+  <p class="codecaption">回 <code>202</code>（收到、稍後處理）而不是等它算完，是因為這條<strong>量太大</strong>，必須丟事件流非同步處理，不能讓你卡在那等。</p>
+  <pre><code>③ 上傳影片（低頻但重）
+   POST /api/v1/videos  → 觸發轉碼（轉各種畫質）→ 完成後才能被推薦
+
+④ 查我的喜好（除錯/個人化頁）
+   GET /api/v1/users/{我}/interests
+   我回：{ dance:3.5, music:2.0, ... }   ← 系統偷學到的你的口味</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：四本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題用四本，各管不同的事：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🎞️</span>影片簿（每支影片的資料）</h3>
+    <p>每支一列：<code>影片id、<strong>標籤</strong>(分類)、<strong>熱度</strong>(多少人愛)、上架時間(算<strong>新鮮度</strong>)</code>。
+    （影片本體不放這——轉碼後的檔放 CDN，這本只記「資料卡」。）</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">❤️</span>口味簿（每個人的喜好向量）</h3>
+    <p>每個人一份：<code>{ 標籤 → 分數 }</code>，例如 <code>{ dance:3.5, music:2.0 }</code>。
+    這本是<strong>系統偷學來的你的口味</strong>，每次你看完/按讚就<strong>偷偷加分</strong>（回饋迴路改的就是這本）。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">✅</span>已看簿（這一輪看過哪些——去重用）</h3>
+    <p>記「這一輪 session 你已經看過的影片id」。取下一頁時<strong>把這些剔掉</strong>，就不會重複推同一支。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📨</span>行為簿（你做過的每個動作——回饋來源）</h3>
+    <p>記每一筆 <code>誰、看了哪支、動作(看完/讚/滑)、看幾秒、何時</code>。
+    這本<strong>append-only</strong>（只加不改）、量超大，走<strong>事件流</strong>後台聚合，最後拿去更新「口味簿」和影片「熱度」。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>挑選：50 億影片逐一打分</td><td><strong>兩段式</strong>：召回先粗篩到幾百個（用「分類索引/相似搜尋」），排序只細算這幾百個</td></tr>
+    <tr><td>口味要即時更新，不然推不準</td><td>行為走<strong>事件流</strong>聚合，輕訊號近即時、重計算批次（混合）</td></tr>
+    <tr><td>排序的 AI 模型太重、太慢</td><td>模型服務<strong>多機並行</strong> + 特徵快取，且<strong>只對召回後的小候選</strong>跑</td></tr>
+    <tr><td>取一頁來不及</td><td><strong>預載下一頁</strong> + 提前把每人候選算好 + CDN 先把下一批影片送到邊緣</td></tr>
+    <tr><td>「已看簿」越記越大</td><td>用<strong>Bloom filter</strong>（省記憶體的近似名單）+ session 過期就清掉</td></tr>
+    <tr><td>熱門影片同時被超多人看</td><td><strong>CDN 就近送 + 多畫質自適應</strong>（沿用 YouTube 那套分發）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 個人化 vs 多樣性</span>
+    全推你愛的→當下黏著最高，但越看越窄、新片餓死。留一點<strong>探索名額</strong>→犧牲一點即時黏著，換長期留存與新片曝光。拿捏這個比例就是核心藝術。</div>
+  <div class="fear"><span class="label">⚖️ 即時學 vs 批次學</span>
+    看一支馬上變準（即時）體驗最好但很貴；晚上統一重算（批次）便宜但反應慢。實務<strong>混合</strong>：剛按的讚馬上反映、深度口味分析排隊慢慢做。</div>
+  <div class="fear"><span class="label">⚖️ 看完 vs 按讚，哪個訊號更準？</span>
+    按讚要動手指、很多人懶得按；<strong>「有沒有看完 / 停留多久」反而更誠實</strong>。所以「看完」通常權重比「讚」還高。</div>
+  <details class="qa"><summary>💭 追問：跟 News Feed（動態牆）到底差在哪？</summary>
+    News Feed 的內容來自<strong>你追蹤的人</strong>（社交圖），核心是「發文時推給粉絲、還是讀時拉」；
+    這題<strong>不靠追蹤</strong>，內容來自<strong>全站、靠系統猜你的興趣</strong>，核心是「召回→排序→回饋」。一個是「給你朋友的動態」，一個是「猜你會愛的內容」。</details>
+  <details class="qa"><summary>💭 追問：會不會越推越窄，最後同溫層出不來？</summary>
+    會，如果只有「利用」沒有「探索」。所以靠三招防：① <strong>探索名額</strong>（偷渡新口味）② <strong>多樣性打散</strong>（同類不連發）③ <strong>興趣分數衰減</strong>（久沒看的舊愛慢慢降溫）。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「召回 → 排序 → 去重 → 回饋」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8055 -t public
+# 然後瀏覽器打開 http://localhost:8055</code></pre>
+  <ol>
+    <li>按 <strong>① 載入示範影片</strong>：建立 12 支影片，給 <code>alice</code> 一點口味（愛 dance/music），<code>bob</code> 則完全空白。</li>
+    <li>取 <code>alice</code> 的 <strong>For You</strong>：看 dance/music 類排在前面，每支還秀出<strong>分數</strong>和<strong>來源</strong>（興趣/熱門/探索）。</li>
+    <li>對某支按 <strong>「看完」或「讚」</strong>：觀察它<strong>消失</strong>（被去重）、而<strong>同類影片分數變高</strong>排更前（回饋迴路！）。</li>
+    <li>換成 <code>bob</code>：看<strong>冷啟動</strong>——沒口味時系統怎麼靠熱門 + 探索撐起第一頁。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>對 <code>alice</code> 的某支「貓」影片按讚後，再取一次 For You：你會看到<strong>那支不見了</strong>（去重）、而<strong>其他貓影片分數變高、排上來了</strong>（系統學到你愛貓）——這就是<strong>回饋迴路</strong>。再看 <code>bob</code>：他什麼都沒看過，系統只能先推<strong>大家都愛的熱門</strong> + 偷渡幾支<strong>探索</strong>——這就是<strong>冷啟動</strong>。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>VideoStore</strong>（影片簿 + 口味簿 + 已看簿）→ <strong>Recommender</strong>（召回→排序→去重→探索的大腦）→ <strong>FeedSession</strong>（把「取一頁 / 看一支 / 學起來」串起來）。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>召回：先逛幾個區，把候選丟進推車（Recommender）</h3>
+    <p>第一關，從全部影片裡<strong>多路</strong>撈出候選——興趣區、熱門區、同好區，合併去重。</p>
+<pre><code>function 召回(使用者) {
+    候選 = {}
+    // (a) 興趣區：標籤命中我喜好的影片
+    for (每支影片) if (影片標籤 ∩ 我的喜好標籤) 候選 += 影片
+    // (b) 熱門區：全站最熱前幾支（也是冷啟動後備）
+    候選 += 熱度最高的前 8 支
+    // (c) 同好區：跟我看過的影片共享標籤的（簡化版協同）
+    for (每支影片) if (影片標籤 ∩ 我看過的標籤) 候選 += 影片
+    return 候選   // 幾百個，快、廣、可漏抓
+}</code></pre>
+    <p class="codecaption">三區合起來＝<strong>多路召回</strong>。重點是<strong>快又廣</strong>，多撈沒關係——下一關排序會再篩。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>排序：幫每支打三種分，挑最高的（Recommender）</h3>
+    <p>對推車裡的候選打分：你有多愛 + 大家多愛 + 新不新鮮。</p>
+<pre><code>function 打分(影片, 我的喜好) {
+    相符度 = Σ (影片每個標籤在「我的喜好」裡的分數)   // 你有多愛 ← 權重最大
+    熱度   = 影片.熱度                                  // 大家多愛 ← 小配角
+    新鮮度 = max(0, 1 - 影片.上架小時 / 48)             // 越新越高
+    return 相符度×3.0 + 熱度×0.004 + 新鮮度×0.5
+}
+// 全部候選打完分 → 由高到低排好</code></pre>
+    <p class="codecaption">真實 TikTok 這段是個 <strong>AI 模型</strong>（預測你會不會看完）；我們用「三種分加權相加」示範，<strong>位置和作用一模一樣</strong>。「你有多愛」權重(3.0)壓過「熱度」，所以才會個人化，而不是一味推熱門。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>去重 + 探索：剔掉看過的、偷渡一支新口味（Recommender）</h3>
+    <p>排好序後，發之前做兩件事：</p>
+<pre><code>// 去重：本輪看過的剔掉
+候選 = 候選裡「不在我的已看簿」的那些
+
+// 取一頁：大多取高分(利用)，留 1 個名額給「我沒接觸過的標籤」(探索)
+這頁 = 高分前 4 支
+for (剩下的候選) if (它有我沒看過的新標籤) { 標記為探索; 這頁 += 它; break }</code></pre>
+    <p class="codecaption">「剔掉已看」＝<strong>去重</strong>（不會又看到同一支）；「偷渡一支新標籤」＝<strong>探索</strong>（打破同溫層、給新片機會）。大規模時「已看簿」會換成省記憶體的 <strong>Bloom filter</strong>，<strong>邏輯一樣</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>回饋迴路：看完就偷偷加分（FeedSession）</h3>
+    <p>這是<strong>全題的心臟</strong>。你看一支影片後，系統把它的標籤<strong>加進你的口味簿</strong>，下次就推得更準。</p>
+<pre><code>function 看一支(使用者, 影片, 動作) {
+    記進「已看簿」(使用者, 影片)        // ← 下次取頁會被去重
+    影片.熱度 += 加成[動作]             // ← 看完/讚會讓這支更熱(影響別人)
+
+    權重 = { 讚:1.0, 看完:0.6, 滑掉:0.0 }[動作]   // ← 滑掉幾乎不加
+    if (權重 > 0)
+        for (影片每個標籤) 我的喜好[標籤] += 權重    // ← 偷偷學起來！
+}</code></pre>
+    <p class="codecaption">前面講的「推 → 看反應 → 更新喜好 → 推得更準」整套<strong>就是這段</strong>。<strong>看完(0.6) 是強訊號、讚(1.0) 加碼、滑掉(0) 不加</strong>——因為「看完」比「按讚」更誠實。改的就是「口味簿」，下次召回和排序都會用到它，所以<strong>越看越準</strong>。</p>
+    <p class="pause">💭 停一下：為什麼「滑掉」的權重是 0，而不是去推一支一樣的？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為滑掉代表「不愛」，<strong>不該強化</strong>這個標籤（權重 0＝不加分）。但它仍被記進「已看簿」→ 下次<strong>去重</strong>不再推同一支。想更兇一點還能設成<strong>負分</strong>（主動降低該標籤），這就是把負回饋也納入學習。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 召回（粗篩一小撮）</td><td>Recommender</td><td><code>召回()</code> 多路撈候選</td></tr>
+      <tr><td>② 排序（打分細挑）</td><td>Recommender</td><td><code>打分()</code> 相符度+熱度+新鮮度</td></tr>
+      <tr><td>③ 去重 + 探索</td><td>Recommender</td><td>剔已看 + 留探索名額</td></tr>
+      <tr><td>④ 回饋（越看越準）</td><td>FeedSession</td><td><code>看一支()</code> 加分進口味簿</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈過濾」換成「分片資料庫 + 相似搜尋 + AI 模型 + Kafka 事件流」，
+  但<strong>上面這幾段判斷邏輯（召回→排序→去重→回饋）一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「圖書館館員」解釋，為什麼要「召回 → 排序」兩段？</summary>
+    50 億本書不可能逐一細評（太慢）。館員先按分類<strong>飛快粗篩</strong>出幾百本「大概有興趣的」（召回），<strong>只對這幾百本</strong>仔細評分挑前 10（排序）。先粗後細，才挑得動海量。</details>
+  <details class="qa"><summary>Q2：什麼是回饋迴路？為什麼是整題的靈魂？</summary>
+    推 → 看你反應（看完/讚/滑）→ 更新你的口味 → 下次推得更準，轉個不停。因為使用者<strong>沒說過喜好</strong>，系統只能從行為偷學，靠這條迴路「越看越準」，這正是 For You 神奇的來源。</details>
+  <details class="qa"><summary>Q3：「探索 vs 利用」在防什麼？用迴轉壽司比喻。</summary>
+    防「越推越窄的同溫層」+「新片永遠沒曝光」。你愛鮭魚就多給鮭魚（利用），但<strong>偶爾推一盤沒吃過的</strong>（探索）——說不定發現新最愛，也讓新料有機會。只給鮭魚會膩。</details>
+  <details class="qa"><summary>Q4：新使用者剛註冊、什麼都沒看過，怎麼推？（冷啟動）</summary>
+    沒口味訊號 → 先推<strong>大家都愛的熱門</strong> + 偷渡幾支<strong>探索</strong>，從他對前幾支的反應<strong>快速學出口味</strong>，之後就轉成個人化。新影片同理：靠新鮮加分 + 探索名額拿初始曝光。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼「看影片」的 API 回 202、丟事件流，而不是當場算完？</summary>
+    因為行為事件量超大（每天數千億筆）。當場硬算會卡爆。丟上<strong>事件流（Kafka）</strong>非同步消化：輕訊號近即時更新、重計算批次做，使用者不用等。</details>
+  <details class="qa"><summary>Q6（工程）：跟 News Feed 動態牆最大的差別是什麼？</summary>
+    內容來源不同：News Feed 來自<strong>你追蹤的人</strong>（社交圖，核心是推/拉扇出）；這題<strong>不靠追蹤</strong>，來自<strong>全站 + 系統猜興趣</strong>（核心是召回→排序→回饋）。</details>
+  <details class="qa"><summary>Q7（工程）：「看完」和「按讚」哪個訊號權重該更高？為什麼？</summary>
+    通常「看完 / 停留時長」更高。因為按讚要動手指、很多人懶得按（漏訊號）；而「有沒有看完」是<strong>更誠實、更普遍</strong>的喜好證據。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>For You = 一個會察言觀色、越來越懂你的 DJ。</strong>不用你追蹤誰，它從你的反應偷學你的口味。</p>
+    <p><strong>4 個關卡：</strong>① <strong>召回</strong>（從海量粗篩一小撮）→ ② <strong>排序</strong>（打分細挑最好的）→ ③ <strong>去重 + 探索</strong>（別重複、偷渡新口味）→ ④ <strong>回饋</strong>（看反應、學起來、下次更準）。</p>
+    <p><strong>3 個怕：</strong>怕慢/算不動（兩段式 + 預載）、怕越推越窄（探索）、怕冷啟動（新人新片先靠熱門 + 探索）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>50 億影片不可能逐一打分 → 召回粗篩、排序細挑；行為量太大 → 走事件流非同步更新口味；靠「回饋迴路」越看越準；影片本身交給 CDN，推薦只管「推哪一支」。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>55 TikTok 影片推薦流 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

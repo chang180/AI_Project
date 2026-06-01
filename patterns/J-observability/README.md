@@ -15,3 +15,5 @@
 | # | 題目 | 該題獨特挑戰 |
 |---|---|---|
 | 27 | 指標監控（Prometheus） | 時序庫 name+labels、pull scrape、counter/gauge、rate/聚合查詢、告警 firing/resolved |
+| 44 | 分散式追蹤（Jaeger） | trace_id/span 傳播、由扁平 span 重建呼叫樹、關鍵路徑找最慢、head 取樣 |
+| 45 | 日誌系統（ELK） | 攝取管線、倒排索引全文搜尋、等級+時間範圍過濾、index rollover、保留分層 |

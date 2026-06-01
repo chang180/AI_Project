@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 798 468" width="798" height="468" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+</defs>
+<rect x="16" y="0" width="798" height="468" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">CDN — 高階架構（請求/就近=綠 回源=藍 基建=黃）</tspan>
+</text>
+<rect x="40" y="200" width="150" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="115" y="220" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client (使用者)</tspan>
+</text>
+<rect x="40" y="70" width="150" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="115" y="82" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">DNS / anycast</tspan>
+<tspan x="115" dy="18.75">(導向最近邊緣)</tspan>
+</text>
+<rect x="300" y="110" width="170" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="385" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="385" dy="0">邊緣 PoP (tw)</tspan>
+<tspan x="385" dy="18.75">快取 + TTL</tspan>
+</text>
+<rect x="300" y="200" width="170" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="385" y="212" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="385" dy="0">邊緣 PoP (jp)</tspan>
+<tspan x="385" dy="18.75">快取 + TTL</tspan>
+</text>
+<rect x="300" y="290" width="170" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="385" y="302" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="385" dy="0">邊緣 PoP (us)</tspan>
+<tspan x="385" dy="18.75">快取 + TTL</tspan>
+</text>
+<rect x="620" y="200" width="170" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="705" y="212" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="705" dy="0">Origin 來源</tspan>
+<tspan x="705" dy="18.75">(物件儲存/應用)</tspan>
+</text>
+<rect x="620" y="380" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="705" y="392" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="705" dy="0">Purge 控制器</tspan>
+<tspan x="705" dy="18.75">(失效所有邊緣)</tspan>
+</text>
+<polyline points="115,200 115,140" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="2 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="190,232 300,174" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="190,232 300,232" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="470,232 620,232" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="546" y="206" font-size="13" fill="#1971c2" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="546" dy="0">(miss) 回源</tspan>
+</text>
+<polyline points="700,380 470,350 420,204" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="545" y="410" font-size="13" fill="#e8590c" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="545" dy="0">purge → 清各邊緣</tspan>
+</text>
+</svg>

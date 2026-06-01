@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>56 電商下單系統 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅲 一致性/交易</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>56 電商下單系統 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">C 一致性/交易</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「存訂單」？</a></li>
+      <li><a href="#steps">把下單拆成 3 道關卡（一條流水線）</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在網路商店把一支耳機加入購物車，按下「<strong>結帳</strong>」。幾秒後畫面顯示「訂單成立、已付款、準備出貨」。
+  這背後其實發生了一連串事：<strong>先把這支耳機從庫存「留」起來 → 從你的帳戶「扣錢」→ 通知倉庫「出貨」</strong>。這就是<strong>電商下單系統</strong>。</p>
+  <p>聽起來很順對吧？難就難在：這三件事是<strong>三個不同的部門</strong>在做（庫存部、收銀台、倉庫），<strong>中間任何一步都可能突然出包</strong>——
+  錢扣了但倉庫說沒貨、或庫存留了但信用卡被拒。系統必須保證：<strong>要嘛三件事全部成功，要嘛全部當作沒發生（該退的退、該放回的放回）</strong>，
+  絕不能「錢扣了貨沒出」這種爛攤子。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    電商下單 = <strong>一條「留貨 → 收錢 → 出貨」的流水線</strong>：每一站都可能卡住，
+    一卡住就得<strong>把前面做過的事一步步倒回去</strong>（退錢、把貨放回架上），讓帳面回到乾淨狀態。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「存訂單」？</h2>
+  <p>很多人第一次看會想：「不就是把訂單存進資料庫嗎？」——這想法漏掉了一個會把系統搞爛的真正難關：<strong>這筆操作橫跨好幾個部門，而它們各管各的帳本</strong>。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：訂婚宴的連環預訂</span>
+    你要辦婚宴，得同時搞定三件事：<strong>訂餐廳、訂樂團、訂禮車</strong>——三家不同的店。
+    你先付了餐廳訂金（成功），再去訂樂團（成功），最後訂禮車時對方說「那天滿了」（失敗）。
+    這時你不能假裝沒事——你得<strong>回頭把樂團退掉、把餐廳訂金要回來</strong>，否則白白損失。
+  </div>
+  <p>下單就是這個連環預訂：<strong>留貨、收錢、出貨</strong>三家店，<strong>沒有一個「萬能總管」能一次幫你三家一起訂、一起取消</strong>。
+  （在電腦世界，這個「萬能總管」叫<strong>跨服務交易（2PC）</strong>，但它又慢又脆弱，大公司幾乎不用。）</p>
+  <p>所以真正的解法是：<strong>一步一步做，每做一步就記住「萬一後面失敗，這步該怎麼倒回去」</strong>。
+  這套「做不成就反著把做過的倒回去」的招數，工程上叫 <strong>Saga（補償交易）</strong>——這就是這題的靈魂。</p>
+  <p class="pause">💭 停一下：為什麼不乾脆「全部成功才一起存」就好？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為「留貨、收錢、出貨」是<strong>三個獨立系統各自的動作</strong>，沒辦法把它們塞進同一個「一起成功或一起失敗」的盒子裡（那需要昂貴又脆弱的跨服務交易）。
+    現實做法是<strong>一步步做、每步都留好「反悔藥」（補償動作）</strong>：後面卡住了，就把前面吃過的步驟一顆顆吐回去。這就是 Saga。
+  </details>
+
+  <h2 id="steps">3. 把下單拆成 3 道關卡（一條流水線）</h2>
+  <p>整件事就是一條流水線，闖 3 關。每一關都有一個「<strong>反悔藥</strong>」配對著（萬一後面失敗，吃這顆把它倒回去）：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>留貨：先把商品從架上「保留」起來</h3>
+    <p>下單第一件事，是去庫存部說「<strong>幫我留 1 支耳機</strong>」。庫存要<strong>當場原子地</strong>確認「還有貨才留」——
+    不能兩個人同時看到「還剩 1 支」就都留走（那就<strong>超賣</strong>了，賣出比實際多）。</p>
+    <div class="analogy">
+      <span class="label">🎬 比喻：電影院選位</span>
+      你點了某個座位，系統<strong>馬上把它變灰</strong>，別人就點不到了。不能「兩個人同時點到同一個位子」。
+    </div>
+    <p>👉 <strong>反悔藥</strong>：如果後面收錢失敗，就把這支耳機<strong>放回架上</strong>（釋放庫存）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>收錢：從你的帳戶扣款</h3>
+    <p>留好貨，去收銀台<strong>扣錢</strong>。扣成功，訂單狀態就從「剛建立」前進到「<strong>已付款</strong>」。</p>
+    <div class="analogy">
+      <span class="label">💳 比喻：刷卡</span>
+      刷卡成功，店員才會把商品交給你。刷卡失敗（餘額不足、卡片被拒），這筆交易就得喊停。
+    </div>
+    <p>👉 <strong>反悔藥</strong>：如果後面出貨失敗，就把這筆錢<strong>退回去</strong>（退款）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>出貨：通知倉庫把貨寄出</h3>
+    <p>錢收了，通知倉庫<strong>確認出貨</strong>，訂單前進到「<strong>已出貨</strong>」，最後送達變「<strong>完成</strong>」。</p>
+    <div class="analogy">
+      <span class="label">📦 比喻：倉庫貼單寄出</span>
+      倉庫貼好寄件單、交給物流，這單就算搞定了。
+    </div>
+    <p>👉 萬一這關失敗（倉庫系統當機、地址有誤），就要<strong>倒著吃前兩顆反悔藥</strong>：先<strong>退款</strong>、再<strong>把貨放回架上</strong>，最後把訂單標成「<strong>取消</strong>」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① <strong>留貨</strong>（電影院選位，原子保留）→ ② <strong>收錢</strong>（刷卡 → 已付款）→ ③ <strong>出貨</strong>（→ 已出貨 → 完成）。
+    <strong>任何一關失敗，就「倒著」把做過的關一顆顆退回去</strong>（退款、放回貨）→ 訂單變「取消」。乾淨收場，這就是 Saga。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」：</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「錢扣了，貨沒出」</span>
+    這是電商<strong>最致命</strong>的怕：收了錢卻沒給貨，客訴爆炸、信譽崩盤。
+    所以才需要 <strong>Saga 反悔藥（補償）</strong>：出貨失敗就<strong>自動退款 + 放回貨</strong>，絕不留「錢貨不對等」的爛帳。<em>要嘛全成，要嘛乾淨倒回。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「按一下變成下兩單 / 扣兩次錢」</span>
+    你網路卡頓多點了一次結帳、或前端自動重試——絕不能因此建兩張單、扣兩次款。
+    所以下單要帶一把<strong>「下單身分證」（冪等鍵）</strong>：同一把身分證重送，系統<strong>直接回原來那張單</strong>，不重做。<em>重送也只算一次。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「超賣」</span>
+    只剩 1 支耳機卻賣給了 5 個人。所以「留貨」必須<strong>原子</strong>：當場確認「真的還有才留」，
+    像電影院選位一點就變灰，別人搶不走。<em>賣出去的，絕不超過架上有的。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀：</p>
+  <ul>
+    <li>🛒 <strong>你下單</strong>（帶著「下單身分證」防重複）→</li>
+    <li>📋 <strong>訂單服務</strong>先建一張單（狀態：剛建立），交給 <strong>Saga 總管</strong> →</li>
+    <li>📦 總管依序叫三個部門做事：<strong>① 庫存部留貨 → ② 收銀台扣錢 → ③ 倉庫出貨</strong>（藍色正向箭頭）→</li>
+    <li>✅ 三步都成功 → 訂單「已出貨」，皆大歡喜；</li>
+    <li>💥 中間任何一步失敗 → 總管<strong>倒著吃反悔藥</strong>（紅色虛線）：退款、放回貨 → 訂單「<strong>取消</strong>」，帳面乾淨。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>Saga（補償交易）</td><td>一步步做、每步留好「反悔藥」；後面失敗就倒著把做過的退回去</td></tr>
+    <tr><td>補償（compensate）</td><td>那顆反悔藥：退款、把貨放回架上（不是真的時光倒流，是做一個相反的動作）</td></tr>
+    <tr><td>編排器（orchestrator）</td><td>Saga 總管：指揮三個部門照順序做、出事就下令倒回去</td></tr>
+    <tr><td>狀態機</td><td>訂單只能照固定路線走：剛建立→已付款→已出貨→完成（不能跳級或倒退）</td></tr>
+    <tr><td>合法轉移</td><td>「哪個狀態能變成哪個狀態」的白名單；不在名單的（如已完成→未付款）一律拒絕</td></tr>
+    <tr><td>原子預扣</td><td>留貨時「確認有貨＋扣下來」一口氣完成，中間沒人能插隊（像點電影座位）</td></tr>
+    <tr><td>超賣</td><td>賣出去的比架上實際有的還多（最該避免）</td></tr>
+    <tr><td>冪等 / 冪等鍵</td><td>同一把「下單身分證」重送只算一次，不會下成兩單、扣兩次</td></tr>
+    <tr><td>最終一致</td><td>中間可能短暫對不上，但系統保證「最後一定收斂到對的狀態」</td></tr>
+    <tr><td>2PC（兩階段提交）</td><td>「萬能總管一次搞定三家」的強一致做法——但又慢又脆，跨部門幾乎不用</td></tr>
+    <tr><td>訊息佇列</td><td>部門之間傳話的「待辦清單」，非同步、不互相卡住</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    先估「大概多少單、多少查詢」，才知道要準備多大的料。
+  </div>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少單</td><td>~100 萬單/日 ≈ 每秒 12 單</td><td>平常不多，但促銷會暴衝幾十倍</td></tr>
+    <tr><td>讀 vs 寫</td><td>查訂單/查物流遠多於下單</td><td>查單走快取、讀副本，別都打主資料庫</td></tr>
+    <tr><td>一筆下單牽動幾個部門</td><td>留貨+收錢+出貨 ≈ 3~5 個動作</td><td>每多一步，失敗時就多一顆反悔藥要準備</td></tr>
+    <tr><td>訂單要存多久</td><td>幾 TB（存好幾年）</td><td>單一資料庫裝不下 → 要拆成很多份（分庫分表）</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：這題拼的是「正確」，不是「快」</span>
+    下單量其實不算嚇人。真正難的是<strong>「橫跨好幾個部門的一筆操作，怎麼保證要嘛全成、要嘛乾淨倒回」</strong>——
+    這就是為什麼 Saga（反悔藥）和狀態機（固定路線）才是核心，而不是拼每秒幾萬筆。
+  </div>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統講好的「點餐單格式」：你給我哪些欄位、我回你什麼。
+  </div>
+  <pre><code>① 下單（最重要，帶「下單身分證」防重複）
+   POST /api/v1/orders
+   給我：{ 哪個使用者, 買哪個商品幾個 }＋一個 Idempotency-Key（下單身分證）
+   我回：201「訂單成立，狀態：已出貨」 或 「失敗已取消，原因：刷卡被拒」</code></pre>
+  <p class="codecaption">同一張「下單身分證」重送 → 直接回<strong>原來那張單</strong>，不會下成兩單（這就是冪等）。</p>
+  <pre><code>② 查訂單（看現在到哪一步了）
+   GET /api/v1/orders/{訂單編號}
+   我回：{ 狀態, 走過哪些步驟（saga 軌跡） }</code></pre>
+  <pre><code>③ 推進狀態（出貨系統用，狀態機把關）
+   POST /api/v1/orders/{訂單編號}/transition  給我：{ 想轉到的狀態 }
+   → 合法就轉；非法（如「已完成」想變回「未付款」）直接拒絕</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：幾本筆記本</span>
+    系統把資料記在「筆記本」（資料表）裡：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📋</span>訂單簿（每張單現在到哪一步）</h3>
+    <p>每張單一列：<code>訂單編號、誰下的、金額、<strong>目前狀態（剛建立/已付款/已出貨/完成/取消）</strong></code>。那個「狀態」就是狀態機的記憶。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📦</span>庫存簿（每個商品還剩幾個）</h3>
+    <p><code>商品 → 剩餘數量</code>。留貨時「確認有貨＋扣下來」要一口氣原子完成，才不會超賣。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🪪</span>身分證簿（防重複下單）</h3>
+    <p>記「<code>下單身分證 → 對應的訂單編號</code>」。同一張身分證再來 → 直接回原訂單，不重做。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>Saga 流水帳（做到哪一步了）</h3>
+    <p>記「這張單<strong>做過哪些步驟、哪些已補償</strong>」。萬一總管做到一半當機，重啟後看這本帳就知道「該繼續往前、還是該倒回去」。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>爆款商品：大家搶留同一個庫存</td><td>把那個熱門商品的庫存<strong>切成好幾桶</strong>分開扣（跟秒殺那題同招）</td></tr>
+    <tr><td>訂單太多，一個資料庫裝不下</td><td><strong>分庫分表</strong>（按使用者或時間切開）；查單走快取/副本</td></tr>
+    <tr><td>三個部門同步互打，一個慢全卡住</td><td>改用<strong>訊息佇列</strong>非同步傳話，互相不卡；失敗了再補償</td></tr>
+    <tr><td>Saga 總管做到一半當機</td><td>把「做到哪一步」<strong>寫進流水帳</strong>，重啟後接著做或倒回去</td></tr>
+    <tr><td>連「反悔藥」都失敗（退款也掛了）</td><td>一直重試；真的不行就<strong>丟給人工處理</strong>並告警</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <div class="fear"><span class="label">⚖️ 一步步補償(Saga) vs 萬能總管一次搞定(2PC)</span>
+    Saga 不卡住、好擴展，但中間會有「短暫對不上」的空檔，而且要自己寫每顆反悔藥；
+    2PC 一次到位最乾淨，但又慢又脆、把所有部門鎖住等——跨部門幾乎都選 Saga。</div>
+  <div class="fear"><span class="label">⚖️ 有總管(編排) vs 各自聽消息行動(編舞)</span>
+    有個中央總管指揮，<strong>好追蹤、好除錯</strong>（面試講這個）；各部門自己聽消息反應雖然鬆耦合，但出事很難查「現在到底卡在哪」。</div>
+  <div class="fear"><span class="label">⚖️ 留貨能留多久（預扣 TTL）？</span>
+    留太久 → 一堆沒付款的人占住庫存，別人買不到；留太短 → 慢慢付款的人剛付完，貨就被放回去了，白下單。要抓一個剛好的時間。</div>
+  <details class="qa"><summary>💭 追問：付款成功了，但通知倉庫出貨時失敗，系統怎麼辦？</summary>
+    倒著吃反悔藥：先<strong>退款</strong>（把剛收的錢退回）、再<strong>釋放庫存</strong>（把留的貨放回架上），最後把訂單標成<strong>取消</strong>。錢和貨都回到下單前，乾淨收場。</details>
+  <details class="qa"><summary>💭 追問：為什麼訂單要用「狀態機」管，不直接改個欄位就好？</summary>
+    因為訂單只能照固定路線走（剛建立→已付款→已出貨→完成）。用狀態機把「哪個狀態能變成哪個」寫成白名單，就能<strong>擋掉所有亂跳</strong>（如「已完成」又變回「未付款」），避免資料錯亂。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「狀態流轉 + Saga 補償」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8056 -t public
+# 然後瀏覽器打開 http://localhost:8056</code></pre>
+  <ol>
+    <li><strong>正常下單</strong>：按「下單」，看訂單一路走 <strong>剛建立 → 已付款 → 已出貨</strong>，庫存和錢包都減少了。</li>
+    <li><strong>注入失敗</strong>：選「扣款失敗」或「確認失敗」下單，看系統<strong>自動倒回</strong>（退款、放回貨）→ 訂單變<strong>取消</strong>，庫存和錢包<strong>原樣回復</strong>。</li>
+    <li><strong>冪等重送</strong>：用<strong>相同的 idem_key</strong> 再下一次，看它回<strong>原來那張單</strong>，沒有重複扣。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>先「查全局狀態」記下庫存和錢包數字 → 注入一次失敗 → 再查一次，會發現<strong>數字完全沒變</strong>——這就是 Saga 補償的威力：失敗了，帳面乾乾淨淨像沒發生過。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看那幾關是<strong>哪幾段程式</strong>做的。好消息：核心只有<strong>兩個小檔</strong>。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>OrderStateMachine</strong>（管訂單「能走哪條路線」的交通號誌）＋ <strong>OrderSaga</strong>（那位指揮三步、出事就倒回去的總管）。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>交通號誌：訂單只能照路線走（OrderStateMachine）</h3>
+    <p>先把「哪個狀態能變成哪個」寫成一張白名單，不在名單的一律拒絕：</p>
+<pre><code>合法路線白名單 = {
+    剛建立 → [已付款, 取消],
+    已付款 → [已出貨, 取消],
+    已出貨 → [完成,   取消],
+    完成   → [],     // 終點，不能再動
+    取消   → [],     // 終點，不能再動
+}
+function 能不能轉(從, 到) {
+    return 到 在 白名單[從] 裡面;   // ← 一句話判斷合不合法
+}</code></pre>
+    <p class="codecaption">就這張表，把「已完成又變回未付款」這種亂跳<strong>全部擋掉</strong>。所有狀態變更都得先問它一句「能不能轉」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>留貨：確認有貨才扣（防超賣）（OrderSaga）</h3>
+    <p>留貨這步要<strong>原子</strong>地「先確認、再扣」，中間不能被插隊：</p>
+<pre><code>剩貨 = 庫存[商品]
+if (剩貨 < 想買的數量)
+    丟出失敗("沒貨了");        // ← 沒貨就停，觸發後面倒回
+庫存[商品] = 剩貨 - 想買的數量  // 真的有貨才扣（預扣）</code></pre>
+    <p class="codecaption">demo 用 <code>flock</code>（檔案鎖）把這段「讀-改-寫」框起來，保證同時只有一個人能扣 → <strong>絕不超賣</strong>。真實系統換成資料庫的 <code>UPDATE ... WHERE 剩貨>=數量</code> 或 Redis，<strong>道理一模一樣</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>總管編排：三步順著做，出事倒著退（OrderSaga）</h3>
+    <p>這是<strong>全題的心臟</strong>。總管照順序做三步，<strong>每做成一步就記在「已完成堆疊」</strong>；任何一步失敗，就<strong>倒著</strong>把堆疊裡的步驟一一吃反悔藥：</p>
+<pre><code>已完成 = [];
+try {
+    預扣庫存();        已完成.push("A");   // 第 1 步成功
+    扣款();  訂單轉「已付款」;  已完成.push("B");   // 第 2 步成功
+    確認出貨(); 訂單轉「已出貨」; 已完成.push("C");  // 第 3 步成功
+    // 三步全成 → 完工！
+} catch (某步失敗) {
+    for (步驟 in 反過來(已完成)) {        // ← 後進先出，倒著退
+        if (步驟=="B") 退款();           // 反悔藥：把錢退回
+        if (步驟=="A") 釋放庫存();        // 反悔藥：把貨放回架上
+    }
+    訂單轉「取消」;                       // 收斂到乾淨的終點
+}</code></pre>
+    <p class="codecaption">前面講的「<strong>倒著吃反悔藥</strong>」整套就是這段 <code>try / catch</code>。注意 <code>反過來(已完成)</code> 那行——退的順序要和做的順序<strong>相反</strong>（先退款再放貨），這就是「後進先出補償」。</p>
+    <p class="pause">💭 停一下：為什麼補償要「倒著」做（先退款，再放回貨），不能隨便順序？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為後面的步驟可能<strong>依賴</strong>前面的步驟。倒著退（後做的先退）能保證每顆反悔藥執行時，它依賴的東西都還在、狀態才一致。這跟脫衣服要反著穿回去的順序是同個道理。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>冪等：同一張「下單身分證」只算一次（OrderSaga）</h3>
+    <p>下單的第一道關卡，先檢查「這張身分證是不是來過了」：</p>
+<pre><code>if (這個 idem_key 之前建過單)
+    return 直接回那張原訂單;    // ← 冪等：不重做、不重複扣
+
+... 正常跑完 saga 後 ...
+記下(idem_key → 這張新訂單);     // 下次同 key 重送就命中上面</code></pre>
+    <p class="codecaption">就算你手滑連按、或網路重試送了兩三次，系統一看「這張身分證來過」就<strong>直接回原訂單</strong>，絕不會下成兩單、扣兩次錢。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>訂單照路線走（不亂跳）</td><td>OrderStateMachine</td><td>合法路線白名單 + 能不能轉()</td></tr>
+      <tr><td>① 留貨（防超賣）</td><td>OrderSaga</td><td>「確認有貨才扣」那段</td></tr>
+      <tr><td>②③ 三步編排 + 倒著補償</td><td>OrderSaga</td><td>try / catch 的 push 與 反過來()</td></tr>
+      <tr><td>防重複下單</td><td>OrderSaga</td><td>開頭的 idem_key 檢查</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + flock」換成「分庫分表 + 庫存服務 + 支付服務 + 訊息佇列」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <details class="qa"><summary>Q1：用「婚宴連環預訂」解釋，這題的核心難關是什麼？</summary>
+    一筆下單橫跨三個獨立部門（留貨/收錢/出貨），沒有萬能總管能一次幫你全訂或全退。所以要一步步做、每步留好反悔藥，後面失敗就倒著把做過的退回去——這就是 Saga（補償交易）。</details>
+  <details class="qa"><summary>Q2：付款成功但出貨失敗，系統做哪些事？順序為何？</summary>
+    倒著吃反悔藥：先退款（補償第 2 步），再釋放庫存（補償第 1 步），最後把訂單標成取消。順序要和執行順序相反（後進先出），錢和貨都回到下單前。</details>
+  <details class="qa"><summary>Q3：為什麼訂單要用「狀態機」？防的是什麼？</summary>
+    防止狀態亂跳。把「哪個狀態能變成哪個」寫成白名單，擋掉跳級（剛建立直接出貨）和倒退（已完成又變未付款），讓非法狀態根本無法出現。</details>
+  <details class="qa"><summary>Q4：「冪等」在這題防的是什麼？怎麼做？</summary>
+    防「手滑連按 / 網路重試 → 下成兩單、扣兩次」。下單帶一把 idem_key（下單身分證），系統記下 key→訂單；同 key 重送直接回原訂單，不重做。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼跨服務選 Saga 而不是 2PC（萬能總管）？</summary>
+    2PC 要把所有部門鎖住一起 commit，又慢又脆、可用性差、協調者是單點。Saga 每步本地提交、失敗用補償回滾，不鎖全域、高可用，代價是有「短暫不一致窗口」和要自己寫補償——電商普遍接受最終一致，所以選 Saga。</details>
+  <details class="qa"><summary>Q6（工程）：留貨為什麼要「原子」？不原子會怎樣？</summary>
+    不原子（先讀剩貨、再判斷、再扣）時，兩個人可能同時讀到「還剩 1」都判斷可賣 → 超賣。要用原子的「確認＋扣」一步完成（DB 的 UPDATE...WHERE stock>=qty 或 Redis），保證賣出不超過實際庫存。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>電商下單 = 一條「留貨 → 收錢 → 出貨」的流水線，每步都備好反悔藥。</strong></p>
+    <p><strong>3 道關卡：</strong>① <strong>留貨</strong>（原子，像選電影座位，防超賣）→ ② <strong>收錢</strong>（→已付款）→ ③ <strong>出貨</strong>（→已出貨→完成）。任一關失敗就<strong>倒著吃反悔藥</strong>（退款、放回貨）→ 訂單取消。</p>
+    <p><strong>3 個怕：</strong>怕「錢扣了貨沒出」（Saga 補償最致命）、怕「按一下變兩單/扣兩次」（冪等鍵）、怕「超賣」（原子預扣）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>跨服務沒有便宜的「一起成功一起失敗」，所以用 <strong>Saga</strong>（一步步做 + 後進先出補償）達成<strong>最終一致</strong>；用<strong>狀態機</strong>把訂單鎖在固定路線；用<strong>冪等鍵</strong>擋重複；用<strong>原子預扣</strong>防超賣。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>56 電商下單系統 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 928 414" width="928" height="414" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah3d1c5f" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#37b24d"/></marker>
+</defs>
+<rect x="16" y="0" width="928" height="414" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">資料庫分片 — 高階架構（應用→中介層→多 MySQL 分片）</tspan>
+</text>
+<rect x="40" y="110" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="130" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">應用程式</tspan>
+</text>
+<rect x="280" y="96" width="200" height="92" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="380" y="108" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="380" dy="0">分片中介層</tspan>
+<tspan x="380" dy="18.75">(Vitess / ProxySQL)</tspan>
+<tspan x="380" dy="18.75">shard=hash(key)%N</tspan>
+<tspan x="380" dy="18.75">scatter-gather</tspan>
+</text>
+<rect x="280" y="250" width="200" height="56" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="380" y="262" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="380" dy="0">全域發號器</tspan>
+<tspan x="380" dy="17.5">(號段 / snowflake)</tspan>
+</text>
+<rect x="580" y="70" width="180" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="670" y="82" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="670" dy="0">MySQL 分片 0 (主)</tspan>
+</text>
+<rect x="790" y="70" width="130" height="56" rx="8" fill="#d3f9d8" stroke="#37b24d" stroke-width="2"/>
+<text x="855" y="82" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="855" dy="0">副本 (讀)</tspan>
+</text>
+<rect x="580" y="160" width="180" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="670" y="172" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="670" dy="0">MySQL 分片 1 (主)</tspan>
+</text>
+<rect x="790" y="160" width="130" height="56" rx="8" fill="#d3f9d8" stroke="#37b24d" stroke-width="2"/>
+<text x="855" y="172" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="855" dy="0">副本 (讀)</tspan>
+</text>
+<rect x="580" y="250" width="180" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="670" y="262" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="670" dy="0">分片 2 (re-shard 新增)</tspan>
+</text>
+<polyline points="192,142 276,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="380,190 380,248" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="482,132 576,98" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="482,150 576,188" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="482,168 576,276" fill="none" stroke="#2f9e44" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="762,98 788,98" fill="none" stroke="#37b24d" stroke-width="2" marker-end="url(#ah3d1c5f)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="762,188 788,188" fill="none" stroke="#37b24d" stroke-width="2" marker-end="url(#ah3d1c5f)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="40" y="340" font-size="13" fill="#495057" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">藍=應用　黃=分片中介層/發號器(基建)　綠=MySQL 分片(主)＋讀副本　虛線=re-shard 新增的分片(資料需搬遷)</tspan>
+<tspan x="40" dy="16.25">帶 shard_key→單片直達；不帶→scatter-gather 打全部分片再合併；跨片 JOIN/交易/ORDER BY LIMIT 皆昂貴</tspan>
+</text>
+</svg>

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>54 OLAP / 列式儲存 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>54 OLAP / 列式儲存：分析查詢為何只掃幾欄就夠</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design an OLAP / Columnar Store</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes.html">🛠️ 完整版（你在這）</a>
+    <a href="notes-beginner.html">🌱 初學版（看故事就懂）</a>
+  </div>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把「列式 vs 行式」「只掃需要欄」講清楚，邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把同一欄的值連續存在一起，讓分析查詢只掃用到的幾欄、其他欄一個 byte 都不讀</strong>」。
+    OLTP（交易）一次處理一筆完整的列；<em>OLAP（分析）一次掃大量列、但只取幾個欄做聚合</em>——儲存方向相反，這就是列式儲存存在的理由。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（OLAP vs OLTP）</a></li>
+      <li><a href="#estimate">規模估算（掃描量）</a></li>
+      <li><a href="#api">查詢介面</a></li>
+      <li><a href="#data">資料模型（列式 vs 行式）</a></li>
+      <li><a href="#arch">高階架構（資料倉儲管線）</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>先分清楚兩種工作負載</h3>
+  <table>
+    <tr><th></th><th>OLTP（線上交易）</th><th>OLAP（線上分析）</th></tr>
+    <tr><td>典型查詢</td><td>「取出 id=42 這筆訂單的全部欄位」「更新這筆」</td><td>「過去 90 天各地區的營收總和」</td></tr>
+    <tr><td>觸碰的列</td><td>少數幾列</td><td>掃大量列（百萬～數十億）</td></tr>
+    <tr><td>觸碰的欄</td><td>整列所有欄</td><td>只用其中<strong>幾個</strong>欄</td></tr>
+    <tr><td>讀寫</td><td>大量逐筆讀寫、要強一致</td><td>大量讀、批次寫、可最終一致</td></tr>
+    <tr><td>最佳儲存</td><td>行式（row-store）</td><td><strong>列式（column-store）</strong></td></tr>
+  </table>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>支援分析型聚合查詢：<code>SELECT SUM/AVG/COUNT/MIN/MAX(欄) ... GROUP BY 欄</code>。</li>
+    <li>掃大量歷史列，但每個查詢通常只用到少數欄。</li>
+    <li>批次入庫（ETL / CDC 把 OLTP 的列灌進來，轉成列式）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>大掃描吞吐高</strong>：聚合要在秒級～分鐘級掃完數十億列。</li>
+    <li><strong>I/O 最小化</strong>：只讀用到的欄；用壓縮再砍掉一輪 I/O。</li>
+    <li><strong>可水平擴展</strong>：MPP（大規模平行處理），多節點分頭掃。</li>
+    <li>不要求逐筆即時更新（這交給 OLTP）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「這是<strong>分析型還是交易型</strong>負載？」決定走列式還是行式。一句話：<em>逐筆讀寫整列 → 行式；掃海量列只取幾欄聚合 → 列式。</em>
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>事實表列數</td><td>每日 5 億筆事件，存 1 年</td><td>~1800 億列</td></tr>
+    <tr><td>欄數</td><td>寬表 ~50 欄</td><td>單一聚合查詢常只用 2～4 欄</td></tr>
+    <tr><td>單欄原始大小</td><td>1800 億 × 8 bytes</td><td>~1.4 TB / 欄（未壓縮）</td></tr>
+    <tr><td>整表大小</td><td>50 欄 × 1.4 TB</td><td>~70 TB（行式得全讀）</td></tr>
+    <tr><td>列式只掃 2 欄</td><td>2 / 50</td><td>I/O 降為 <strong>~1/25</strong>，再乘壓縮可達 1/100+</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>分析查詢的成本主要是<strong>掃描的 I/O</strong>。列式的兩大省法：① <strong>只掃用到的欄</strong>（欄裁剪）② <strong>同欄好壓</strong>（壓縮後 byte 更少）。兩者相乘，常見 10～100× 的差距。</div>
+
+  <h2 id="api">3. 查詢介面</h2>
+  <pre><code># 批次入庫（ETL / CDC）
+POST /api/load     Body: { rows: 2000 }     # 列資料 → 拆成各欄連續陣列
+
+# 分析聚合查詢
+GET /api/query?select=amount&groupby=region&agg=sum
+→ {
+    "groups": [ { "key":"TW", "value":1237761.7, "rows":500 }, ... ],
+    "scan":  { "columns_scanned":2, "total_columns":4,
+               "columnar_cells":4000, "rowstore_cells":8000,
+               "rowstore_saving_x":2.0 }      # 行式要多掃幾倍
+  }
+
+# 狀態 + 各欄壓縮統計
+GET /api/state → { row_count, schema, columns:[{encoding, ratio}], overall_ratio }
+</code></pre>
+  <p>真實系統用 SQL（ClickHouse / BigQuery）；介面本質都是「<strong>選哪幾欄 + 怎麼聚合 + 怎麼分組</strong>」，引擎據此<em>只讀需要的欄</em>。</p>
+
+  <h2 id="data">4. 資料模型（列式 vs 行式）</h2>
+  <pre><code>同一份資料（4 欄）：
+  ts        region  device   amount
+  1700000001 TW     ios      120.50
+  1700000002 JP     web      88.00
+  1700000003 TW     android  301.20
+
+行式（OLTP，每「列」連續存）：
+  [1700000001,"TW","ios",120.50][1700000002,"JP","web",88.00][...]
+  ↑ 要算 SUM(amount) 也得把 ts/region/device 一起搬進來
+
+列式（OLAP，每「欄」連續存）：
+  ts     = [1700000001, 1700000002, 1700000003, ...]   ← delta 編碼
+  region = ["TW","JP","TW", ...]                        ← 字典編碼
+  device = ["ios","web","android", ...]                 ← 字典編碼
+  amount = [120.50, 88.00, 301.20, ...]
+  ↑ SUM(amount) GROUP BY region 只讀 amount + region 兩個陣列</code></pre>
+  <div class="box"><span class="label">為何這樣存</span>
+    分析查詢的存取型態是「<strong>沿著欄縱向掃</strong>」而非「沿著列橫向取」。把同欄放一起 → 一次連續讀就拿到整欄、不夾雜無關欄；又因同欄型別一致、值分佈相近 → <strong>壓縮率極高</strong>。
+  </div>
+
+  <h2 id="arch">5. 高階架構（資料倉儲管線）</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> OLTP 來源(行式) ──ETL/CDC(行轉列)──▶ 列式儲存(每欄一連續陣列, 壓縮+分區)
+                                              │
+                            向量化查詢引擎 ◀──┘  只讀用到的欄
+                                  │            (欄裁剪 + min/max 跳塊 + MPP)
+                                  ▼
+                              BI / 報表(聚合結果)</code></pre>
+  <ol>
+    <li><strong>ETL / CDC 入庫</strong>：把交易庫的列抽出、清洗，<em>行轉列</em>寫入倉儲（批次或近即時 CDC）。</li>
+    <li><strong>列式儲存</strong>：每欄獨立檔／區塊，套欄壓縮，按時間/鍵分區並記每塊的 min/max。</li>
+    <li><strong>向量化查詢引擎</strong>：解析查詢 → 只挑需要的欄 → 用 min/max 跳過不可能命中的塊 → 對整欄批次運算 → 多節點 MPP 平行掃。</li>
+  </ol>
+  <p>代表系統：<strong>ClickHouse、BigQuery、Snowflake、Redshift、Druid、Apache Parquet/ORC</strong>。</p>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>① 只掃需要的欄（欄裁剪，column pruning）</h3>
+  <p>列式的第一性原理：欄各自連續存，所以「不在 SELECT/GROUP BY/WHERE 出現的欄」<strong>完全不必讀</strong>。寬表 50 欄、查詢用 2 欄 → I/O 立刻砍到 4%。行式做不到——它的最小讀取單位是「整列」。</p>
+  <h3>② 行式 vs 列式 I/O</h3>
+  <pre><code>掃描格子數（列 × 欄）：
+  列式：row_count × 用到的欄數          (本 demo: 2000 × 2 = 4000)
+  行式：row_count × 全部欄數            (本 demo: 2000 × 4 = 8000)
+  → 行式得多掃 (全部欄 / 用到欄) 倍；欄越多差距越大</code></pre>
+  <h3>③ 欄壓縮（同欄值相近 → 超好壓）</h3>
+  <ul>
+    <li><strong>字典編碼（Dictionary）</strong>：低基數字串（region、device）抽字典，欄改存小整數索引。例 <code>["TW","TW","JP"]→字典["TW","JP"]+[0,0,1]</code>。</li>
+    <li><strong>RLE（Run-Length）</strong>：連續重複值存成 (值, 次數)，排序後的欄效果驚人。</li>
+    <li><strong>Delta</strong>：單調遞增欄（時間戳、自增 id）只存差值，差值小、好打包。</li>
+    <li>之上再疊 <strong>LZ4 / ZSTD</strong> 通用壓縮二次壓。</li>
+  </ul>
+  <h3>④ 向量化執行（vectorized execution）</h3>
+  <p>對整欄陣列做<strong>批次</strong>運算（一次處理一批值），而非「一列一列、逐筆 if」。連續記憶體對 CPU cache 友善、可用 SIMD，吞吐遠勝逐列。</p>
+  <h3>⑤ 分區與 min/max 跳塊（zone map / data skipping）</h3>
+  <p>把欄切成塊，每塊記 <code>min/max</code>。查 <code>WHERE ts &gt; X</code> 時，min/max 不可能命中的塊<strong>整塊跳過</strong>，連讀都不讀——欄裁剪之外的第二層省 I/O。</p>
+  <h3>⑥ MPP 平行</h3>
+  <p>資料按分區散到多節點，每節點掃自己那份做局部聚合，最後合併。掃描量水平攤開 → 近線性加速。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>成因</th><th>對策</th></tr>
+    <tr><td>大掃描慢</td><td>聚合要掃數十億列</td><td>欄裁剪 + 壓縮 + min/max 跳塊 + MPP 平行</td></tr>
+    <tr><td>JOIN 昂貴</td><td>大表 JOIN 要重分佈資料</td><td>反正規化成寬表、預聚合/物化視圖、廣播小維表</td></tr>
+    <tr><td>即時性差</td><td>批次 ETL 有延遲</td><td>近即時 CDC、流式入庫（如 ClickHouse MergeTree、Druid 即時段）</td></tr>
+    <tr><td>逐筆更新貴</td><td>改一欄一值要重寫整塊</td><td>列式不做逐筆 update；用 append + 背景合併/重寫（LSM 式）</td></tr>
+    <tr><td>高基數 GROUP BY</td><td>分組鍵太多、雜湊表爆記憶體</td><td>分區聚合 + 溢寫磁碟 + 近似（HyperLogLog 估 distinct）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>列式利分析、不利逐筆操作</strong>：取一整列要把每個欄各讀一次再拼回來；逐筆更新要重寫塊。所以列式<em>不拿來當 OLTP 主庫</em>。</li>
+    <li><strong>OLTP 與 OLAP 分離</strong>：交易走行式庫（強一致、低延遲寫），分析另建列式倉儲，中間靠 ETL/CDC 同步。這是業界標準分工，也是這題最重要的一句結論。</li>
+    <li><strong>批次 ETL 延遲 vs 即時</strong>：批次簡單但資料有滯後；要近即時就上 CDC/流式，複雜度與成本上升。</li>
+    <li><strong>寬表反正規化 vs JOIN</strong>：列式偏好把資料攤成寬表避免 JOIN，代價是冗餘與寫入放大。</li>
+    <li><strong>常見追問</strong>：為什麼列式壓縮率高？（同欄型別一致、值相近）為什麼分析不該打 OLTP 庫？（大掃描拖垮交易、且行式掃整列浪費 I/O）count(distinct) 怎麼省？（HyperLogLog 近似）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重列式儲存的<strong>系統核心邏輯</strong>，可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/ColumnStore.php</code>　列式儲存：每欄一個連續陣列；入庫時把列拆成欄；查詢只抓需要的欄。</li>
+    <li><code>src/Compressor.php</code>　欄壓縮：字典（低基數字串）／RLE（連續重複）／Delta（單調時間戳），真實算出壓縮率。</li>
+    <li><code>src/QueryEngine.php</code>　向量化聚合 + 掃描量對比（列式只掃 N 欄 vs 行式被迫讀整列全部欄）。</li>
+    <li><code>public/index.php</code>　路由：載入 / 查詢 / 狀態，附測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8054 -t public
+# 瀏覽器開 http://localhost:8054 → 載入樣本 → 看 SUM ... GROUP BY 的「掃描欄數 vs 行式」對比</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用<strong>記憶體 + JSON 檔模擬</strong>列式儲存（非磁碟上的 Parquet 格式）；但「<strong>只掃用到的欄、欄壓縮率、向量化聚合、列式 vs 行式掃描量對比</strong>」皆為<strong>真實計算</strong>。真實系統會再加上磁碟列式檔、LZ4/ZSTD、min/max 跳塊、MPP——查詢邏輯一致，只是把儲存層換成記憶體陣列。
+  </div>
+
+  <footer>54 OLAP / 列式儲存 · D 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>54 OLAP / 列式儲存 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>54 OLAP / 列式儲存 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把概念拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（列式儲存到底在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的省、怎麼蓋）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼難點不是「把資料存起來」？</a></li>
+      <li><a href="#steps">把概念拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統怎麼擺資料？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像一張<strong>超大的試算表</strong>：幾十億列（每列一筆交易），幾十個欄（時間、地區、裝置、金額……）。
+  老闆問你：「<strong>過去一年，每個地區的總營收是多少？</strong>」</p>
+  <p>你只需要兩個欄：<strong>地區</strong>和<strong>金額</strong>。其他幾十欄你<strong>看都不用看</strong>。
+  問題是——如果資料是「<strong>一列一列</strong>」存的，你要拿到「金額」這一欄，就得把每一列<strong>整列搬出來</strong>，連你根本不用的時間、裝置都一起搬。幾十億列 × 幾十欄，全搬一遍，慢死。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    <strong>列式儲存</strong> = 把試算表「<strong>直著存</strong>」：同一欄的值收在一起。
+    這樣老闆只問地區和金額時，你<strong>只翻這兩欄</strong>、其他欄碰都不碰——這就是 OLAP（分析型）資料庫飛快的祕密。
+  </div>
+
+  <h2 id="why">2. 為什麼難點不是「把資料存起來」？</h2>
+  <p>存資料誰都會。難的是：<strong>同一份資料，要怎麼「擺」，分析才會快？</strong></p>
+  <div class="analogy">
+    <span class="label">📌 比喻：倉庫怎麼放貨</span>
+    一間倉庫有兩種放法。<strong>放法 A（行式）</strong>：每個「訂單」的所有東西打包成一箱（鞋＋襪＋帽放一起）。
+    要找「<strong>全部的鞋</strong>」做盤點時，你得<strong>每一箱都打開</strong>翻出鞋——其他東西全被你翻一遍，白費力。
+    <strong>放法 B（列式）</strong>：所有鞋放一櫃、所有襪放一櫃。盤點鞋？<strong>只開鞋櫃</strong>，一次拿完，其他櫃看都不看。
+  </div>
+  <p>分析查詢（像盤點）的特性就是：<strong>掃超多列，但每次只關心少數幾欄</strong>。所以「同欄放一起」（放法 B）才對。
+  反過來，如果你的工作是「<strong>把第 42 號訂單整筆叫出來、改一下</strong>」（這叫 OLTP，交易型），那「一箱一訂單」（放法 A）反而比較快——一次就拿到整筆。</p>
+  <p class="pause">💭 停一下：為什麼「算各地區營收」時，用「一列一列存」會很浪費？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為一列一列存時，最小的讀取單位是「<strong>一整列</strong>」。你只想要「金額」和「地區」兩欄，卻被迫把每一列的<strong>所有欄</strong>都搬進記憶體，再丟掉用不到的。幾十億列全搬一遍，I/O 全浪費在你根本不看的欄上。列式（直著存）就沒這問題：只讀那兩欄。
+  </details>
+
+  <h2 id="steps">3. 把概念拆成 4 個關卡</h2>
+  <p>列式儲存為什麼快又省，其實就靠 4 招，一招一招看：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>只開需要的櫃子（只掃用到的欄）</h3>
+    <p>查詢用到哪幾欄，就<strong>只讀哪幾欄</strong>，其他欄一個 byte 都不碰。這是列式最核心的省法。</p>
+    <div class="analogy">
+      <span class="label">🗄️ 比喻：只開鞋櫃</span>
+      盤點鞋只開鞋櫃。一張 50 欄的表，查詢只用 2 欄 → 你只讀了 <strong>2/50 ≈ 4%</strong> 的資料就得到答案。欄越多、用到的越少，省得越誇張。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>同櫃東西長得像，超好打包（欄壓縮）</h3>
+    <p>同一欄的值<strong>型別一樣、長得像</strong>（地區欄就那幾個國家、時間欄一直往上加）。長得像的東西<strong>特別好壓縮</strong>。</p>
+    <div class="analogy">
+      <span class="label">📦 比喻：整理行李</span>
+      把襪子全捲一起、衣服全疊一起，比「鞋襪衣混一袋」好壓縮得多。三個常用招：
+    </div>
+    <ul>
+      <li><strong>字典編碼</strong>：地區只有 TW/JP/US/SG 幾種 → 編號成 0/1/2/3，欄改存小數字。</li>
+      <li><strong>RLE（連續重複）</strong>：TW,TW,TW,JP,JP → 記成「TW×3, JP×2」。</li>
+      <li><strong>Delta（只記差距）</strong>：時間 1000,1004,1009 → 記成 1000,+4,+5，數字小好存。</li>
+    </ul>
+    <p>壓得越小 = 要從硬碟搬的 byte 越少 = 又快一輪。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>一整櫃一起算（向量化）</h3>
+    <p>因為同欄收在一起、排得整整齊齊，電腦可以<strong>一次抓一大批一起算</strong>，而不是「一列一列、慢慢加」。</p>
+    <div class="analogy">
+      <span class="label">🧮 比喻：用整箱秤，不用一顆一顆秤</span>
+      要算一整櫃蘋果多重，把整箱搬上磅秤一次秤完，比「一顆一顆拿起來秤再加」快太多。電腦對「排好的連續資料」批次運算，又快又省力。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>明顯不對的整櫃直接跳過（min/max 跳塊）</h3>
+    <p>每一櫃（資料塊）門口貼張小卡：「<strong>這櫃最小～最大值</strong>」。查「金額 &gt; 1000」時，門口寫「最大才 500」的櫃<strong>連開都不開</strong>。</p>
+    <div class="analogy">
+      <span class="label">🏷️ 比喻：看門口標籤決定要不要進去翻</span>
+      找「2024 年的資料」，門口貼「這櫃全是 2019 年」的，你掃一眼標籤就走人，不浪費時間進去翻。這叫「跳塊」。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>只開需要的櫃</strong>（只掃用到的欄）→ ② <strong>同櫃好打包</strong>（欄壓縮）→ ③ <strong>整櫃一起算</strong>（向量化）→ ④ <strong>明顯不對的整櫃跳過</strong>（min/max 跳塊）。就靠這四招，分析快上 10～100 倍。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <div class="fear">
+    <span class="label">😱 怕「用錯地方」</span>
+    列式擅長「掃海量列、只取幾欄聚合」（分析）。但你若拿它做「<strong>取出第 42 號訂單整筆</strong>」或「<strong>改一筆</strong>」（交易），反而慢——要把每個欄各讀一次拼回整列，改一格還得重寫一整塊。
+    所以鐵律：<em>交易用行式庫、分析用列式庫，兩邊分開。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「資料不夠新」</span>
+    分析庫的資料通常是從交易庫<strong>搬過來</strong>的（叫 ETL／CDC）。搬得不夠勤，報表就有滯後（昨天的資料今天才到）。
+    要更即時就得上「近即時同步」，但複雜度和成本都上升。<em>新鮮度 vs 簡單，要選。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「JOIN 拖垮」</span>
+    分析常要把好幾張大表拼起來（JOIN），這很貴。
+    對策是<strong>事先攤成一張寬表</strong>（把要用的欄都放進來，雖然有點冗餘）或<strong>預先算好結果</strong>（物化視圖），查的時候就不用臨時拼。<em>用空間換時間。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🏪 <strong>OLTP 交易庫</strong>（一列一列存）有原始資料 →</li>
+    <li>🚚 <strong>ETL / CDC</strong> 把資料搬進倉儲，順手「<strong>行轉列</strong>」（把一列一列改成一欄一欄）→</li>
+    <li>🗄️ <strong>列式儲存</strong>：每欄一櫃、套上壓縮、門口貼 min/max 標籤 →</li>
+    <li>⚙️ <strong>查詢引擎</strong>來算「各地區營收」時，<strong>只開地區欄＋金額欄</strong>，其他欄不碰、不可能命中的櫃直接跳過 →</li>
+    <li>📊 算完丟給 <strong>BI / 報表</strong> 給老闆看。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>OLAP（分析型）</td><td>「掃海量列、只取幾欄做加總平均」的工作，像盤點、做報表</td></tr>
+    <tr><td>OLTP（交易型）</td><td>「取一筆、改一筆」的日常操作，像下訂單、改地址</td></tr>
+    <tr><td>列式儲存 / 行式儲存</td><td>同一欄收一起（直著存）／同一列收一起（橫著存）</td></tr>
+    <tr><td>欄裁剪（只掃用到的欄）</td><td>查詢用哪幾欄就只讀哪幾欄，其他不碰</td></tr>
+    <tr><td>字典編碼</td><td>少數幾種值（地區）→ 編號成小數字存，省空間</td></tr>
+    <tr><td>RLE（連續重複編碼）</td><td>TW,TW,TW → 記成「TW×3」</td></tr>
+    <tr><td>Delta 編碼</td><td>只記跟上一筆的差距（時間戳超好用）</td></tr>
+    <tr><td>向量化</td><td>一次抓一大批一起算，不是一筆一筆慢慢算</td></tr>
+    <tr><td>min/max 跳塊（zone map）</td><td>每櫃門口貼最小最大值，明顯不對的整櫃跳過</td></tr>
+    <tr><td>ETL / CDC</td><td>把交易庫的資料搬進分析庫（順手行轉列）</td></tr>
+    <tr><td>MPP（大規模平行）</td><td>把資料分給很多台機器，各掃各的再合併</td></tr>
+    <tr><td>寬表 / 反正規化</td><td>事先把要用的欄都塞進一張表，避免臨時 JOIN</td></tr>
+    <tr><td>掃描量</td><td>這次查詢總共要讀多少格資料（列 × 欄），越少越快</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    先估數字，才知道列式到底省多少。重點是<strong>感受形狀</strong>，數字不用背。
+  </div>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>有多少列</td><td>每天 5 億筆，存一年 ≈ 1800 億列</td><td>掃全表行式會死，列式只掃需要的欄</td></tr>
+    <tr><td>有多少欄</td><td>寬表約 50 欄</td><td>但一個查詢通常只用 2～4 欄</td></tr>
+    <tr><td>只掃 2 / 50 欄</td><td>讀取量降到 ~4%</td><td>I/O 直接砍到 1/25</td></tr>
+    <tr><td>再乘上壓縮</td><td>同欄好壓，再砍幾倍</td><td>合起來常見快 <strong>10～100 倍</strong></td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：成本＝你「讀了多少資料」</span>
+    分析查詢慢，幾乎都慢在「<strong>從硬碟搬資料</strong>」。列式同時從兩個方向砍搬運量：<strong>只搬用到的欄</strong> ×（再）<strong>壓得更小</strong>。兩個一相乘，就是它海電行式的原因。
+  </div>
+  <p class="pause">💭 停一下：同樣一個「算各地區營收」，列式和行式差在哪一個數字？</p>
+  <details class="qa"><summary>看答案</summary>
+    差在「<strong>讀了幾個欄</strong>」。列式只讀 2 欄（地區、金額）；行式被迫讀整列全部 50 欄。同樣的列數，行式要多搬 25 倍的資料才得到一模一樣的答案。這就是 demo 裡那個「掃描量對比」要給你看的數字。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是講好的「點餐單格式」：你說要哪幾欄、怎麼加總、怎麼分組，引擎照辦。
+  </div>
+  <pre><code>① 把資料灌進來（行轉列入庫）
+   POST /api/load   給我：{ 要產生幾筆 }
+   我做：把一列一列拆成一欄一欄存好
+
+② 跑分析查詢（最重要）
+   GET /api/query?select=amount&groupby=region&agg=sum
+   白話：把「金額」加總，照「地區」分組
+   我回：各地區的營收 + 一個「掃描量對比」（這次只掃幾欄 vs 行式要掃幾欄）</code></pre>
+  <p class="codecaption">注意第 ② 張回傳裡有個 <code>scan</code> 區塊，直接告訴你「列式掃了 4000 格、行式要掃 8000 格、行式多掃 2 倍」——這就是這題的考點被做成可以親眼看到的數字。</p>
+  <pre><code>③ 看狀態 + 壓縮效果
+   GET /api/state
+   我回：目前幾列、每欄用什麼編碼壓、壓縮率多少</code></pre>
+
+  <h2 id="data">9. 系統怎麼擺資料？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：同一張表，兩種擺法</span>
+    重點不是「存什麼欄」，而是「<strong>怎麼擺</strong>」。同一份 4 欄資料：
+  </div>
+  <pre><code>行式（OLTP，一列一箱）：
+  [時間1,地區1,裝置1,金額1] [時間2,地區2,裝置2,金額2] ...
+  → 算金額也得把整箱搬出來
+
+列式（OLAP，一欄一櫃）：
+  時間櫃 = [時間1, 時間2, 時間3, ...]    ← 用 Delta 壓
+  地區櫃 = [地區1, 地區2, 地區3, ...]    ← 用字典壓
+  裝置櫃 = [裝置1, 裝置2, 裝置3, ...]
+  金額櫃 = [金額1, 金額2, 金額3, ...]
+  → 算「各地區營收」只開地區櫃 + 金額櫃</code></pre>
+  <div class="step">
+    <h3><span class="badge">🗄️</span>每欄一個「櫃子」（連續陣列）</h3>
+    <p>列式的全部祕密就在這：把同一欄的值<strong>連續收在一起</strong>。其他三招（只開需要的櫃、壓縮、跳塊）全都是建立在這個擺法上才做得到。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏷️</span>每個櫃再貼上「最小～最大」標籤</h3>
+    <p>把長長的欄切成一塊塊，每塊記 min/max。查條件時，標籤明顯不符的整塊跳過，連讀都省了。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>掃太多資料慢</td><td>只開需要的欄 + 壓縮 + min/max 跳塊 + 多機平行(MPP)</td></tr>
+    <tr><td>大表 JOIN 很貴</td><td>事先攤成寬表 / 預先算好結果（物化視圖）</td></tr>
+    <tr><td>資料不夠新</td><td>從「每天搬一次」改成「近即時同步(CDC)」</td></tr>
+    <tr><td>想逐筆改資料</td><td>列式不擅長改 → 改成「只追加、背景再合併重寫」</td></tr>
+    <tr><td>分組鍵太多吃爆記憶體</td><td>分區聚合 + 必要時用「估算」(如算大概有幾種)</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <div class="fear"><span class="label">⚖️ 列式 vs 行式</span>
+    列式利「掃海量、取幾欄」（分析）；行式利「取一筆、改一筆」（交易）。所以業界<strong>兩個都用</strong>：交易走行式，分析另開列式倉儲，中間搬資料同步。</div>
+  <div class="fear"><span class="label">⚖️ 即時 vs 簡單</span>
+    每天批次搬最簡單，但資料有滯後；要即時就上 CDC，複雜也貴。看業務多需要「最新」。</div>
+  <div class="fear"><span class="label">⚖️ 寬表(冗餘) vs JOIN</span>
+    把欄都塞進一張寬表 → 查得快但占空間、寫得重；保持分表 → 省空間但查時要 JOIN。</div>
+  <details class="qa"><summary>💭 追問：為什麼「同一欄」特別好壓縮？</summary>
+    因為同一欄的值<strong>型別一致、分佈相近</strong>（地區就那幾國、時間一直遞增）。長得像的資料壓縮率天生就高。行式一塊裡混著數字、字串、時間，雜亂難壓。</details>
+  <details class="qa"><summary>💭 追問：為什麼不該拿分析查詢直接打交易庫？</summary>
+    兩個原因：① 一個大掃描會吃光資源，拖垮正在收訂單的交易庫；② 交易庫是行式，掃整列拿一欄很浪費。所以分析要分到專門的列式倉儲去跑。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「只掃需要欄 vs 行式掃整列」的數字：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8054 -t public
+# 然後瀏覽器打開 http://localhost:8054</code></pre>
+  <ol>
+    <li>先按 <strong>載入樣本</strong>：產生幾千筆交易事件，系統把它們「行轉列」存好。</li>
+    <li>看範例查詢 <strong>SUM(amount) GROUP BY region</strong>：注意它只用了 <code>region</code>、<code>amount</code> 兩欄。</li>
+    <li>看 <strong>掃描量對比</strong>：列式掃幾格、行式要掃幾格、行式多掃幾倍——這就是考點本身。</li>
+    <li>看 <strong>壓縮效果</strong>：每欄用什麼編碼、壓縮率多少。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把資料從 2000 筆換成 20000 筆，看「掃描量對比」的倍數變不變（不變！因為它取決於「<strong>用幾欄 / 全部幾欄</strong>」，跟列數無關）。再點不同查詢，看「用到的欄」清單怎麼跟著變。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看「那四招到底是<strong>哪幾段程式</strong>做的」。核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>ColumnStore</strong>（把資料一欄一櫃擺好）→ <strong>Compressor</strong>（把每櫃打包壓縮）→ <strong>QueryEngine</strong>（只開需要的櫃、整櫃一起算，還順手算出「比行式省幾倍」）。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>一欄一櫃擺好：行轉列（ColumnStore）</h3>
+    <p>入庫時，把「一列一列」的資料<strong>拆開</strong>，同一欄的值丟進同一個櫃（陣列）。</p>
+<pre><code>function 入庫(一堆列) {
+    foreach (每一列 as 列) {
+        欄櫃["時間"][] = 列.時間      // 時間全收進時間櫃
+        欄櫃["地區"][] = 列.地區      // 地區全收進地區櫃
+        欄櫃["金額"][] = 列.金額      // 金額全收進金額櫃
+        ...
+    }
+}</code></pre>
+    <p class="codecaption">就這個迴圈，把「橫著的列」翻成「直著的欄」。之後要某一欄，直接拿那個櫃就好，完全不碰別的櫃。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>打包壓縮：同櫃長得像（Compressor）</h3>
+    <p>每個櫃挑最適合的壓法。字串櫃用字典、時間櫃用 Delta：</p>
+<pre><code>// 字典：少數幾種值 → 編號
+function 字典壓(地區櫃) {
+    字典 = 不重複的值清單           // ["TW","JP","US","SG"]
+    欄改存 = 每個值換成它在字典的編號  // [0,1,0,2,...] ← 變成小數字，超省
+}
+
+// Delta：只記跟上一筆的差距（時間戳超好用）
+function delta壓(時間櫃) {
+    存 = [第一筆, 之後每筆只記「比上一筆多多少」]  // 1000,+4,+5...
+}</code></pre>
+    <p class="codecaption">同一櫃的值型別一致、長得像，所以壓縮率很高。demo 會真的算出每欄壓縮前後的 bytes 給你看。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>只開需要的櫃 + 整櫃一起算（QueryEngine）</h3>
+    <p>這是<strong>全題的心臟</strong>。先算出「這個查詢到底用到哪幾欄」，<strong>只抓那幾櫃</strong>，然後一次跑完：</p>
+<pre><code>function 查詢(要加總的欄, 分組欄, 怎麼加) {
+    用到的欄 = [分組欄, 要加總的欄]      // ← 只有這幾欄會被讀
+    分組櫃 = 拿(分組欄)                  // 只開這兩櫃
+    數值櫃 = 拿(要加總的欄)              // 其他櫃碰都不碰
+
+    foreach (每一列 i) {                 // 向量化：在連續陣列上一路掃
+        key = 分組櫃[i]
+        累加[key] += 數值櫃[i]           // 邊掃邊加總
+    }
+    return 累加
+}</code></pre>
+    <p class="codecaption">關鍵就是 <code>用到的欄 = [分組欄, 要加總的欄]</code> 這一行——查詢只會去抓這幾櫃，其他幾十櫃<strong>一個 byte 都不讀</strong>。這就是「只掃需要欄」的程式長相。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>順手算出「比行式省幾倍」（QueryEngine）</h3>
+    <p>最後它還幫你把考點算成數字：列式只掃幾格、行式要掃幾格。</p>
+<pre><code>列式掃的格子 = 列數 × 用到的欄數        // 例：2000 × 2 = 4000
+行式掃的格子 = 列數 × 全部欄數          // 例：2000 × 4 = 8000（被迫讀整列）
+行式多掃 = 行式 / 列式                  // = 2 倍</code></pre>
+    <p class="codecaption">這段不是真的去搬資料，而是把「<strong>如果用行式會被迫多讀多少</strong>」算給你看。欄越多、查詢用到的越少，這個倍數就越大——這正是面試要你講清楚的核心。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 一欄一櫃（行轉列）</td><td>ColumnStore</td><td><code>入庫()</code> 的迴圈</td></tr>
+      <tr><td>② 同櫃好打包（壓縮）</td><td>Compressor</td><td>字典 / Delta / RLE</td></tr>
+      <tr><td>③ 只開需要的櫃 + 一起算</td><td>QueryEngine</td><td><code>用到的欄 = [...]</code></td></tr>
+      <tr><td>④ 算出比行式省幾倍</td><td>QueryEngine</td><td>掃描格子數對比</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + PHP 陣列」換成「磁碟上的 Parquet 列式檔 + LZ4 壓縮 + 多機平行掃描」，
+  但<strong>上面這幾段邏輯一字都不用改</strong>。讀懂這個小 demo，你就讀懂了 ClickHouse / BigQuery 為什麼這麼快。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <details class="qa"><summary>Q1：用「倉庫放貨」解釋列式和行式差在哪？</summary>
+    行式＝每張訂單的東西打包成一箱（橫著存），盤點某類貨要每箱都翻。列式＝同類貨放同一櫃（直著存），盤點只開那一櫃。分析（盤點）適合列式，交易（取整筆訂單）適合行式。</details>
+  <details class="qa"><summary>Q2：為什麼「算各地區營收」在列式會快很多？</summary>
+    因為只用到「地區」「金額」兩欄，列式只讀這兩櫃，其他幾十欄一個 byte 都不碰；行式被迫把整列搬出來再丟掉用不到的欄。讀取量差好幾十倍。</details>
+  <details class="qa"><summary>Q3：列式有哪三種常見壓縮，各適合什麼欄？</summary>
+    字典（低基數字串，如地區/裝置）、RLE（連續重複的欄）、Delta（單調遞增，如時間戳/自增 id）。共通點：同欄型別一致、值相近，所以好壓。</details>
+  <details class="qa"><summary>Q4：為什麼分析查詢不該直接打交易（OLTP）庫？</summary>
+    ① 大掃描會吃光資源拖垮交易；② 交易庫是行式，掃整列拿一欄很浪費。所以要分到專門的列式倉儲跑，中間用 ETL/CDC 同步資料。</details>
+  <details class="qa"><summary>Q5（工程）：min/max 跳塊（zone map）怎麼省 I/O？</summary>
+    把欄切成塊、每塊記 min/max。查條件時，範圍不可能命中的塊整塊跳過，連讀都不讀。是「只掃需要欄」之外的第二層省法。</details>
+  <details class="qa"><summary>Q6（工程）：那個「行式多掃幾倍」的倍數，取決於什麼？</summary>
+    取決於「全部欄數 ÷ 查詢用到的欄數」，跟列數無關。50 欄表用 2 欄 → 行式多掃 25 倍。欄越多、用到越少，差距越大。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼列式不適合逐筆更新？</summary>
+    因為一筆的各欄分散在不同櫃，改一筆要動好幾個櫃；而且欄是壓縮成塊存的，改一個值得把整塊解壓、改、再壓回寫入。所以列式偏好「只追加、背景合併」，逐筆更新交給行式 OLTP 庫。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>列式儲存 = 把試算表「直著存」，讓分析只開需要的櫃。</strong></p>
+    <p><strong>4 招：</strong>① <strong>只掃用到的欄</strong>（只開需要的櫃）→ ② <strong>欄壓縮</strong>（同櫃好打包：字典/RLE/Delta）→ ③ <strong>向量化</strong>（整櫃一起算）→ ④ <strong>min/max 跳塊</strong>（明顯不對的整櫃跳過）。合起來快 10～100 倍。</p>
+    <p><strong>3 個怕：</strong>怕用錯地方（交易用行式、分析用列式）、怕資料不夠新（ETL/CDC 同步延遲）、怕 JOIN 拖垮（攤寬表/預聚合）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>分析成本＝讀了多少資料；列式從「只搬用到的欄 × 壓得更小」兩個方向砍 I/O → 行轉列入庫 → 一欄一櫃 + 壓縮 + min/max 標籤 → 查詢只開需要的櫃、整櫃向量化算、多機 MPP 平行。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>54 OLAP / 列式儲存 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

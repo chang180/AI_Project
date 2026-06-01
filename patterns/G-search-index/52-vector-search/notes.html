@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>52 向量資料庫 / ANN 搜尋 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>52 向量資料庫 / ANN 搜尋：用「語意相近」找，而非關鍵字精準比對</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag time">建議 48 分鐘</span>
+    <span class="tag">Design a Vector Database / ANN Search</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把資料變成向量（嵌入），查詢時找『方向最相近』的 k 筆</strong>」的題目。
+    難點不在「算誰最像」（那是相似度的基本功），而在 <em>幾億支高維向量，怎麼不用逐筆掃就找到最近鄰——用 ANN（近似最近鄰）換速度，並接受一點召回率損失</em>。它是 <strong>⑬RAG、㊸推薦、以圖搜圖</strong> 的共同地基。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>給一個查詢（文字 / 圖片），回傳 <strong>「語意最相近」的 top-k 筆</strong>，而非關鍵字精準比對。</li>
+    <li>支援 <strong>新增 / 更新 / 刪除</strong>向量，並可附帶 metadata（標籤、來源、時間）。</li>
+    <li><strong>過濾查詢</strong>：在相似度搜尋上再加 metadata 條件（如「只在 2024 年的文件裡找最像的」）。</li>
+    <li>可選擇相似度度量：<strong>cosine（看方向）</strong> 或 <strong>內積 / 歐氏距離</strong>。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：查詢 p99 &lt; 50ms（RAG / 推薦的關鍵路徑）。</li>
+    <li><strong>高召回率</strong>：ANN 是近似，但要儘量逼近暴力的「真正最近鄰」（如 recall@10 &gt; 95%）。</li>
+    <li><strong>可擴展</strong>：向量數可到數十億、維度數百～上千 → 索引需分片、可能放不進單機記憶體。</li>
+    <li><strong>可更新</strong>：新向量要能近即時被搜到（增量索引，不必整段重建）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「<strong>向量搜尋 vs 傳統關鍵字 / B-Tree 索引差在哪？</strong>」 — 傳統索引找的是「<em>值相等 / 範圍</em>」，向量搜尋找的是「<em>語意相近</em>」（方向接近）。而且高維空間裡<strong>沒有能像 B-Tree 那樣排序的單一鍵</strong>，所以最近鄰本質上要嘛暴力掃全部、要嘛用 <strong>ANN（近似最近鄰）</strong> 用一點精度換大幅速度。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>向量數 N</td><td>10 億筆</td><td>每筆一個 metadata，索引需分片</td></tr>
+    <tr><td>維度 d</td><td>768 維（典型 BERT 類嵌入）</td><td>每筆 768 × 4B(float32) ≈ <strong>3 KB</strong></td></tr>
+    <tr><td>原始向量總量</td><td>10 億 × 3KB</td><td>≈ <strong>3 TB</strong>（純向量，未含索引/metadata）</td></tr>
+    <tr><td>暴力 kNN 成本</td><td>每查詢比 N 筆 × d 維</td><td>10 億 × 768 ≈ 7,680 億次乘加 / 查詢 → <strong>不可行</strong></td></tr>
+    <tr><td>查詢 QPS</td><td>RAG / 推薦線上查詢</td><td>數千～數萬 QPS，必須 ANN + 索引常駐記憶體</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>「<strong>3 TB 向量 × 數萬 QPS</strong>」→ 暴力掃全部完全不可行。設計圍繞兩件事：<strong>① 用 ANN 把每次查詢的比對量從 N 降到 M（M &lt;&lt; N）；② 用量化壓縮把 3 TB 壓進可負擔的記憶體</strong>。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 新增向量（寫）
+POST /api/v1/vectors
+Body: { "vec": [0.12, -0.03, ...], "meta": { "doc_id": 42, "lang": "zh", "ts": 1717200000 } }
+→ 201 { "id": 100123 }
+
+# 相似度搜尋（讀，高頻）
+POST /api/v1/search
+Body: { "vec": [...], "k": 10, "metric": "cosine",
+        "filter": { "lang": "zh" }, "nprobe": 16 }
+→ 200 {
+    "results": [
+      { "id": 100123, "score": 0.92, "meta": {...} },
+      ...
+    ]
+  }
+
+# 刪除 / 更新（重建該向量的索引歸屬）
+DELETE /api/v1/vectors/{id}
+</code></pre>
+  <div class="box"><span class="label">為何查詢也用 POST</span>查詢向量是幾百～上千維的陣列，放不進 query string，通常用 POST body 傳。<code>nprobe</code>（要探查幾個群）是<strong>讓呼叫端調速度/召回率</strong>的旋鈕。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># 向量 + metadata（核心儲存）
+vectors:
+  id  → { vec: float[d], meta: { doc_id, lang, ts, ... } }
+  #       ↑ 原始向量（供精算/精排）    ↑ 過濾與回顯用
+
+# 索引結構（二選一或混用）
+# ── IVF（倒排檔）：先把向量分成 nlist 群，每群一個 centroid
+ivf:
+  centroids: [ c0, c1, ..., c_{nlist-1} ]      # 每群的中心向量
+  invlists:  { c0 → [id, id, ...], c1 → [...] } # 倒排檔：群 → 成員 id
+# ── HNSW（分層小世界圖）：點之間連邊，分多層，上層稀疏供「快速跳近」
+hnsw:
+  nodes: { id → { neighbors_by_layer: [[...],[...]] } }
+
+# 全集統計
+stats: { N: 向量總數, d: 維度, nlist, metric }</code></pre>
+  <div class="box"><span class="label">為何要保留原始向量</span>索引（IVF 群 / HNSW 圖）只負責「快速縮小候選集」；最後仍要用<strong>原始向量精算相似度</strong>排出 top-k。若用了量化壓縮（PQ），常見做法是「用壓縮向量粗篩 → 用原始向量精排」。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>線上編輯：把 <code>diagram.excalidraw</code> 拖進 <a href="https://excalidraw.com" target="_blank">excalidraw.com</a> 即可改圖。</p>
+  <pre><code> 建索引 ─▶ 原始資料 ─▶ 嵌入模型 ─▶ 向量 ─▶ 建索引(IVF 分群/HNSW 圖) ─▶ 向量索引+DB
+                                                                          ▲
+ 查詢 ──▶ 查詢(文字/圖) ─▶ 同一嵌入模型 ─▶ 查詢向量 q ─▶ ANN 搜尋(只比近群) ─┘
+                                                       │
+                                                       └─▶ (可選)精排 ─▶ Top-K + metadata</code></pre>
+  <ol>
+    <li><strong>嵌入模型</strong>：把文字/圖片轉成同一空間的向量。<em>建索引與查詢必須用同一個模型</em>，否則向量不在同一座標系。</li>
+    <li><strong>建索引</strong>：對全部向量分群（IVF）或建圖（HNSW），讓查詢能「只比一小部分」。</li>
+    <li><strong>ANN 搜尋</strong>：q 先定位到最近的幾個群 / 從圖的入口往近處跳，<strong>只精算這一小撮候選</strong>。</li>
+    <li><strong>(可選) 精排</strong>：用原始向量或更貴的模型對候選 top-k 重新排序，提升品質。</li>
+    <li>呼應 <strong>⑬RAG</strong>（檢索增強生成：先向量檢索相關片段再餵給 LLM）與 <strong>㊸推薦</strong>（用使用者/物品向量找最相近的物品）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>相似度度量：cosine vs 內積</h3>
+  <ul>
+    <li><strong>cosine（餘弦相似度）</strong>＝看兩向量<em>方向</em>是否一致，忽略長度：<code>dot(a,b) / (|a|·|b|)</code>，範圍 [-1,1]，越大越像。</li>
+    <li><strong>內積（dot product）</strong>＝方向 + 長度都算。若向量先做 <strong>L2 正規化</strong>，內積與 cosine 等價（業界常見做法，省一次除法）。</li>
+    <li>歐氏距離（L2）則是另一種選擇；三者在正規化後常可互換，重點是<strong>建索引與查詢用同一度量</strong>。</li>
+  </ul>
+  <h3>暴力 kNN（基準）</h3>
+  <p>算 q 對<strong>全部 N 筆</strong>的相似度，排序取前 k。<strong>結果保證最正確（召回率 100%）</strong>，是評估 ANN 的「正確答案」。代價是每查詢 O(N·d)，N 上億就跑不動——所以它只當基準，不上線。</p>
+  <h3>ANN 近似：IVF（倒排檔）只搜近群</h3>
+  <ul>
+    <li><strong>建索引</strong>：用 k-means 把所有向量分成 <code>nlist</code> 群，每群算一個 <strong>centroid（中心向量）</strong>，並建「群 → 成員」的倒排檔。</li>
+    <li><strong>查詢</strong>：q 先比 <code>nlist</code> 個 centroid（很少），挑最近的 <code>nprobe</code> 個群，<strong>只在這幾個群裡的向量做精算</strong>。</li>
+    <li><strong>掃描量</strong>：從 N 降到「那幾個群的成員數 M」（≈ N·nprobe/nlist）。<code>nprobe</code> 越大，掃越多、越準、越慢——這就是旋鈕。</li>
+  </ul>
+  <h3>ANN 近似：HNSW（分層小世界圖）</h3>
+  <p>把向量當圖的節點，相近的連邊；分多層，<strong>上層稀疏（大跳）、下層密集（精修）</strong>。查詢從上層入口貪婪地往「離 q 更近」的鄰居走，逐層下沉到最底層收斂。查詢複雜度約 <strong>O(log N)</strong>，召回率通常比 IVF 高，但<strong>記憶體（存圖的邊）與建置成本較高</strong>。</p>
+  <h3>召回率 vs 速度</h3>
+  <p>ANN 可能<strong>漏掉「真正最近卻落在沒被探查的群 / 沒走到的圖區域」</strong>的向量 → 召回率 &lt; 100%。<strong>召回率</strong>＝ANN 的 top-k 命中暴力答案 top-k 的比例。調 <code>nprobe</code>（IVF）或 <code>efSearch</code>（HNSW）就是在「快」與「準」之間滑動。</p>
+  <h3>量化壓縮（讓 3 TB 裝得下）</h3>
+  <p><strong>PQ（Product Quantization，乘積量化）</strong>把向量切成幾段、每段用「碼本」近似成一個小整數 → 可壓到原本的 1/8～1/32。代價是相似度變成「近似的近似」，常用「PQ 粗篩 → 原始向量精排」補回精度。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機索引</td><td>3 TB 向量裝不進記憶體</td><td><strong>量化壓縮（PQ）</strong> + 依 id 雜湊<strong>分片(shard)</strong>，每片一台</td></tr>
+    <tr><td>查詢延遲</td><td>分片多、要查全部</td><td><strong>scatter-gather</strong>：併發查各 shard，gather 合併 top-k</td></tr>
+    <tr><td>維度太高</td><td><strong>維度詛咒</strong>：高維下「最近」與「最遠」差距變小、分群效果差</td><td>先降維（如 PCA）+ 用對的度量；提高 nprobe/efSearch 補召回</td></tr>
+    <tr><td>建索引成本</td><td>k-means 分群 / 建 HNSW 圖很貴</td><td>批次離線建、增量更新；新向量先進「暫存區」線性掃，定期 merge 進主索引</td></tr>
+    <tr><td>更新 / 刪除</td><td>IVF/HNSW 不易就地改</td><td>刪除先打 tombstone，背景重建；近即時靠小段索引 + merge</td></tr>
+  </table>
+  <div class="box"><span class="label">Faiss / HNSW 的實務</span>業界多用 <strong>Faiss（IVF+PQ）</strong> 或 <strong>HNSW</strong>（Milvus / pgvector / Elasticsearch kNN 底層）。面試講清楚「分群只搜近群 / 分層圖跳近、召回 vs 速度旋鈕、量化壓縮」後，務實答案常是「<strong>用 Faiss / Milvus / pgvector</strong>」，把心力放在嵌入品質、分片與召回調校。</div>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>召回 vs 延遲</strong>：nprobe / efSearch 調大 → 召回率高但慢；調小 → 快但可能漏掉真正最近鄰。沒有免費的午餐。</li>
+    <li><strong>精確 vs 近似</strong>：暴力 kNN 100% 正確但 O(N) 不可行；ANN 用一點召回率換數量級的速度，線上幾乎都用 ANN。</li>
+    <li><strong>記憶體 vs 磁碟</strong>：索引常駐記憶體最快，但 3 TB 太貴 → 量化壓縮進記憶體、或冷資料放磁碟/SSD 分層。</li>
+    <li><strong>IVF vs HNSW</strong>：IVF 建置快、記憶體省、好分片；HNSW 召回/延遲通常更佳但圖很吃記憶體、更新較麻煩。</li>
+    <li><strong>嵌入品質是天花板</strong>：再好的 ANN 也救不了爛嵌入。常見追問：怎麼選/微調嵌入模型、query 與 doc 是否用同一模型。</li>
+    <li><strong>自建 vs 託管</strong>：講清楚原理後，務實常選 pgvector（資料量小、想跟既有 SQL 共存）或 Milvus/Faiss（十億級）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>向量搜尋的核心邏輯</strong>（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Similarity.php</code>　<strong>cosine / 內積</strong>相似度。</li>
+    <li><code>src/VectorIndex.php</code>　<strong>暴力 kNN</strong>（掃全部 N，當正確答案基準）＋ <strong>ANN（IVF 倒排檔）</strong>：簡化 k-means 分群 → 查詢只比最近 <code>nprobe</code> 個群 → 回報掃描數與<strong>召回率</strong>。</li>
+    <li><code>src/VectorStore.php</code>　向量 + metadata 的 JSON 持久化（檔案鎖）。</li>
+    <li><code>public/index.php</code>　路由：<code>GET /</code>（加向量、kNN 查詢看「暴力掃 N 個 vs ANN 只掃 M 個」與結果差異）、<code>POST /api/vectors</code>、<code>GET /api/search?q=&amp;k=&amp;mode=brute|ann&amp;nprobe=</code>、<code>GET /api/state</code>；預設塞 9 筆 4 維「假嵌入」（分水果/交通/天氣 3 群）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8052 -t public
+# 瀏覽器開 http://localhost:8052，輸入查詢向量 q，按「兩者比較」：
+#   暴力 kNN 掃 9 個；ANN(nprobe=1) 只掃 3 個（一個群）、看召回率
+# 試 q=0.5,0.5,0,0（落在群邊界）→ ANN 召回率會掉到 0.75，調大 nprobe 補回</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機、小維度「假嵌入」（手動指定數字，非真實嵌入模型）+ 簡化 IVF（每次查詢在記憶體重建、簡化 k-means、無量化壓縮）</strong>：<strong>相似度計算、暴力 vs ANN 掃描數、IVF 分群只搜近群、召回率取捨為真實可執行</strong>；<strong>未實作</strong>真實嵌入模型、HNSW、PQ 量化、分片 scatter-gather、增量索引/刪除。要上正式環境，把這層換成 <code>Faiss / Milvus / pgvector / HNSW</code> 並接真實嵌入模型，查詢與評分語意一致。
+  </div>
+
+  <footer>52 Vector Database / ANN Search · G 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

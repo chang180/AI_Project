@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊿ DNS 系統 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊿ DNS 系統 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「存一張對照表」？</a></li>
+      <li><a href="#steps">把解析拆成 3 個關卡（問路三段）</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（查詢介面）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在瀏覽器打 <code>www.google.com</code> 按下 Enter。但電腦其實<strong>不懂名字</strong>，它只認得一串數字（IP，像 <code>142.250.x.x</code>）。
+  那「名字 → 數字」這一步是誰做的？就是 <strong>DNS（網域名稱系統）</strong>——網路世界的<strong>電話簿</strong>。</p>
+  <p>聽起來不就查個電話簿？難的是：這本電話簿<strong>全世界共用</strong>、有<strong>幾億個名字</strong>、每秒被查<strong>幾千萬次</strong>，
+  而且要做到：<strong>查得超快、永遠不能掛、還要依你人在哪裡給你最近的那台伺服器</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    DNS = <strong>網路的電話簿</strong>：把好記的名字（www.example.com）翻成機器用的號碼（IP）。
+    而且要<strong>全球、要快、要就近</strong>——你在台灣查，給你台灣最近的那台；在美國查，給你美國的。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「存一張對照表」？</h2>
+  <p>很多人第一次想：「不就一張表，名字配 IP，查一下就好？」——這想法漏掉了三個會把系統壓垮的真正難關。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：問路要問好幾關</span>
+    你到一個陌生城市找「example 公司 3 樓的王先生」。你不會一開口就有人知道。
+    你先問<strong>市政府</strong>：「這家公司在哪一區？」→ 它說「在科技區，去問科技區管理處」→
+    你再問<strong>科技區</strong>：「example 公司在哪棟？」→ 它說「B 棟，去問 B 棟櫃台」→
+    最後問 <strong>B 棟櫃台</strong>：「王先生在幾樓？」→ 「3 樓 305」。<strong>一層問一層，逐級導向</strong>，這就是 DNS 的解析方式。
+  </div>
+  <p>第一個難關就是這個<strong>階層問路</strong>：沒有一台機器知道全世界所有名字，而是<strong>root → TLD → 權威</strong>三層分工，一層把你導向下一層。</p>
+  <p>第二個難關更隱形：每秒幾千萬次查詢，若每次都從頭問三關，伺服器會被問爆。所以要<strong>把問過的答案記住一陣子</strong>（快取），下次同樣的名字<strong>秒回、不用再問</strong>。</p>
+  <p>第三個難關：全世界的人都在查同一個名字，要讓<strong>每個人都連到離他最近</strong>的那台伺服器（不然台灣人連美國機房會很慢）。</p>
+  <p class="pause">💭 停一下：為什麼不乾脆做「一台超大伺服器，存全世界所有名字」就好？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為（1）<strong>單點</strong>：一台掛了全網失明，太危險；（2）<strong>太遠</strong>：全世界都連同一台，多數人都很慢；（3）<strong>誰維護</strong>：每個網域的記錄該由它自己的擁有者管，不該塞進同一台。
+    所以 DNS 設計成<strong>分層 + 分散 + 大量快取</strong>：root/TLD 只負責「導向」，真正的記錄在各網域自己的權威伺服器，再靠快取與就近讓它又快又穩。
+  </details>
+
+  <h2 id="steps">3. 把解析拆成 3 個關卡（問路三段）</h2>
+  <p>別被「系統」嚇到。一次解析其實就是「問路三段」，加上一個超重要的<strong>偷懶機制（快取）</strong>：</p>
+
+  <div class="step">
+    <h3><span class="badge">0</span>先偷懶：問過了嗎？（快取）</h3>
+    <p>真正開始問路<strong>之前</strong>，幫你跑腿的那台機器（叫 <strong>recursive resolver</strong>）會先翻自己的小抄：「<strong>這個名字我剛剛是不是查過？</strong>」
+    查過而且<strong>還沒過期</strong>，就直接把上次的答案給你——<strong>三段問路全省了</strong>。</p>
+    <div class="analogy">
+      <span class="label">📒 比喻：跑腿小弟的小抄</span>
+      你常叫同一個跑腿小弟去問同一家公司的地址。聰明的小弟會<strong>把問過的記在小抄上</strong>，下次你再問，他直接念給你聽，不用又跑一趟。
+      但小抄上每條都有「<strong>保存期限</strong>」（叫 TTL），過期就要重新去問一次（怕地址搬了）。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>問 root：「.com 的管理員是誰？」</h3>
+    <p>小抄沒有，才開始問路。第一關問<strong>最高層的 root</strong>。root 不知道 example 在哪，但它知道<strong>「.com 這類名字該去問誰」</strong>，把你導向 <code>.com</code> 的管理員。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>問 TLD（.com）：「example.com 的權威是誰？」</h3>
+    <p><code>.com</code> 管理員（叫 <strong>TLD 伺服器</strong>）也不知道確切 IP，但它知道<strong>「example.com 這個網域，由哪台伺服器負責」</strong>（這台叫<strong>權威</strong>），把你導過去。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>問權威：「www.example.com 的 IP 是？」</h3>
+    <p>終於問到<strong>權威伺服器</strong>——它是這個網域的「真相來源」，由網域擁有者維護。它直接告訴你：<strong>「IP 是 203.0.113.10」</strong>。問路結束！</p>
+    <div class="analogy">
+      <span class="label">🔀 兩個小狀況</span>
+      <strong>① 別名（CNAME）</strong>：權威可能說「www 其實是 blog 的<strong>小名</strong>，你去查 blog 吧」——這時要<strong>再跟一次</strong>，查到真正的 IP 為止。
+      <strong>② 看人給答案（GeoDNS）</strong>：權威會看你<strong>人在哪</strong>——台灣人給台灣機房、美國人給美國機房，<strong>同一個名字回不同 IP</strong>，讓你連最近的。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ⓪ 先翻<strong>小抄（快取）</strong>，有就秒回 → 沒有才 ① 問 <strong>root</strong>（.com 找誰）→ ② 問 <strong>TLD</strong>（example.com 找誰）→ ③ 問<strong>權威</strong>（拿到 IP）。別名要再跟一次，還會<strong>依你在哪</strong>給最近的 IP。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「掛掉」</span>
+    DNS 掛了 = 全世界<strong>連名字都翻不出 IP</strong>，等於整個網路對你「失明」，比某個網站掛掉嚴重一百倍。
+    所以 DNS 要<strong>多台副本 + anycast（同一個地址全球多地都有，自動連最近的）</strong>，做到幾乎永遠不掛。<em>可用性是命根。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「慢 / 被問爆」</span>
+    每秒幾千萬次查詢，若每次都從頭問三關，機器跑不動、使用者也等到不耐煩。
+    所以靠<strong>快取（記住問過的）+ 就近（連最近的伺服器）</strong>，讓絕大多數查詢<strong>秒回、根本不用問路</strong>。<em>能不問就不問。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「改了卻不生效」</span>
+    你把網站搬到新 IP，結果有人<strong>還連到舊的</strong>——因為大家的小抄（快取）還沒過期。
+    這由 <strong>TTL（保存期限）</strong>控制：設太長 → 改了很久才全球生效；設太短 → 大家一直重問、伺服器更累。<em>長短是一門取捨。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>💻 <strong>你的電腦</strong>把名字交給 →</li>
+    <li>🏃 <strong>跑腿小弟（recursive resolver）</strong>先翻<strong>小抄（快取）</strong>——有就秒回，三關全省 →</li>
+    <li>沒有才開始問路：① 問 <strong>root</strong>（.com 找誰）→ ② 問 <strong>TLD</strong>（example.com 找誰）→ ③ 問<strong>權威</strong>（拿到 IP）→</li>
+    <li>🌍 權威還會<strong>看你在哪</strong>（GeoDNS / anycast），給你<strong>最近</strong>的那台 IP →</li>
+    <li>📒 拿到答案後<strong>記進小抄</strong>（依 TTL 保存一陣子），下次同名查詢直接秒回。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>DNS</td><td>網路的電話簿：把名字翻成 IP</td></tr>
+    <tr><td>解析（resolve）</td><td>「查出某個名字的 IP」這個動作</td></tr>
+    <tr><td>stub resolver</td><td>你電腦裡那個「把問題丟出去」的小幫手</td></tr>
+    <tr><td>recursive resolver</td><td>幫你跑完整段問路的「跑腿小弟」（有小抄＝快取）</td></tr>
+    <tr><td>root / TLD / authoritative</td><td>問路三關：市政府 / 區管理處 / 大樓櫃台（權威＝真相來源）</td></tr>
+    <tr><td>遞迴 vs 迭代</td><td>遞迴=小弟幫你跑完整段；迭代=每關只告訴你「下一關去問誰」</td></tr>
+    <tr><td>快取（cache）</td><td>把問過的答案記在小抄上，下次秒回</td></tr>
+    <tr><td>TTL</td><td>小抄上每條的「保存期限」，過期要重問</td></tr>
+    <tr><td>A 記錄</td><td>名字 → IP（解析的終點）</td></tr>
+    <tr><td>CNAME 記錄</td><td>名字的「小名／別名」，要再跟一次查到真 IP</td></tr>
+    <tr><td>NS 記錄</td><td>「這個網域歸哪台權威管」的指路牌</td></tr>
+    <tr><td>GeoDNS</td><td>看你人在哪，同一個名字回最近的 IP</td></tr>
+    <tr><td>anycast</td><td>同一個 IP 全球多地都有，封包自動走到最近那台</td></tr>
+    <tr><td>NXDOMAIN</td><td>「查無此名」（連這個都會被記一下，省得反覆問）</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少次查詢</td><td>大型服務 ~1 兆次/日（千萬級 QPS）</td><td>天文數字 → 不可能每次都問路，得靠快取</td></tr>
+    <tr><td>快取能擋掉多少</td><td>命中率可達 80~90%+</td><td>大多數查詢「小抄就有」，真正去問路的只剩零頭</td></tr>
+    <tr><td>記錄多久改一次</td><td>很少改（讀寫比可達百萬:1）</td><td>讀（查）才是壓力，寫（改）幾乎沒負擔</td></tr>
+    <tr><td>一筆答案多大</td><td>一個小封包（幾百位元組）</td><td>又小又快 → 很適合全球廣布（anycast）</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：壓力全在「讀」，而讀又超好快取</span>
+    DNS 幾乎只有人在「查」，很少人在「改」。而且<strong>大家都查那些熱門名字</strong>（google、facebook…），
+    所以只要<strong>把熱門答案快取住</strong>，就能用很小的力氣扛住天文數字的查詢量。這就是 DNS 能撐起整個網路的祕密。
+  </div>
+  <p class="pause">💭 停一下：查詢量這麼大（千萬級 QPS），為什麼權威伺服器沒被打爆？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為<strong>絕大多數查詢根本沒打到權威</strong>——它們在更靠近使用者的快取（瀏覽器、作業系統、recursive resolver）就被秒回了。
+    真正穿透所有快取、打到權威的只是一小撮（快取沒有 / TTL 剛過期的）。多層快取像一層層的盾牌，把洪水擋在外面。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（查詢介面）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：超精簡的問答卡</span>
+    DNS 沒有花俏的網頁 API，它的「點餐單」超簡單：你遞一張<strong>問答卡</strong>寫「<strong>我要查哪個名字、要哪種記錄</strong>」，對方回一張「<strong>答案 + 保存期限(TTL)</strong>」。就這樣。
+  </div>
+  <pre><code>① 查一個名字（最常用）
+   問：{ 名字: www.example.com, 要哪種: A(就是要 IP) }
+   回：{ 答案: 203.0.113.10, 型別: A, 保存期限TTL: 60 秒 }</code></pre>
+  <p class="codecaption">回應一定帶 <strong>TTL（保存期限）</strong>——它告訴每一層快取「這答案能重用多久」。這是 DNS 最核心的一個欄位。</p>
+  <pre><code>② 遇到別名（CNAME）要再跟一次
+   問：blog.example.com 的 IP？
+   回：blog 是 www.example.com 的小名(CNAME) → 你再去查 www
+   再問：www.example.com 的 IP？ → 回：203.0.113.10  ← 跟到 A 才結束</code></pre>
+  <pre><code>③ 網域擁有者改記錄（管理面，本 demo 的 POST /api/record）
+   給我：{ 名字, 型別(A/CNAME), 值(IP 或目標名字), TTL, 可選:各區域的 IP(GeoDNS) }
+   → 系統存進「權威區域表」，並把相關快取清掉，讓新值能被讀到</code></pre>
+  <p class="codecaption">注意第 ③ 張是「<strong>管理面</strong>」——只有網域擁有者用來改記錄，一般查詢的人碰不到。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩本筆記本</span>
+    系統要把資料記在「筆記本」裡。這題主要用兩本：一本是<strong>真相（權威區域表）</strong>，一本是<strong>小抄（快取）</strong>。
+  </div>
+  <div class="step">
+    <h3><span class="badge">📕</span>真相簿（權威區域表）</h3>
+    <p>每個網域一份，記它所有的記錄：<code>名字、型別(A/CNAME/NS)、值、TTL</code>。
+    A 記錄還可以是「<strong>看區域給不同 IP</strong>」（GeoDNS）。這本由<strong>網域擁有者維護</strong>，是最終真相。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📒</span>小抄簿（快取——讀路徑的命脈）</h3>
+    <p>跑腿小弟把問過的答案記在這：<code>名字 → { 答案, 何時過期 }</code>。
+    命中而且沒過期 → <strong>秒回，三關全省</strong>；過期 → 丟掉重問。</p>
+    <div class="analogy"><span class="label">為什麼小抄要帶「過期時間」？</span>
+      因為地址會變（網站搬家）。如果小抄永不過期，網站搬了你還一直連舊地址。
+      帶上「保存期限(TTL)」，過期就重問一次，<strong>新地址才有機會被讀到</strong>。這就是「改記錄靠 TTL 自然生效」。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🌍</span>GeoDNS 的小聰明</h3>
+    <p>同一個名字 <code>www.example.com</code>，在真相簿裡可以對應<strong>好幾個 IP</strong>，標好「tw 用這個、us 用那個」。
+    解析時看你<strong>人在哪</strong>，挑最近的給你。<strong>小抄也要分區存</strong>（台灣人的答案不能拿給美國人用）。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>查詢全打權威，權威被問爆</td><td><strong>多層快取</strong>（瀏覽器→OS→resolver）把 90%+ 查詢擋在外面</td></tr>
+    <tr><td>全世界連同一台，跨洲很慢</td><td><strong>anycast</strong>（同一個 IP 全球多地）+ <strong>GeoDNS</strong>（給你最近的 IP）</td></tr>
+    <tr><td>一台掛了全網失明</td><td>多副本 + anycast 自動繞到還活著的節點</td></tr>
+    <tr><td>壞人用 DNS 放大攻擊打別人</td><td>限速 + 關閉開放遞迴 + anycast 吸收洪水</td></tr>
+    <tr><td>改了記錄很久才生效</td><td>對「會變的記錄」用<strong>短 TTL</strong>；要搬家前先把 TTL 調短</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ TTL 設長 vs 設短</span>
+    長 → 快取命中高、伺服器輕鬆，但<strong>改記錄要等很久才全球生效</strong>（搬家、故障切換很卡）；
+    短 → 改了很快生效、切換靈活，但<strong>大家一直重問、伺服器更忙</strong>。看這條記錄「多常變」來決定。</div>
+  <div class="fear"><span class="label">⚖️ 遞迴 vs 迭代</span>
+    讓「跑腿小弟（resolver）」幫你跑完整段（遞迴），客戶端最輕鬆、又能共用小抄；
+    但上層的 root/TLD <strong>只做指路（迭代）</strong>，不幫你跑完——否則它們會被當成「免費跑腿」拖垮，也容易被壞人利用。</div>
+  <div class="fear"><span class="label">⚖️ GeoDNS 的小抄難題</span>
+    依區域給不同答案，<strong>小抄就不能全球共用一份</strong>（不然台灣人拿到美國的 IP）。
+    解法是把「你在哪一區」也記進小抄的鑰匙裡，<strong>分區各存一份</strong>（demo 的快取鑰匙就帶了區域）。</div>
+  <details class="qa"><summary>💭 追問：我把網站換了新 IP，為什麼有人還連到舊的？</summary>
+    因為他那邊的小抄（快取）<strong>還沒過期</strong>——TTL 設多久，舊答案就可能被重用多久。等 TTL 過期、重新問一次，才會拿到新 IP。
+    所以要搬家前，通常會<strong>先把 TTL 調短</strong>（例如從 1 天改成 1 分鐘），等舊的短 TTL 全球生效後再動手，這樣切換才快。</details>
+  <details class="qa"><summary>💭 追問：CNAME 和 A 到底差在哪？</summary>
+    A 是<strong>終點</strong>：名字直接給你 IP。CNAME 是<strong>小名／別名</strong>：它說「我其實是另一個名字」，你得<strong>再跟一次</strong>去查那個名字，直到拿到 A 為止。常用來把 www 指到 CDN 的網域。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「三關問路 + 快取 + GeoDNS」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8050 -t public
+# 然後瀏覽器打開 http://localhost:8050</code></pre>
+  <ol>
+    <li><strong>解析 <code>www.example.com</code></strong>（區域 tw）：看它一步步走完<strong>三關問路</strong>（root→TLD→權威）。</li>
+    <li><strong>立刻再解析同一個</strong>：這次會顯示「<strong>快取命中</strong>」——三關全省，只剩 1 步！</li>
+    <li>把<strong>區域切成 us / eu</strong> 再解析：看 <strong>GeoDNS 回不同 IP</strong>。</li>
+    <li>解析 <code>blog.example.com</code>：看權威回 <strong>CNAME → 再跟一次</strong>拿到 IP。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>解析一次後<strong>立刻再解析</strong> → 看步驟從 5 步變 1 步（快取命中省遞迴）。
+  按「<strong>清空快取</strong>」再解析 → 又變回完整三關（小抄被擦掉了）。切換<strong>區域</strong>看同一個名字回不同 IP（GeoDNS 就近）——這就是 DNS 的精髓。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心邏輯都在<strong>一個檔</strong>（<code>Resolver.php</code>）裡。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔，四段邏輯</span>
+    <strong>查快取</strong>（先翻小抄）→ <strong>三關遞迴</strong>（root→TLD→權威）→ <strong>跟隨 CNAME</strong>（別名再跟一次）→ <strong>GeoDNS + 寫回快取</strong>。名字一進來，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>先翻小抄：有就秒回（查快取）</h3>
+    <p>解析的第一件事，<strong>不是</strong>急著問路，而是先問「<strong>這個名字我剛查過嗎？還沒過期嗎？</strong>」。有就直接回，三關全省。</p>
+<pre><code>function 解析(名字, 區域) {
+    答案 = 翻小抄(名字, 區域)
+    if (答案存在 且 還沒過期)
+        return { 答案, 來源:"快取命中", 步驟:1 }   // ← 秒回！三關全省
+    // 小抄沒有 → 才開始問路（往下）
+    ...
+}</code></pre>
+    <p class="codecaption">就這一段，把絕大多數查詢擋在「問路」之前。少了它，每次都要從頭問三關，伺服器分分鐘被問爆。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>三關問路：root → TLD → 權威（遞迴）</h3>
+    <p>小抄沒有，才一層層問下去。每問一關就在「解析鏈」上記一筆（demo 畫面看到的就是這個）：</p>
+<pre><code>function 問路(名字, 區域) {
+    tld = 取出結尾(名字)            // 如 example.com → "com"
+    記一筆鏈："① 問 root：.{tld} 的權威是誰？"
+    if (root 不認得這個 tld) return 查無此名(NXDOMAIN)
+
+    記一筆鏈："② 問 TLD(.{tld})：{網域} 的權威(NS)是誰？"
+    if (TLD 沒有這個網域) return 查無此名(NXDOMAIN)
+
+    記一筆鏈："③ 問權威：{名字} 的記錄是什麼？"
+    記錄 = 權威區域表[名字]
+    if (沒這筆) return 查無此名(NXDOMAIN)
+    ...（依記錄型別處理，往下）
+}</code></pre>
+    <p class="codecaption">這就是前面講的「市政府 → 區管理處 → 大樓櫃台」。每一關只負責<strong>把你導向下一關</strong>，最後權威才給真答案。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>遇到別名就再跟一次（CNAME）</h3>
+    <p>權威給的不一定是 IP，可能是個「小名」。是小名就<strong>拿著小名再問一次</strong>，直到拿到真 IP：</p>
+<pre><code>if (記錄型別 == CNAME) {
+    記一筆鏈："權威回 CNAME → " + 目標名字 + "（要再跟一次）"
+    return 問路(目標名字, 區域)      // ← 拿著別名再跑一次（直到拿到 A）
+}</code></pre>
+    <p class="codecaption">就是這一句「<strong>return 問路(目標名字)</strong>」做到「再跟一次」。所以你在 demo 查 <code>blog</code> 會看到鏈變長（它先回 CNAME 指向 www，再去解析 www）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>看人給答案 + 記進小抄（GeoDNS + 快取）</h3>
+    <p>拿到 A 記錄了。如果這筆是 GeoDNS，就<strong>看你在哪區</strong>挑最近的 IP；最後把答案<strong>記進小抄</strong>（依 TTL）：</p>
+<pre><code>if (記錄型別 == A) {
+    if (這筆有分區設定)              // GeoDNS
+        IP = 分區表[區域] ?? 預設    // ← 台灣給台灣的、美國給美國的
+    else
+        IP = 記錄的 IP
+    記一筆鏈："權威回 A：" + IP
+}
+寫進小抄(名字, 區域, IP, TTL)        // ← 下次同名(同區)直接秒回
+return { 答案: IP, TTL }</code></pre>
+    <p class="codecaption">注意寫小抄時<strong>連「區域」也當成鑰匙的一部分</strong>——這樣台灣人的答案才不會被美國人拿去用（GeoDNS 的分區快取）。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>關鍵那段</th></tr>
+      <tr><td>⓪ 先翻小抄</td><td><code>解析()</code> 開頭的「翻小抄」</td></tr>
+      <tr><td>①②③ 三關問路</td><td><code>問路()</code> 的 root→TLD→權威</td></tr>
+      <tr><td>別名再跟一次</td><td><code>if CNAME → return 問路(目標)</code></td></tr>
+      <tr><td>看人給答案 + 記小抄</td><td><code>if A</code> 的分區挑 IP + <code>寫進小抄()</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 查表」換成「真正向 root/TLD/權威發送 DNS 封包」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「問路」解釋，一次 DNS 解析經過哪幾關？</summary>
+    先翻小抄（快取），有就秒回。沒有才問三關：① root（.com 找誰）→ ② TLD（example.com 找誰）→ ③ 權威（拿到 IP）。像問市政府→區管理處→大樓櫃台，一層導向一層。</details>
+  <details class="qa"><summary>Q2：查詢量這麼大，為什麼權威伺服器沒被打爆？</summary>
+    因為多層快取（瀏覽器→OS→resolver）把 90%+ 查詢擋在外面，大多數查詢「小抄就有」直接秒回，真正穿透打到權威的只剩一小撮。</details>
+  <details class="qa"><summary>Q3：TTL 是什麼？設太長或太短各有什麼問題？</summary>
+    TTL 是答案在小抄上的「保存期限」。太長 → 快取命中高但改記錄很久才生效（搬家/切換很卡）；太短 → 改得快但大家一直重問、伺服器更累。是核心取捨。</details>
+  <details class="qa"><summary>Q4：我把網站換 IP，為什麼有人還連到舊的？怎麼讓切換更快？</summary>
+    因為他的快取還沒過期，還在用舊答案。要搬家前先把 TTL 調短（如改成 1 分鐘），等短 TTL 全球生效後再切換，這樣大家很快就會重問拿到新 IP。</details>
+  <details class="qa"><summary>Q5（工程）：CNAME 和 A 差在哪？解析時怎麼處理 CNAME？</summary>
+    A 是終點（名字→IP）；CNAME 是別名（名字→另一個名字）。拿到 CNAME 不算結束，要拿著目標名字「再跟一次」去解析，直到拿到 A。</details>
+  <details class="qa"><summary>Q6（工程）：GeoDNS 為什麼讓快取變麻煩？怎麼解？</summary>
+    因為同一個名字依區域回不同 IP，不能全球共用一份快取（不然會給錯）。解法是把「區域」也放進快取鑰匙裡，分區各存一份（demo 的快取鑰匙就帶了區域）。</details>
+  <details class="qa"><summary>Q7（工程）：遞迴和迭代解析的分工是？</summary>
+    client→resolver 是遞迴（小弟幫你跑完整段、又能共用快取）；resolver→root/TLD 是迭代（每關只回「下一關去問誰」，不幫你跑完，避免被當免費跑腿/放大器）。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>DNS = 網路的電話簿，把名字翻成 IP，要全球、要快、要就近。</strong></p>
+    <p><strong>一次解析：</strong>⓪ 先翻<strong>小抄（快取）</strong>有就秒回 → 沒有才 ① 問 <strong>root</strong> → ② 問 <strong>TLD</strong> → ③ 問<strong>權威</strong>拿 IP。別名(CNAME)要<strong>再跟一次</strong>，還會依你在哪(GeoDNS)給<strong>最近</strong>的 IP。</p>
+    <p><strong>3 個怕：</strong>怕掛掉（多副本＋anycast）、怕慢/被問爆（多層快取＋就近）、怕改了不生效（TTL 長短取捨）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>壓力全在「讀」、而讀又超好快取 → 多層快取＋TTL 把洪水擋在權威之外；anycast/GeoDNS 讓全球就近；CNAME 再跟一次、GeoDNS 分區快取，是兩個最常被追問的細節。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊿ DNS 系統 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

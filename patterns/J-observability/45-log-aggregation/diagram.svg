@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 898 404" width="898" height="404" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ahf15a28" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1e1e1e"/></marker>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+</defs>
+<rect x="16" y="0" width="898" height="404" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">日誌聚合 Log Aggregation（ELK）</tspan>
+</text>
+<rect x="40" y="110" width="150" height="80" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="138" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">應用伺服器</tspan>
+<tspan x="115" dy="20">(數百台)</tspan>
+</text>
+<rect x="240" y="110" width="150" height="80" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="315" y="138" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">收集 Agent</tspan>
+<tspan x="315" dy="20">(Filebeat)</tspan>
+</text>
+<rect x="440" y="110" width="150" height="80" rx="8" fill="#ffd8a8" stroke="#e8590c" stroke-width="2"/>
+<text x="515" y="138" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="515" dy="0">緩衝佇列</tspan>
+<tspan x="515" dy="20">(Kafka)</tspan>
+</text>
+<rect x="640" y="110" width="150" height="80" rx="8" fill="#eebefa" stroke="#9c36b5" stroke-width="2"/>
+<text x="715" y="138" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="715" dy="0">處理/解析</tspan>
+<tspan x="715" dy="20">(Logstash)</tspan>
+</text>
+<rect x="440" y="280" width="200" height="100" rx="8" fill="#fcc2d7" stroke="#c2255c" stroke-width="2"/>
+<text x="540" y="308" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="540" dy="0">索引/儲存</tspan>
+<tspan x="540" dy="20">(Elasticsearch)</tspan>
+<tspan x="540" dy="20">倒排索引 + 時間分片</tspan>
+</text>
+<rect x="740" y="290" width="150" height="80" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="815" y="318" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="815" dy="0">查詢/視覺化</tspan>
+<tspan x="815" dy="20">(Kibana)</tspan>
+</text>
+<text x="40" y="300" font-size="14" fill="#868e96" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">查詢支援：</tspan>
+<tspan x="40" dy="17.5">• 關鍵字（倒排索引取 posting list 交集）</tspan>
+<tspan x="40" dy="17.5">• 等級過濾 level=error</tspan>
+<tspan x="40" dy="17.5">• 時間範圍 [from, to]</tspan>
+</text>
+<polyline points="192,150 238,150" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#ahf15a28)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="392,150 438,150" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#ahf15a28)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="592,150 638,150" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#ahf15a28)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="700,192 540,278" fill="none" stroke="#1e1e1e" stroke-width="2" marker-end="url(#ahf15a28)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="740,330 644,330" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>53 MapReduce / 批次處理 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>53 MapReduce / 批次處理 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這東西在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼不能「一個人從頭數到尾」？</a></li>
+      <li><a href="#steps">把工作拆成 3 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統怎麼用？（程式介面）</a></li>
+      <li><a href="#data">資料長什麼樣？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你有一本<strong>一億頁的書</strong>，老師要你算「每個英文單字各出現幾次」。你一個人從第一頁數到最後一頁，數到天荒地老都數不完。</p>
+  <p>聰明的做法：把書<strong>撕成一千疊</strong>，找一千個同學<strong>同時數</strong>，每人只數自己那疊。數完再想辦法把大家的結果<strong>合起來</strong>。這就是 <strong>MapReduce</strong>——一套「<strong>把超大工作切碎、找一大群機器同時做、再把結果合起來</strong>」的標準流程。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    MapReduce = <strong>一大群人一起數錢的標準流程</strong>：每人先數自己手上的一疊（map）→ 把同面額的鈔票<strong>集中到同一個人</strong>那裡（shuffle）→ 每個人把自己那種面額加總（reduce）。一個人做不完的事，一群人分頭做就快了。
+  </div>
+
+  <h2 id="why">2. 為什麼不能「一個人從頭數到尾」？</h2>
+  <p>因為資料<strong>大到誇張</strong>。Google 要數整個網路有哪些網頁連到哪些網頁、臉書要算每天幾十億則貼文的統計——這種資料一台電腦的硬碟都裝不下，更別說算完。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：全班一起數班費</span>
+    全班收了一大箱零錢要算總額。老師不會自己一個人數（數到下課也數不完），而是：<strong>每排同學先數自己這排收到的</strong>，再<strong>把同樣面額的硬幣集中給負責那個面額的人</strong>加總。
+    人多、分工、同時做——這就是「分散式運算」的精神。
+  </div>
+  <p>MapReduce 厲害的地方是：你<strong>不用懂怎麼分工</strong>。你只要說清楚兩件事——「每一小份要怎麼處理」和「同一類的結果怎麼合起來」——剩下的切片、找機器、分配、合併、誰掛了重做，<strong>框架全部幫你搞定</strong>。</p>
+  <p class="pause">💭 停一下：為什麼「找一千個人同時數」會比「一個人數」快這麼多？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為這些工作<strong>彼此不相干</strong>——A 數他那疊、B 數他那疊，誰也不用等誰。可以<strong>真正同時進行</strong>。
+    只要工作能切成「互不干擾的小份」，人（機器）越多就越快。MapReduce 就是專門用來處理這種「可以拆開、各做各的」的大工作。
+  </details>
+
+  <h2 id="steps">3. 把工作拆成 3 個關卡</h2>
+  <p>不管資料多大，MapReduce 永遠就這 3 關，順序固定：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>Map：每個人先數自己手上那一疊</h3>
+    <p>先把大資料<strong>切成很多小片</strong>（叫 split），每片交給一個工人。工人對自己那片做最簡單的動作：<strong>看到一個詞，就記一筆「這個詞 +1」</strong>。</p>
+    <div class="analogy">
+      <span class="label">💵 比喻：數鈔票的第一步</span>
+      你拿到一疊雜亂的鈔票，不急著加總，先<strong>一張一張喊出面額</strong>：「一百、一百、五百、一百、五百…」。每喊一張就是 map 吐出的一筆 <code>(面額, 1)</code>。
+    </div>
+    <p>重點：每個工人<strong>只看自己那片，誰也不管誰</strong>，所以可以<strong>一千個人同時做</strong>。map 的產物是一大堆 <code>(詞, 1)</code> 這種小紙條。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>Shuffle：把同一種的集中到同一個人</h3>
+    <p>現在桌上散落著一大堆 <code>(詞, 1)</code> 小紙條，來自所有工人。下一步：<strong>把「同一個詞」的紙條全部收集到同一個人手上</strong>。</p>
+    <div class="analogy">
+      <span class="label">🗂️ 比喻：把硬幣按面額分籃子</span>
+      大家數完，桌上一堆「一元、五元、十元」的紀錄混在一起。你拿幾個籃子，<strong>所有「十元」丟同一籃、所有「五元」丟另一籃</strong>。
+      這樣負責「十元」的人，才能把<strong>全部</strong>的十元一次加總，不會漏掉散在別人那邊的。
+    </div>
+    <p>怎麼決定「哪個詞給哪個人」？用一個固定規則：<strong><code>把詞算個雜湊值，再除以人數取餘數</code></strong>。同一個詞算出來的答案永遠一樣，所以<strong>同一個詞一定進同一個籃子</strong>——這超重要，不然加總會分散、算錯。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>Reduce：每個人把自己那一種加總</h3>
+    <p>分好籃子後，每個人拿著「<strong>分給我的那些詞 + 一堆 1</strong>」，做最後動作：<strong>把同一個詞的 1 全部加起來</strong>。</p>
+    <div class="analogy">
+      <span class="label">🧮 比喻：數錢的最後一步</span>
+      負責十元的人，把手上所有「十元」的紀錄一加：「喔，總共 37 個十元」。負責一百元的人加出「52 張一百」。
+      每個人各報各的，<strong>合起來就是全部的總額</strong>——而且因為同面額都在同一個人手上，<strong>不會重複也不會漏</strong>。
+    </div>
+    <p>把所有人的結果擺在一起，就是最終答案：<code>the 出現 4 次、fox 出現 3 次、dog 出現 3 次…</code>。一億頁的書，就這樣被一群機器幾分鐘數完了。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① <strong>Map</strong>：每人數自己那疊，吐出 (詞,1) → ② <strong>Shuffle</strong>：把同一個詞集中到同一個人（按固定規則分籃子）→ ③ <strong>Reduce</strong>：每人把自己那種加總。就這樣，永遠這三關。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>把抽象的「取捨」換成「最怕三件事」，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「搬運太慢」（shuffle 塞爆）</span>
+    第 2 關「把同類集中到同一個人」聽起來簡單，但資料超大時，這是<strong>把幾乎全部的紙條跨整個機房搬來搬去</strong>——最慢、最花錢的一步。
+    所以有個聰明招：<strong>每個工人數完先自己先小計一下</strong>（同一疊裡的「十元」先自己加成「十元 ×30」再交出去），要搬的紙條就少很多。這招叫 <strong>combiner</strong>。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「分配不均」（資料傾斜）</span>
+    如果某個詞超級熱門（像英文的 "the"），負責它的那個人會拿到<strong>幾億張紙條</strong>累死，其他人早就下班了——整個工作要等這個最慘的人。
+    這叫<strong>資料傾斜</strong>，解法是把超熱門的那種<strong>再拆給好幾個人分擔</strong>。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「有人中途落跑」（機器掛掉）</span>
+    一千台機器同時跑，總有幾台會當機。好在每個工人做的事<strong>互不相干、又沒有副作用</strong>，所以<strong>誰掛了，就把他那份重發給別人重做一次</strong>就好，結果一模一樣，整個工作不受影響。
+    還有人特別慢（硬碟快壞了），就<strong>多找一個人做同一份，誰先做完算誰</strong>（叫 speculative，賽馬備援）。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>📦 <strong>大資料</strong>（一億頁的書）→ 先<strong>切成很多小片</strong> →</li>
+    <li>🔵 <strong>一群 Map 工人</strong>同時數，每人把自己那片變成一堆 <code>(詞,1)</code> →</li>
+    <li>🟡 <strong>Shuffle</strong>：按「<code>雜湊 % 人數</code>」這個固定規則，把<strong>同一個詞集中到同一個 reducer</strong>（這步要跨機房搬，最累）→</li>
+    <li>🟢 <strong>一群 Reduce 工人</strong>各自把分到的詞加總 →</li>
+    <li>📄 合起來就是<strong>最終答案</strong>（每個詞幾次）。</li>
+    <li>🟣 旁邊有個 <strong>Master 工頭</strong>：負責切工作、分配、盯進度、誰掛了重發、誰太慢就多派一個。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>MapReduce</td><td>一大群機器分頭做大工作的標準流程：map→shuffle→reduce</td></tr>
+    <tr><td>批次處理（batch）</td><td>資料已經躺在那，整批一次掃過算出結果（不急、要算得對算得完）</td></tr>
+    <tr><td>split（切片）</td><td>把大資料撕成很多小片，每片交一個工人</td></tr>
+    <tr><td>Map</td><td>每個工人對自己那片做最簡單的處理，吐出一堆 (詞,1)</td></tr>
+    <tr><td>Shuffle</td><td>把「同一種」的結果集中到同一個 reducer（按面額分籃子）</td></tr>
+    <tr><td>Reduce</td><td>每個 reducer 把分給它的那種加總</td></tr>
+    <tr><td>partition（分區）</td><td>決定「哪個詞給哪個 reducer」的規則：hash(詞) % 人數</td></tr>
+    <tr><td>combiner</td><td>工人交出前先自己小計一下，減少要搬的量</td></tr>
+    <tr><td>資料傾斜（skew）</td><td>某種超熱門 → 負責它的人累死，別人閒著</td></tr>
+    <tr><td>資料局部性</td><td>把運算搬到資料所在的機器，省得搬資料（move compute to data）</td></tr>
+    <tr><td>容錯 / 重跑</td><td>有人掛了，把他那份重發給別人重做（結果一樣）</td></tr>
+    <tr><td>speculative execution</td><td>誰太慢就多派一個人做同份，誰先完成算誰（賽馬備援）</td></tr>
+    <tr><td>Master（工頭）</td><td>切工作、分配、盯進度、處理當機與落後者</td></tr>
+    <tr><td>Spark</td><td>MapReduce 的進化版：中間結果儘量留在記憶體，迭代快很多</td></tr>
+    <tr><td>串流（streaming）</td><td>另一半：資料一筆一筆即時來、即時算（毫秒級）</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    動手前先估數字，才知道要切幾片、找幾台機器。重點不是背數字，是<strong>感受它的「形狀」</strong>。
+  </div>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>資料有多大</td><td>~1 PB（一百萬 GB）</td><td>一台裝不下 → 一定要切片、分散</td></tr>
+    <tr><td>切成幾片（= map 工人數）</td><td>每片 128 MB → ~800 萬片</td><td>map 工人數由「資料大小 ÷ 片大小」自動決定</td></tr>
+    <tr><td>reduce 工人數 (R)</td><td>由人設定，常數百~數千</td><td>太少 → 容易塞車、傾斜；太多 → 一堆零碎小檔</td></tr>
+    <tr><td>shuffle 要搬多少</td><td>接近 1 PB（跟輸入差不多）</td><td>這就是最花時間 / 頻寬的一步 → 想辦法用 combiner 壓小</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：最貴的不是「數」，是「搬」</span>
+    每個工人「數自己那疊」其實很快。真正的瓶頸是中間那步 <strong>shuffle</strong>——把幾乎全部的資料<strong>跨整個機房搬去重新分組</strong>。所以省錢省時間的關鍵，就是<strong>讓要搬的東西變少</strong>（combiner 先小計）。
+  </div>
+  <p class="pause">💭 停一下：map 工人要幾個是「算出來」的，reduce 工人要幾個卻是「人決定」的，為什麼？</p>
+  <details class="qa"><summary>看答案</summary>
+    map 是「<strong>每片一個工人</strong>」，而片數＝資料大小 ÷ 每片大小，所以資料一給定，map 數就定了。
+    reduce 是「<strong>最後分幾籃</strong>」，這由你決定：分太少籃，每籃太擠（傾斜、單檔太大）；分太多籃，輸出一堆零碎小檔、管理麻煩。所以 R 要自己權衡。</details>
+
+  <h2 id="api">8. 系統怎麼用？（程式介面）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：你只要填兩張表</span>
+    MapReduce 最貼心的地方：你<strong>不用會分散式</strong>，只要填兩張「表單」告訴它怎麼做，剩下全自動。
+  </div>
+  <pre><code>① 第一張表：每一小份怎麼處理？（map）
+   給一行字 → 把每個詞吐成 (詞, 1)
+   map(一行字):
+       對每個詞: 吐出 (詞, 1)
+
+② 第二張表：同一種怎麼合？（reduce）
+   給一個詞 + 一堆 1 → 加總
+   reduce(詞, [1,1,1,...]):
+       吐出 (詞, 總數)</code></pre>
+  <p class="codecaption">就這兩張表！「怎麼切片、找幾台機器、誰負責哪個詞、誰掛了重做」——你<strong>完全不用管</strong>，框架自動處理。這就是 MapReduce 把「分散式」這件難事變簡單的魔法。</p>
+  <pre><code>（可選）第三張表：交出前先自己小計（combiner）—— 通常跟 reduce 一樣
+（可選）第四張表：自訂「哪個詞給哪個人」的規則（partitioner）—— 預設就是 hash(詞) % 人數</code></pre>
+  <p class="codecaption">本題的 demo 把這套包成網頁：你貼一段文字，它就跑一遍 map→shuffle→reduce，把三階段攤開給你看。</p>
+
+  <h2 id="data">9. 資料長什麼樣？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：資料的四個樣貌</span>
+    從頭到尾，資料會變身四次：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📦</span>輸入：一個超大檔</h3>
+    <p>躺在分散式硬碟（HDFS / S3）上的大檔。框架自動把它<strong>切成很多片（split）</strong>，每片約 128 MB。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏷️</span>中間產物：一堆 (詞, 1) 小紙條</h3>
+    <p>map 吐出的東西，例：<code>(fox,1) (the,1) (the,1) (dog,1)…</code>。先暫存在<strong>工人自己的硬碟</strong>，等著被收集。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗂️</span>分組後：每個 reducer 的籃子</h3>
+    <p>shuffle 把同詞集中後，每個 reducer 手上是：<code>{ fox:[1,1,1], the:[1,1,1,1] }</code>。<strong>同一個詞的所有 1 都在這了</strong>。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📄</span>輸出：(詞, 總數)</h3>
+    <p>每個 reducer 寫一個結果檔：<code>(fox,3) (the,4)…</code>。全部合起來就是最終答案。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時總有某環節先塞車，工程師的工作就是找出最會塞的、把它拓寬。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td><strong>Shuffle</strong>：把幾乎全部資料跨機房搬去重新分組（頭號瓶頸）</td><td>用 <strong>combiner</strong> 交出前先小計、壓縮中間資料、減少要搬的量</td></tr>
+    <tr><td><strong>資料傾斜</strong>：某熱門詞（如 "the"）把一個 reducer 累死</td><td>把熱門詞<strong>加鹽打散</strong>分給好幾個 reducer、自訂分區規則</td></tr>
+    <tr><td><strong>小檔太多</strong>：海量小檔，每個都派一個工人，光排程就累死</td><td>先把小檔<strong>合併成大檔</strong>再處理</td></tr>
+    <tr><td><strong>有人特別慢</strong>：最慢的工人拖垮整個工作</td><td><strong>speculative</strong>：多派一個人做同份，誰先完成算誰</td></tr>
+    <tr><td><strong>反覆讀寫硬碟</strong>：每一輪都把中間結果寫回硬碟，迭代慢</td><td>改用 <strong>Spark</strong>：中間結果儘量留在記憶體</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 批次(MapReduce/Spark) vs 即時串流(Flink)</span>
+    批次＝資料整批算、慢但穩、適合「每天結算一次的大報表」；串流＝一筆筆即時算、快但複雜、適合「即時儀表板」。兩者是<strong>互補的兩半</strong>，不是誰取代誰。</div>
+  <div class="fear"><span class="label">⚖️ MapReduce vs Spark</span>
+    MapReduce 每步都寫硬碟，超穩、適合一次性超大批次；Spark 中間結果留記憶體、快很多，適合要反覆迭代的工作（如機器學習）。新專案多選 Spark，但吃記憶體。</div>
+  <div class="fear"><span class="label">⚖️ combiner 能不能用？</span>
+    只有「<strong>先合一部分再合起來，答案不變</strong>」的計算才能用（加總、找最大可以）。算平均就不行——要改成同時記「總和」和「個數」，最後再相除。</div>
+  <details class="qa"><summary>💭 追問：為什麼「同一個詞一定要進同一個 reducer」這麼重要？</summary>
+    因為 reduce 是「把同詞的數字加總」。如果 "fox" 一部分在 reducer A、一部分在 reducer B，兩邊各加各的，就會得出兩個半截的數字，永遠湊不出正確的總數。靠 <code>hash(詞) % 人數</code> 這個固定規則保證同詞同人，才不會算錯。</details>
+  <details class="qa"><summary>💭 追問：一台機器跑到一半當機，為什麼可以直接重做、不怕出錯？</summary>
+    因為每個 map / reduce 工作都是「<strong>給一樣的輸入就吐一樣的輸出、而且不會去動別人</strong>」（純函式、沒有副作用）。所以同一份工作重做幾次，結果都一樣，直接重發給別的機器即可，不會汙染整體結果。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到 map→shuffle→reduce 三階段：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8053 -t public
+# 然後瀏覽器打開 http://localhost:8053</code></pre>
+  <ol>
+    <li><strong>貼一段文字</strong>（中英文都行），按「跑 MapReduce Job」。</li>
+    <li>看 <strong>① map</strong>：文字被切成幾片、每片各吐出哪些 <code>(詞,1)</code>。</li>
+    <li>看 <strong>② shuffle</strong>：每個 reducer 收到哪些詞（同一個詞一定只出現在一個 reducer）。</li>
+    <li>看 <strong>③ reduce</strong>：每個 reducer 把同詞加總，最後合成總表。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把「reduce 任務數 (R)」從 2 改成 1 或 3，看<strong>同一個詞跑去哪個 reducer 變了沒</strong>——這就是 <code>hash(詞) % R</code> 在重新分籃子。再勾選 <strong>combiner</strong>，看「中間 (詞,值) 對數」是不是<strong>變少了</strong>——那就是「交出前先小計」省下的搬運量。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那三關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心剛好<strong>三個小檔對應三關</strong>，加一個工頭把它們串起來。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三關</span>
+    <strong>Mapper</strong>（每人數自己那疊）→ <strong>Shuffler</strong>（按面額分籃子）→ <strong>Reducer</strong>（每籃加總）。價值一來，就照這順序跑一遍，<strong>Job</strong> 這個工頭負責串起來。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>Map：每個詞吐一張 (詞, 1)（Mapper）</h3>
+    <p>第一關超簡單：把一行字斷成一個個詞，每個詞吐一張「這個詞 +1」的紙條。</p>
+<pre><code>function map(一片文字) {
+    紙條 = []
+    對每一行:
+        對行裡每個詞:
+            紙條.加入( (詞, 1) )       // ← 看到一個詞就記一筆 +1
+    return 紙條
+}</code></pre>
+    <p class="codecaption">就這樣。一千個工人各跑各的這段，互不干擾，所以可以同時進行。產物是一大堆 <code>(詞,1)</code>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>Shuffle：同一個詞丟同一個 reducer（Shuffler）</h3>
+    <p>第二關是<strong>全題最關鍵</strong>的一行：用固定規則決定「這個詞該丟給哪個 reducer」。</p>
+<pre><code>function 該給哪個reducer(詞, 人數R) {
+    return hash(詞) % R            // ← 同一個詞算出來永遠一樣 → 一定進同一個 reducer
+}
+
+function shuffle(全部紙條, R) {
+    籃子 = {}
+    對每張 (詞, 1):
+        r = 該給哪個reducer(詞, R)
+        籃子[r][詞].加入(1)         // 把同詞的 1 收集到同一個籃子
+    return 籃子
+}</code></pre>
+    <p class="codecaption">關鍵就是那行 <code>hash(詞) % R</code>：因為同一個詞每次算出的答案都一樣，所以<strong>不管哪個 mapper 產生的 "fox"，都會進同一個 reducer</strong>。少了這個保證，加總就會分散、算錯。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>Reduce：把同詞的 1 加起來（Reducer）</h3>
+    <p>第三關也很單純：每個 reducer 拿著自己籃子裡的詞，把每個詞的一堆 1 加總。</p>
+<pre><code>function reduce(一個籃子) {     // 籃子 = { 詞 => [1,1,1,...] }
+    結果 = {}
+    對籃子裡每個 (詞 => 數字清單):
+        結果[詞] = 數字清單.加總()   // ← (fox,[1,1,1]) → (fox,3)
+    return 結果
+}</code></pre>
+    <p class="codecaption">想換成別的工作（算平均、找 Top-N）？<strong>只要改這一行加總</strong>，map 和 shuffle 完全不用動——這就是 MapReduce 通用的精髓。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>combiner：交出前先自己小計（可選的省錢招）</h3>
+    <p>還記得「最怕搬運太慢」嗎？這就是解法：工人把紙條交出去之前，<strong>先自己把同詞小計一下</strong>。</p>
+<pre><code>// 沒 combiner：吐出 (the,1)(the,1)(the,1)... 一百張要搬
+// 有 combiner：自己先加 → 只吐 (the,100) 一張要搬
+本地小計 = {}
+對我這片的每個詞: 本地小計[詞] += 1
+吐出本地小計裡的 (詞, 小計)        // ← 要搬的紙條變超少</code></pre>
+    <p class="codecaption">demo 裡勾選 combiner，就會看到「中間 (詞,值) 對數」明顯變少——這就是它幫 shuffle 省下的搬運量。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 每人數自己那疊</td><td>Mapper</td><td><code>map()</code> 吐 (詞,1)</td></tr>
+      <tr><td>② 同詞集中到同人</td><td>Shuffler</td><td><code>hash(詞) % R</code></td></tr>
+      <tr><td>③ 每籃加總</td><td>Reducer</td><td><code>reduce()</code> 的加總</td></tr>
+      <tr><td>省搬運（combiner）</td><td>Mapper</td><td>交出前的本地小計</td></tr>
+      <tr><td>工頭串起三關</td><td>Job</td><td>依序跑 split→map→shuffle→reduce</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「一台機器的迴圈」換成「一千台機器跨網路平行 + 跨機 shuffle + 容錯重跑」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「全班一起數錢」解釋 MapReduce 的三關。</summary>
+    ① Map：每排同學先數自己收到的，喊出一筆筆 (面額,1)；② Shuffle：把同面額的集中給負責那個面額的人（按固定規則分籃子）；③ Reduce：每個人把自己那種面額加總。合起來就是總額。</details>
+  <details class="qa"><summary>Q2：為什麼「同一個詞一定要進同一個 reducer」？怎麼保證？</summary>
+    因為 reduce 要把同詞的數字加總，若同個詞散在不同 reducer，會各加各的、湊不出正確總數。用 <code>hash(詞) % R</code> 這個固定規則保證：同一個詞算出的 reducer 編號永遠一樣，必進同一個。</details>
+  <details class="qa"><summary>Q3：三關裡哪一關最花時間？為什麼？怎麼省？</summary>
+    Shuffle 最花時間——它要把幾乎全部的中間資料跨整個機房搬去重新分組。省法：用 combiner 在 map 端「交出前先小計」，把要搬的量壓小。</details>
+  <details class="qa"><summary>Q4：什麼是資料傾斜？舉例並說解法。</summary>
+    某個 key 超熱門（如英文 "the"），負責它的 reducer 拿到海量資料累死，其他 reducer 閒著，整個 job 被它拖住。解法：把熱門 key 加鹽打散分給好幾個 reducer，或自訂分區規則。</details>
+  <details class="qa"><summary>Q5：一台機器跑到一半當機，框架怎麼處理？為什麼不怕算錯？</summary>
+    工頭(master)發現它心跳沒了，就把它那份 task 重發給別的機器重做。因為 map/reduce 是「同輸入同輸出、沒副作用」的純函式，重做結果一樣，不會汙染整體。</details>
+  <details class="qa"><summary>Q6：批次（MapReduce）和串流（Flink）差在哪？什麼時候用哪個？</summary>
+    批次＝資料整批一次算、延遲高但穩，適合每天結算的大報表；串流＝一筆筆即時算、延遲低但複雜，適合即時儀表板。兩者互補，常一起用。</details>
+  <details class="qa"><summary>Q7：combiner 是什麼？什麼計算不能用它？</summary>
+    combiner＝工人交出前先本地小計，減少 shuffle 搬運量。只有「先合一部分再合起來答案不變」的計算能用（加總、最大值）；算平均不行（要拆成總和+個數，最後再除）。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>MapReduce = 一大群機器一起數錢的標準流程，把一個人做不完的超大工作切碎、分頭做、再合起來。</strong></p>
+    <p><strong>3 個關卡：</strong>① <strong>Map</strong>（每人數自己那疊，吐 (詞,1)）→ ② <strong>Shuffle</strong>（用 <code>hash(詞)%R</code> 把同詞集中到同一個 reducer）→ ③ <strong>Reduce</strong>（每人把自己那種加總）。</p>
+    <p><strong>3 個怕：</strong>怕搬運太慢（shuffle 是瓶頸 → combiner 先小計）、怕分配不均（資料傾斜 → 熱門 key 打散）、怕有人落跑（機器掛 → 純函式直接重跑、太慢就 speculative 備援）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>map 工人數由資料大小自動定、reduce 數 (R) 自己權衡；最貴的是中間的 shuffle（跨機房搬資料）；它是串流的<strong>另一半</strong>——離線、整批、吞吐優先；進化版是把中間結果留記憶體的 Spark。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>53 MapReduce / 批次處理 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

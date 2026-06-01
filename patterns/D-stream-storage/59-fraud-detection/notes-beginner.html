@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>59 即時詐欺偵測 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>59 即時詐欺偵測 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼難點不是「比對黑名單」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你刷卡買杯咖啡，一秒內就過了。但如果你的卡號被偷，小偷在 30 秒內連刷 10 筆、還買了一支高價手機——銀行得在<strong>每一筆「刷下去的當下」</strong>判斷：<strong>這筆放行、還是攔下來、還是請人來看一眼？</strong>這就是<strong>即時詐欺偵測</strong>。</p>
+  <p>聽起來像「比對黑名單」對吧？難的是：壞人不會乖乖待在黑名單裡。系統得<strong>在毫秒內、從一堆線索（這張卡最近刷幾筆？金額正常嗎？這 IP 是不是在掃號？）算出一個「風險分數」</strong>，再決定怎麼處理——而且<strong>千萬別把正常人的卡誤擋</strong>，不然客人氣到換銀行。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    詐欺偵測 = <strong>每筆交易的瞬間保全</strong>：用幾條線索算出「這筆有多可疑」的分數 → 分數低就<strong>放行</strong>、中間就<strong>請人工看</strong>、太高就<strong>擋下</strong>。又快又不能冤枉好人。
+  </div>
+
+  <h2 id="why">2. 為什麼難點不是「比對黑名單」？</h2>
+  <p>很多人第一次看這題會想：「不就是把壞卡號列個清單，刷到就擋嗎？」——這想法漏掉了兩個真正的難關。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：機場安檢</span>
+    安檢不是只比對「通緝犯名單」。多數壞人不在名單上。安檢看的是<strong>行為訊號</strong>：一個人<strong>短時間反覆進出</strong>、<strong>帶超量現金</strong>、<strong>神色異常</strong>……每個訊號加一點可疑度，<strong>加起來夠高才攔下盤查</strong>。
+  </div>
+  <p>詐欺偵測的第一個難關就是這個：壞人多半<strong>不在名單上</strong>，得靠<strong>「行為訊號加總成分數」</strong>來抓。其中最有力的訊號是<strong>速度</strong>——同一張卡<strong>短時間內刷太多筆</strong>，幾乎一定有鬼（小偷在試卡）。</p>
+  <p>第二個難關更要命：<strong>不能冤枉好人</strong>。你出國旅遊刷卡、或雙 11 連下好幾單，行為很像「異常」，但你是真的。<strong>擋錯一筆正常交易</strong>，輕則客訴、重則客人直接換銀行。所以系統寧可設一個<strong>「中間地帶」交給人工看</strong>，也不要全部一刀切。</p>
+  <p class="pause">💭 停一下：為什麼「只比對黑名單」抓不到大部分詐欺？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為盜刷用的卡號 / IP 多半是<strong>第一次出現</strong>，根本不在任何名單裡。真正能抓到的是<strong>行為</strong>——尤其「同一張卡短時間內爆量交易」這種速度訊號。黑名單只是眾多訊號中<strong>最確定的那一條</strong>，不是全部。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。一筆交易進來，其實就闖 4 關：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>算線索：這筆交易現在「看起來」怎樣？</h3>
+    <p>交易一進來，先<strong>算出幾個即時線索</strong>。最重要的是<strong>速度</strong>：<em>這張卡 / 這個 IP 最近一小段時間（例如 60 秒）刷了幾筆？</em></p>
+    <div class="analogy">
+      <span class="label">⏱️ 比喻：看「最近一分鐘」的計步器</span>
+      想知道一個人是不是在跑步，不看他一整天走幾步，只看<strong>「最近一分鐘」</strong>動了幾下。
+      系統也一樣：只盯<strong>最近 60 秒</strong>這張卡刷了幾筆——這個「最近一小段時間的計數」就叫<strong>滑動視窗</strong>，是抓盜刷最強的線索。
+    </div>
+    <p>👉 這一關跟同一組的 <code>㉒ 廣告點擊聚合</code>是<strong>同一套招</strong>：那題用「最近一段時間同 IP 點幾次」抓刷廣告，這題用「最近一段時間同卡刷幾筆」抓盜刷。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>評分：把每條線索的可疑度加起來</h3>
+    <p>有了線索，就像安檢累加可疑度：<strong>每一條「規則」命中就加一些分</strong>，全部加起來＝這筆交易的<strong>風險總分</strong>。</p>
+    <div class="analogy">
+      <span class="label">🎯 比喻：考試扣分制</span>
+      速度太快？<strong>+40 分可疑</strong>。金額破天荒大？<strong>+30</strong>。這張卡在黑名單裡？<strong>+80</strong>。一個「模型」覺得整體怪怪的？再<strong>+一些</strong>。
+      把這些「可疑分」加起來，就知道這筆<strong>到底多可疑</strong>。
+    </div>
+    <p>這些規則有兩種來源：<strong>人寫的規則</strong>（清楚、好解釋，像「金額 &gt; 1000 就加分」）和<strong>機器學的模型</strong>（抓人想不到的細微壞模式）。兩者的分數<strong>加在一起</strong>，後面會講它們各自的長短。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>三分決策：放行 / 人工審 / 拒絕</h3>
+    <p>有了總分，最後一步是<strong>切三段</strong>（不是只有「過」跟「不過」）：</p>
+    <div class="analogy">
+      <span class="label">🚦 比喻：紅黃綠燈</span>
+      分數<strong>低</strong> → 綠燈，<strong>放行</strong>（allow）。
+      分數<strong>中間</strong> → 黃燈，<strong>請人工看一眼</strong>（review，別急著擋，怕冤枉好人）。
+      分數<strong>很高</strong> → 紅燈，<strong>直接擋</strong>（deny）。
+    </div>
+    <p>為什麼要有「黃燈」？因為<strong>怕冤枉好人</strong>。雙 11 連下好幾單的你，分數可能落在中間——與其直接擋（惹怒你），不如丟給人工確認。這個「黃燈中間地帶」是整個系統<strong>調鬆調緊的旋鈕</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>回饋：事後對答案，讓它越來越準</h3>
+    <p>交易處理完還沒結束。過幾天，如果使用者<strong>來申訴「這筆不是我刷的」</strong>（這叫 chargeback），系統就知道「<strong>啊，那筆其實是詐欺</strong>」——這就是<strong>答案</strong>。</p>
+    <div class="analogy">
+      <span class="label">📚 比喻：考完對答案</span>
+      考完試對答案，才知道哪題做錯、下次怎麼改進。系統把這些「事後確認的答案」<strong>餵回去重新訓練模型、補新規則、把壞卡加進黑名單</strong>——下次就更準。
+    </div>
+    <p>這個「處理 → 拿到真實結果 → 改進 → 再處理」的循環，就叫<strong>回饋迴路</strong>。只是答案常常<strong>要等好幾天</strong>（申訴沒那麼快），所以即時那關還是得靠規則先擋。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>算線索</strong>（最近一段時間刷幾筆＝速度）→ ② <strong>評分</strong>（每條規則命中加分，加成總分）→ ③ <strong>三分決策</strong>（紅黃綠燈：放行/人工審/拒絕）→ ④ <strong>回饋</strong>（事後對答案，越來越準）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「冤枉好人」（誤殺）</span>
+    這是詐欺系統<strong>最致命</strong>的怕。擋錯一筆正常交易，客人當場刷不過、超丟臉，回家就換銀行。
+    所以才要<strong>三分決策的「黃燈」</strong>把不確定的丟給人工，門檻也偏保守。<em>寧可漏抓一點，也別亂擋好人。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「慢」</span>
+    判斷發生在你<strong>刷卡的當下</strong>，多等 1 秒體驗就崩。系統只有<strong>幾十毫秒</strong>把線索查完、規則跑完、分數算完。
+    所以「最近一段時間刷幾筆」這種線索得<strong>事先放在超快的記憶體（Redis）</strong>，不能臨時去翻大資料庫。<em>慢＝不可用。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「線索不新鮮」</span>
+    小偷在 10 秒內連刷 8 筆，如果系統「剛剛那筆」還沒算進速度計數，第 8 筆來的時候它以為「才刷 1 筆」，就漏了。
+    所以「<strong>剛剛那筆一定要立刻反映</strong>」進線索裡——這叫<strong>特徵新鮮度</strong>。<em>線索過時，等於沒看。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>💳 <strong>交易</strong>刷下來 →</li>
+    <li>⏱️ <strong>即時特徵</strong>算「最近一段時間這卡/這 IP 刷幾筆」（滑動視窗速度，跟 ㉒ 同一招）→</li>
+    <li>🧮 <strong>規則引擎 + 模型</strong>：每條規則命中加分，加成一個<strong>風險總分</strong> →</li>
+    <li>🚦 <strong>三分決策</strong>：分數低 → <strong>放行</strong>、中間 → <strong>人工審</strong>、很高 → <strong>拒絕</strong> →</li>
+    <li>📚 人工審 / 申訴的結果<strong>回標成答案</strong>，餵回去<strong>重新訓練模型、更新規則和名單</strong>（虛線回饋）。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>滑動視窗（sliding window）</td><td>只看「最近一小段時間」的計數（最近 60 秒刷幾筆），像只看最近一分鐘的計步器</td></tr>
+    <tr><td>速度 / velocity</td><td>單位時間內的次數——抓盜刷最強的線索（短時間爆量＝可疑）</td></tr>
+    <tr><td>特徵（feature）</td><td>用來判斷的「線索」（速度、金額、是否在名單…）</td></tr>
+    <tr><td>規則引擎</td><td>一堆「命中就加分」的判斷，加總成風險分；好解釋、可隨時調</td></tr>
+    <tr><td>ML 模型</td><td>機器從歷史資料學出來的判斷，抓人想不到的細微壞模式；準但黑箱</td></tr>
+    <tr><td>風險總分（score）</td><td>所有線索加起來的「這筆有多可疑」</td></tr>
+    <tr><td>三分決策 allow/review/deny</td><td>紅黃綠燈：放行 / 請人工看 / 拒絕</td></tr>
+    <tr><td>誤殺（false positive）</td><td>把正常交易當成詐欺擋掉（冤枉好人）</td></tr>
+    <tr><td>漏抓（false negative）</td><td>真詐欺沒抓到，放行了</td></tr>
+    <tr><td>黑名單 / 白名單</td><td>確定壞的（直接擋）/ 確定好的（保護不誤殺）</td></tr>
+    <tr><td>回饋迴路</td><td>事後拿到真實結果（如申訴）→ 改進模型/規則 → 下次更準</td></tr>
+    <tr><td>chargeback（拒付）</td><td>使用者事後申訴「這筆不是我」，是判定「那筆真的是詐欺」的答案</td></tr>
+    <tr><td>特徵新鮮度</td><td>「剛剛那筆」要立刻反映進線索，否則速度算不準會漏抓</td></tr>
+    <tr><td>fail-open / fail-close</td><td>風控服務掛掉時：放行（不阻斷正常人）或保守擋（保安全）</td></tr>
+    <tr><td>QPS / TPS</td><td>每秒幾筆請求 / 交易（衡量「多忙」的單位）</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。系統設計也一樣：先估數字，才知道要準備多大的「料」。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少筆交易</td><td>~2 億筆 ≈ 平均每秒 2 千多筆，尖峰近 1 萬</td><td>量不算誇張，但每筆都要「即時」判斷</td></tr>
+    <tr><td>每筆能花多久判斷</td><td>幾十毫秒（不能拖慢付款）</td><td>線索要放超快記憶體，不能臨時翻大資料庫</td></tr>
+    <tr><td>有幾條規則</td><td>數十到數百條</td><td>每筆都要全跑完 → 規則本身得很快</td></tr>
+    <tr><td>多久才知道「答案」</td><td>申訴/拒付常拖好幾天</td><td>即時靠規則先擋，模型只能用「確認過」的舊答案再訓練</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：壓力不在「筆數」，在「每筆都要又快又準」</span>
+    每秒幾千筆聽起來還好。真正難的是<strong>每一筆都得在幾十毫秒內查到「最近刷幾筆」這種即時線索、跑完所有規則、還要不誤殺</strong>。所以設計重點是<strong>「線索放超快記憶體」+「規則跑得飛快」</strong>。
+  </div>
+  <p class="pause">💭 停一下：為什麼「最近一段時間刷幾筆」這種線索不能在判斷時才去大資料庫算？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為判斷只有幾十毫秒，去大資料庫翻「這張卡過去所有交易再數一遍」太慢了。所以要<strong>事先</strong>把「最近 60 秒刷幾筆」維護在超快的記憶體（Redis）裡，每來一筆就順手更新，判斷時<strong>一查就有</strong>。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你給我哪些欄位、我回你什麼。講好格式，雙方就能合作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 評估一筆交易（最核心、要超快）
+   POST /api/v1/evaluate
+   給我：{ 交易編號, 卡號, IP, 裝置, 金額, 時間 }
+   我回：{ 決策: allow/review/deny, 分數: 62, 觸發了哪些規則:[...] }</code></pre>
+  <p class="codecaption">回傳要附「觸發了哪些規則」，這樣被擋的人才能<strong>解釋</strong>為什麼被擋（合規、客訴都需要）。</p>
+  <pre><code>② 回饋答案（事後對答案）
+   POST /api/v1/feedback   給我：{ 交易編號, 答案: 詐欺/正常, 來源: 申訴/人工 }</code></pre>
+  <pre><code>③ 調門檻（即時生效，不用重啟）
+   POST /api/v1/config   給我：{ 同卡速度門檻, review 分界, deny 分界 }
+④ 加名單
+   POST /api/v1/blacklist   給我：{ 值, 類型: 卡/IP/裝置 }</code></pre>
+  <p class="codecaption">③ 很重要：詐欺手法天天變，要能<strong>當場調鬆調緊</strong>，不能每次都重新部署。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：幾本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題主要幾本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">⏱️</span>速度本（最近刷幾筆——核心！放超快記憶體）</h3>
+    <p>每個鍵（卡號 / IP）記<strong>最近一段時間的交易時間</strong>，好隨時回答「最近 60 秒刷幾筆」。
+    這本放在<strong>Redis</strong>（超快），而且設<strong>自動過期</strong>，舊資料自己消失，不會無限長大。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📐</span>規則本（每條規則怎麼加分）</h3>
+    <p>每條規則一列：<code>類型(速度/金額/黑名單/模型)、參數(視窗多久、門檻多少)、加幾分、開不開</code>。可以<strong>隨時改</strong>，不用重啟。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🚫</span>名單本（確定壞的 / 確定好的）</h3>
+    <p>黑名單（直接擋）和白名單（保護高價值客戶不被誤殺）。命中就是最高優先、最好解釋的判斷。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📑</span>決策本 + 答案本（解釋 + 再訓練）</h3>
+    <p>決策本記「每筆的分數、觸發哪些規則、最後決策」（供申訴解釋）；答案本記「事後確認這筆是詐欺還是正常」（餵回去再訓練）。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>每筆都要查「最近刷幾筆」（讀太多）</td><td>放 Redis，照卡號/IP <strong>分片</strong>分散壓力；同一張卡固定走同一台，保證「剛剛那筆」算得到</td></tr>
+    <tr><td>規則太多，每筆全跑很慢</td><td>先跑<strong>便宜的規則</strong>，能早點下結論就早退；服務多開幾台一起跑</td></tr>
+    <tr><td>模型推論慢</td><td>用<strong>輕量模型</strong>、把線索先準備好、模型服務獨立擴展</td></tr>
+    <tr><td>線索不新鮮會漏抓</td><td>同一張卡<strong>路由到同一台</strong>，保證「先寫進去、再讀出來」</td></tr>
+    <tr><td>換新模型怕出包</td><td><strong>影子模式</strong>（新模型先只算不擋、跟舊的比）+ 灰度上線 + 可快速回滾</td></tr>
+    <tr><td>風控服務掛了</td><td>事先決定 <strong>fail-open</strong>（放行保營收）還是 <strong>fail-close</strong>（保守擋保安全）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 誤殺 vs 漏抓（最核心）</span>
+    門檻調<strong>嚴</strong> → 少漏抓，但多冤枉好人（誤殺）；調<strong>鬆</strong> → 不冤枉人，但放過更多詐欺。
+    「黃燈」人工審就是調這個平衡的旋鈕：不確定的別一刀切，丟給人看。</div>
+  <div class="fear"><span class="label">⚖️ 人寫規則 vs 機器學模型</span>
+    規則<strong>好解釋、改得快</strong>（被擋的人問為什麼，你答得出來），但抓不到沒見過的招；
+    模型<strong>準、抓得到細微壞模式</strong>，但黑箱、要訓練資料、上線更謹慎。實務是<strong>兩個一起用</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 即時擋 vs 事後批次抓</span>
+    即時擋得住「刷卡當下」的盜刷，但只有幾十毫秒；事後可以慢慢用大資料做更重的分析、補抓漏網的。兩者<strong>互補</strong>，不是二選一。</div>
+  <details class="qa"><summary>💭 追問：小偷用 8 個不同卡號、但同一個 IP 連續刷，黑名單和「同卡速度」都抓不到，怎麼辦？</summary>
+    換個鍵看速度：除了「同卡速度」，再加一條「<strong>同 IP 速度</strong>」——同一個 IP 短時間內出現一堆不同卡的交易，一樣可疑。這就是為什麼要對<strong>多個鍵</strong>（卡、IP、裝置）都算速度。</details>
+  <details class="qa"><summary>💭 追問：詐欺的「答案」要好幾天才知道，模型怎麼學？</summary>
+    即時那關靠<strong>規則</strong>先擋（不用等答案）；模型用的是<strong>已經確認過的舊交易</strong>（成熟標籤）來再訓練。新手法先用規則補上，等累積夠多答案再進模型。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「速度線索 + 加分 + 三分決策」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8059 -t public
+# 然後瀏覽器打開 http://localhost:8059</code></pre>
+  <ol>
+    <li>先按<strong>「送 5 筆正常交易」</strong>：不同卡、小額 → 看每筆分數都很低、決策都是 <strong>allow</strong>。</li>
+    <li>再按<strong>「同卡連送 8 筆」</strong>：同一張卡狂刷 → 看前幾筆還 allow，刷到第 4 筆<strong>速度規則被觸發、分數跳高</strong>、決策變 <strong>review</strong> 甚至 <strong>deny</strong>。</li>
+    <li><strong>調門檻</strong>：把「同卡速度門檻」調小、或把 deny 分界調低，再跑一次，看決策整體往「擋」的方向移動。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>同樣 8 筆交易，<strong>只是把門檻調一下</strong>，決策就從多半放行變成多半攔下——這就是<strong>誤殺 vs 漏抓</strong>那個旋鈕在你手上轉。回傳裡的 <code>triggered</code> 告訴你「為什麼」被加分，這就是<strong>可解釋</strong>。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>兩個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>SlidingWindow</strong>（算「最近刷幾筆」的速度計）→ <strong>RuleEngine</strong>（每條規則加分、加成總分、切三段決策）。交易一來，就照這順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>速度計：只看「最近一段時間」刷幾筆（SlidingWindow）</h3>
+    <p>每來一筆，先<strong>丟掉太舊的紀錄</strong>（超出視窗的不算），再把這一筆加進去，剩下的筆數就是<strong>現在的速度</strong>。</p>
+<pre><code>function 記一筆並回傳速度(這個鍵, 現在時間) {
+    最近的 = 把舊紀錄裡「還在最近 60 秒內」的留下來   // ← 這就是「滑動」：舊的自動掉出去
+    最近的.加入(現在時間)                              // 把這一筆算進去
+    記錄[這個鍵] = 最近的
+    return 最近的.筆數     // ← 視窗內筆數 = 此刻的速度
+}</code></pre>
+    <p class="codecaption">「鍵」可以是卡號，也可以是 IP。同一招換個鍵就能同時抓「同卡爆量」和「同 IP 爆量」。這段跟 <code>㉒ 廣告聚合</code>的同 IP 洪水偵測<strong>一模一樣</strong>，只是這裡把筆數當「線索」交給下一關評分。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>評分大腦：每條規則命中就加分（RuleEngine）</h3>
+    <p>這是<strong>全題的心臟</strong>。把幾條規則一條條檢查，<strong>命中就加上各自的分數</strong>，順便記下「觸發了哪條」好解釋：</p>
+<pre><code>分數 = 0;  觸發清單 = []
+卡速度 = 速度計.記一筆並回傳速度("卡:"+卡號, 時間)   // 線索①
+IP速度 = 速度計.記一筆並回傳速度("IP:"+IP,  時間)   // 線索②
+
+if (卡速度 > 同卡門檻)   { 分數 += 40; 觸發清單.加("velocity_card") }   // 同卡刷太快
+if (IP速度 > 同IP門檻)   { 分數 += 25; 觸發清單.加("velocity_ip")   }   // 同IP刷太快
+if (金額   > 金額門檻)   { 分數 += 30; 觸發清單.加("amount")        }   // 大額
+if (卡號或IP在黑名單)    { 分數 += 80; 觸發清單.加("blacklist")     }   // 確定壞的
+分數 += 模型示意分(金額, 速度)                                          // 模型再補一點</code></pre>
+    <p class="codecaption">每條規則就一行 <code>if</code>，命中加分。分數的大小（40/25/30/80）就是「這條訊號有多重」。黑名單加最多（80），因為它最確定。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>切三段：紅黃綠燈（RuleEngine 的最後一步）</h3>
+    <p>分數算完，用<strong>兩條分界線</strong>切成三段——就是前面講的三分決策：</p>
+<pre><code>if (分數 >= deny門檻)        decision = "deny"     // 紅燈：擋
+else if (分數 >= review門檻) decision = "review"   // 黃燈：人工看
+else                        decision = "allow"    // 綠燈：放行</code></pre>
+    <p class="codecaption">兩條門檻 <code>review門檻</code>、<code>deny門檻</code> 就是你在 demo 裡能調的旋鈕。調低 → 更多交易往「擋」走（少漏抓、多誤殺）；調高 → 反之。<strong>誤殺 vs 漏抓的平衡，全在這兩個數字。</strong></p>
+    <p class="pause">💭 停一下：為什麼要「黃燈 review」這一段，不直接「過 / 擋」二選一？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為怕<strong>冤枉好人</strong>。很多交易分數落在「有點可疑但不確定」的中間，直接擋會誤殺正常客戶，直接放又怕漏。丟給<strong>人工審</strong>是最安全的折衷——這就是三分決策比二分決策聰明的地方。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 算線索（速度）</td><td>SlidingWindow</td><td><code>記一筆並回傳速度()</code></td></tr>
+      <tr><td>② 評分（規則加分）</td><td>RuleEngine</td><td>一串 <code>if … 分數 +=</code></td></tr>
+      <tr><td>③ 三分決策</td><td>RuleEngine</td><td>兩條門檻切 allow/review/deny</td></tr>
+      <tr><td>④ 回饋</td><td>（真實系統）</td><td>事後標籤回流再訓練（demo 以調門檻示意）</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈」換成「Redis 速度計 + 線上模型服務 + Kafka 串流」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。
+  唯一<strong>誠實聲明</strong>：demo 裡的「模型分」是<strong>加權示意</strong>（金額/速度越高分越高），不是真的訓練出來的 ML 模型；速度計和規則引擎都是真的。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「機場安檢」解釋，這題為什麼不能只靠黑名單？</summary>
+    因為大部分壞人不在通緝名單上。要靠<strong>行為訊號加總</strong>：反覆進出、帶超量現金……每個加一點可疑度，加起來夠高才攔。對應到交易就是「速度太快、金額異常」等線索加成風險分，黑名單只是其中最確定的一條。</details>
+  <details class="qa"><summary>Q2：抓盜刷最強的線索是什麼？為什麼？</summary>
+    <strong>速度</strong>——同一張卡（或同 IP）在最近一小段時間內刷了幾筆。盜刷常是短時間連續試卡/爆刷，所以「最近 60 秒筆數暴增」是極強訊號。靠滑動視窗計數即時算出。</details>
+  <details class="qa"><summary>Q3：為什麼要「三分決策」（放行/人工審/拒絕），不直接二選一？</summary>
+    因為怕誤殺。中間「有點可疑但不確定」的交易，直接擋會冤枉好人、直接放又怕漏，丟給人工審最安全。這個中間地帶也是調「誤殺 vs 漏抓」平衡的旋鈕。</details>
+  <details class="qa"><summary>Q4：為什麼「最近刷幾筆」這種線索要放 Redis，不在判斷時去大資料庫算？</summary>
+    因為判斷只有幾十毫秒。去大資料庫翻整段歷史再數太慢。所以事先把「最近 60 秒筆數」維護在超快記憶體（Redis）並設自動過期，判斷時一查就有。這也保住了低延遲。</details>
+  <details class="qa"><summary>Q5（工程）：「特徵新鮮度」是什麼？不顧它會怎樣？</summary>
+    指「剛剛那筆」要立刻反映進速度計數。若沒做到，小偷 10 秒連刷 8 筆時，第 8 筆來時系統以為「才刷 1 筆」就漏抓。所以同一張卡要路由到同一台、保證先寫後讀。</details>
+  <details class="qa"><summary>Q6（工程）：規則和 ML 模型各自的長短？為什麼兩個一起用？</summary>
+    規則好解釋、改得快，但抓不到沒見過的招；模型準、抓得到細微壞模式，但黑箱、要訓練資料。一起用：規則擋明確壞模式 + 模型補細緻分數，分數加總。</details>
+  <details class="qa"><summary>Q7（工程）：詐欺的「答案」要好幾天才知道，這對系統有什麼影響？</summary>
+    即時那關不能等答案，只能靠規則先擋；模型只能用「已經確認過的舊交易」（成熟標籤）再訓練。新手法先用規則補，累積夠多答案後再進模型。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>即時詐欺偵測 = 每筆交易的瞬間保全：算分數，紅黃綠燈決定放行/人工審/拒絕。</strong></p>
+    <p><strong>4 個關卡：</strong>① <strong>算線索</strong>（最近一段時間刷幾筆＝速度，跟 ㉒ 同一招）→ ② <strong>評分</strong>（每條規則命中加分，加成總分）→ ③ <strong>三分決策</strong>（紅黃綠燈）→ ④ <strong>回饋</strong>（事後對答案越來越準）。</p>
+    <p><strong>3 個怕：</strong>怕冤枉好人（誤殺最致命 → 三分決策的黃燈）、怕慢（線索放 Redis、幾十毫秒搞定）、怕線索不新鮮（剛剛那筆要立刻反映）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>壓力不在筆數、在「每筆都要又快又準」→ 速度線索放超快記憶體並分片、規則跑得飛快、模型補細緻分數 → 兩條門檻切三段決策（調它就是調誤殺 vs 漏抓）→ 事後答案回流再訓練形成閉環。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>59 即時詐欺偵測 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

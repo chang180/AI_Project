@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>52 向量資料庫 / ANN 搜尋 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>52 向量資料庫 / ANN 搜尋 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「算誰最像」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在 Google 相簿打「<strong>海邊的狗</strong>」，它就把一堆海邊的狗照片找出來——<strong>就算照片檔名根本沒寫「狗」也找得到</strong>。
+  或者你用 ChatGPT 問公司內部文件，它會先<strong>找出最相關的幾段</strong>再回答你。這背後都是<strong>向量搜尋</strong>。</p>
+  <p>關鍵點：它找的不是「字一模一樣」，而是「<strong>意思相近</strong>」。怎麼做到？先把每樣東西（一句話、一張圖）變成一串數字——叫<strong>向量</strong>——意思越像的東西，數字串的「方向」就越接近。搜尋就變成「<strong>找方向最接近的那幾串數字</strong>」。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    向量搜尋 = <strong>把萬物變成「座標上的點」，意思相近的點就靠在一起</strong>；查詢時把問題也變成一個點，<strong>找離它最近的幾個點</strong>就是答案。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「算誰最像」？</h2>
+  <p>很多人第一次看會想：「不就是把每個點跟查詢點算距離，挑最近的嗎？」——這想法對，但會把系統壓垮。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：在一座億人城市找「長得最像你的人」</span>
+    要找全城<strong>長相最接近你</strong>的 10 個人。最笨的辦法：<strong>把全城一億人一個一個拉來跟你比對</strong>。一定找得到最像的，但比一億次，慢到天荒地老。
+  </div>
+  <p>向量搜尋的核心難關就是這個：點有<strong>幾億個</strong>、每個點又是<strong>幾百維</strong>（幾百個數字）。逐一比對全部（叫<strong>暴力搜尋</strong>）保證正確，但慢到不能用。</p>
+  <p>所以真正的招數是：<strong>事先把相近的點分好「區」</strong>。查詢時先看「你大概屬於哪一區」，<strong>只在那幾區裡比</strong>，跳過其他區。這叫 <strong>ANN（近似最近鄰）</strong>——用「可能會漏掉一兩個」換「快上幾百倍」。</p>
+  <p class="pause">💭 停一下：為什麼「跟全部一億人逐一比對」在這題行不通？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為點有幾億個、每個還是幾百維，每次查詢都把全部比一遍，計算量爆炸、慢到不能線上用。
+    我們需要「<strong>先分區、只比附近那幾區</strong>」的聰明辦法（ANN），雖然偶爾會漏掉，但快非常多——這就是後面要講的「分群」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>變成向量：把東西翻成「座標上的點」</h3>
+    <p>第一關，要把每樣東西（句子、圖片）變成一串數字（向量）。負責這件事的叫 <strong>嵌入模型</strong>——你可以想成一台「翻譯機」，把意思翻成座標。</p>
+    <div class="analogy">
+      <span class="label">🗺️ 比喻：把詞放上地圖</span>
+      想像一張地圖：「貓」「狗」放得很近（都是寵物），「汽車」放在很遠的另一區。
+      嵌入模型做的就是這件事——<strong>意思相近的，座標就靠近</strong>。重點：<strong>建資料庫和查詢，要用同一台翻譯機</strong>，不然座標對不上。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>分群：先把相近的點分好「區」</h3>
+    <p>幾億個點全擠在一起，查詢時一個個比太慢。所以<strong>事先把相近的點圈成一區一區</strong>，每區選一個「代表點」（中心）。</p>
+    <div class="analogy">
+      <span class="label">🏙️ 比喻：把城市分成行政區</span>
+      與其在全城一億人裡亂找，不如先把城市<strong>分成幾百個行政區</strong>，每區記一個「市中心位置」。
+      以後找人，先看「這個人大概在哪一區」，直接去那區找就好。這個「分區」的動作，工程上叫<strong>分群（建索引）</strong>。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查詢：只比「最近的那幾區」</h3>
+    <p>查詢點來了，先跟<strong>各區的「市中心」</strong>比一下（區只有幾百個，很快），挑出<strong>最近的 1~幾個區</strong>，<strong>只在這幾區裡的點</strong>逐一精算，挑出最近的 k 個。</p>
+    <div class="analogy">
+      <span class="label">🎯 比喻：先鎖定行政區，再進去找</span>
+      找「長得最像你的人」：先看你屬於哪個區（比幾百個市中心）→ 進那一兩個區，把區裡的人比一比 → 挑最像的 10 個。
+      <strong>其他幾百個區，看都不用看</strong>。一億次比對 → 變成幾千次，這就是 ANN 的威力。
+    </div>
+    <p>代價：萬一「最像你的人」剛好住在<strong>隔壁區</strong>、而你沒進去找，就<strong>漏掉了</strong>。漏掉的比例，就是下一關要管的「召回率」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>取捨：要找多準？（召回率 vs 速度）</h3>
+    <p>你可以決定「<strong>多看幾個區</strong>」。看的區越多 → 越不會漏掉最像的（準）、但越慢；看的區越少 → 越快、但越可能漏。</p>
+    <div class="analogy">
+      <span class="label">🔍 比喻：搜山找人</span>
+      失蹤者可能在某座山。只搜「最可能的那座」最快，但他若在隔壁山就漏了；<strong>多搜幾座山</strong>更不會漏，但更花時間。
+      <strong>要搜幾座</strong>（工程上叫 <code>nprobe</code>）就是你手上的「準 vs 快」旋鈕。
+    </div>
+    <p>用「<strong>暴力搜尋（全部比一遍）</strong>」當<strong>標準答案</strong>，看 ANN 找到的跟標準答案重疊多少，這個比例就叫<strong>召回率</strong>。召回率 1.0＝一個都沒漏。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 用翻譯機<strong>變成向量</strong> → ② 事先<strong>分群（分區）</strong> → ③ 查詢時<strong>只比最近的幾區</strong> → ④ 用<strong>「看幾區」旋鈕</strong>在「準（召回率）vs 快」之間調。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「慢 / 算不動」</span>
+    幾億個點 × 幾百維，每次查詢都全部比一遍，機器直接跑不動。
+    所以才要<strong>分群、只比最近幾區（ANN）</strong>，把「比一億次」變成「比幾千次」。<em>只比必要的，不做白工。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「漏掉最像的」（召回率太低）</span>
+    為了快只看一個區，結果「最像的」住隔壁區，沒找到 → 使用者覺得「這搜尋好爛」。
+    所以要<strong>能調「看幾區」</strong>，在可接受的速度下把召回率拉到夠高（如 95%+）。<em>快，但不能漏太多。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「裝不下記憶體」</span>
+    幾億個幾百維向量可能要好幾 TB，全塞進記憶體太貴。
+    所以要<strong>壓縮（量化）</strong>——把每個向量用更少的位元近似存，省記憶體；還可<strong>切成好幾台機器分開放</strong>（分片）。<em>裝得下、又夠快。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分上下兩排看：</p>
+  <ul>
+    <li><strong>上排（建資料庫）</strong>：📄 原始資料 → 🤖 嵌入模型翻成<strong>向量</strong> → 🗂️ <strong>分群建索引</strong> → 存進向量資料庫。</li>
+    <li><strong>下排（查詢）</strong>：🔎 你的查詢 → 用<strong>同一台翻譯機</strong>翻成查詢向量 q → 🎯 <strong>ANN 只比最近幾區</strong> → 挑出最像的 → (可選)再<strong>精排</strong>一次 → 回傳結果 + 標籤。</li>
+    <li>關鍵：查詢時<strong>只去翻索引裡「最近的那幾區」</strong>（M 個點），而不是全部 N 個——這就是又快又夠準的祕密。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>向量 / 嵌入(embedding)</td><td>把一句話/一張圖翻成的一串數字（座標上的點）；意思像 → 方向近</td></tr>
+    <tr><td>嵌入模型</td><td>把東西翻成向量的「翻譯機」；建庫和查詢要用同一台</td></tr>
+    <tr><td>相似度(cosine/內積)</td><td>量「兩個點方向多接近」的尺；越大越像</td></tr>
+    <tr><td>kNN（k 個最近鄰）</td><td>找「離查詢點最近的 k 個點」</td></tr>
+    <tr><td>暴力搜尋(brute force)</td><td>跟全部點逐一比一遍；保證正確但慢，當「標準答案」</td></tr>
+    <tr><td>ANN（近似最近鄰）</td><td>只比附近幾區、不比全部；快很多但可能漏一兩個</td></tr>
+    <tr><td>分群 / IVF（倒排檔）</td><td>事先把相近的點分區，每區記一個「市中心(centroid)」</td></tr>
+    <tr><td>centroid（中心）</td><td>一個區的「市中心位置」，用來判斷查詢點屬於哪區</td></tr>
+    <tr><td>nprobe（看幾區）</td><td>查詢時要進去找的區數；多＝準但慢，少＝快但易漏</td></tr>
+    <tr><td>HNSW（分層圖）</td><td>另一種 ANN：把點連成圖，從入口一路「往更近的鄰居跳」</td></tr>
+    <tr><td>召回率(recall)</td><td>ANN 找到的，跟「標準答案」重疊多少；1.0＝一個沒漏</td></tr>
+    <tr><td>量化壓縮(PQ)</td><td>把向量用更少位元近似存，省記憶體（裝得下幾 TB）</td></tr>
+    <tr><td>RAG</td><td>先用向量搜尋找出相關文件片段，再餵給 AI 回答</td></tr>
+    <tr><td>分片(shard)</td><td>資料太大 → 切成好幾台機器分開放</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>有多少點（向量）</td><td>~10 億個</td><td>不可能每次都全部比一遍 → 一定要 ANN（分群只比附近）</td></tr>
+    <tr><td>每個點多少維</td><td>~768 個數字</td><td>每個點約 3 KB</td></tr>
+    <tr><td>全部向量多大</td><td>10 億 × 3KB ≈ 3 TB</td><td>塞不進一台機器的記憶體 → 要壓縮 + 切多台</td></tr>
+    <tr><td>每秒多少查詢</td><td>數千～數萬次</td><td>每次都要在 50 毫秒內回 → 非 ANN 不可</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：兩件事決定一切</span>
+    ① 點太多 → 用<strong>分群只比附近（ANN）</strong>把比對量壓下來；
+    ② 資料太大 → 用<strong>壓縮 + 分片</strong>把 3 TB 裝進負擔得起的機器。其他都是繞著這兩件事轉。
+  </div>
+  <p class="pause">💭 停一下：每秒「才」幾千次查詢聽起來不多，為什麼還是非用 ANN 不可？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為<strong>每一次查詢</strong>如果用暴力，就要跟 10 億個點、每個 768 維比一遍——光一次就要算上千億次乘法。
+    幾千個查詢同時來，機器瞬間燒掉。ANN 把「一次比 10 億」變成「一次比幾千」，才撐得住。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 新增一個點（建資料庫時最常用）
+   POST /api/v1/vectors
+   給我：{ 向量[一串數字], 標籤(這是什麼、哪來的) }
+   我回：201「存好了，編號 100123」</code></pre>
+  <p class="codecaption">向量通常是嵌入模型先翻好再丟進來；標籤（metadata）之後可以拿來<strong>過濾</strong>（例如「只在中文文件裡找」）。</p>
+  <pre><code>② 搜尋最像的 k 個（查詢，最高頻）
+   POST /api/v1/search
+   給我：{ 查詢向量 q, 要幾個 k, 看幾區 nprobe, (可選)過濾條件 }
+   我回：[{ 編號, 相似度分數, 標籤 }, ...]   ← 由最像排到次像</code></pre>
+  <p class="codecaption">注意查詢也用 POST：因為查詢向量是一長串數字，塞不進網址列。<code>nprobe</code> 就是那個「準 vs 快」旋鈕，交給呼叫端調。</p>
+  <pre><code>③ 刪除 / 更新一個點
+   DELETE /api/v1/vectors/{編號}</code></pre>
+  <p class="codecaption">刪改之後，那個點在「分區索引」裡的歸屬也要跟著整理（通常先做記號、之後背景重建），這是後面「擴展」會談的麻煩事。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題主要用兩本：一本記<strong>原始的點</strong>，一本記<strong>分好的區</strong>。
+  </div>
+  <div class="step">
+    <h3><span class="badge">📍</span>點簿（每個點的座標 + 標籤）</h3>
+    <p>每個點一列：<code>編號、向量[一串數字]、標籤(這是什麼、哪來的、什麼時候)</code>。
+    向量本身要留著，因為最後排名次時要<strong>用原始座標精算</strong>；標籤拿來過濾和顯示。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗂️</span>分區簿（索引——核心！）</h3>
+    <p>記兩件事：① 每個區的<strong>市中心位置（centroid）</strong>；② 每個區<strong>有哪些點（成員名單）</strong>。
+    這就是讓查詢能「<strong>只進最近那幾區</strong>」的關鍵——先用市中心判斷該進哪區，再翻那區的成員名單。</p>
+    <div class="analogy"><span class="label">另一種分區法：HNSW（連連看的圖）</span>
+      除了「分行政區」，還有一種把點<strong>連成一張網</strong>的做法：相近的點互相牽線，查詢時從一個入口<strong>沿著線一路往更近的鄰居走</strong>，很快走到目標附近。它通常更準，但「記住所有連線」更吃記憶體。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>跟全部點逐一比，太慢</td><td><strong>分群（IVF）或連圖（HNSW）</strong>，查詢只比最近幾區/沿圖跳近</td></tr>
+    <tr><td>3 TB 向量塞不進記憶體</td><td><strong>量化壓縮（PQ）</strong>把每個點用更少位元近似存；不夠就<strong>切多台（分片）</strong></td></tr>
+    <tr><td>切多台之後，一個查詢要問每台</td><td>每台各找自己的 top-k，再<strong>合併成總名次</strong>（scatter-gather）</td></tr>
+    <tr><td>維度太高，「分區」效果變差</td><td>先<strong>降維</strong>（把幾百維壓成幾十維）+ 查詢時<strong>多看幾區</strong>補回召回</td></tr>
+    <tr><td>新增/刪除點，分區索引不好改</td><td>新點先丟<strong>暫存區</strong>線性比，定期<strong>合併重建</strong>進主索引；刪除先打記號</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 看幾區（nprobe）：準 vs 快</span>
+    看的區多 → 不容易漏掉最像的（召回率高），但慢；看的區少 → 快，但可能漏。<strong>沒有免費的午餐</strong>，要看業務能接受多少誤差。</div>
+  <div class="fear"><span class="label">⚖️ 暴力 vs 近似（ANN）</span>
+    暴力 100% 正確但慢到不能線上用；ANN 用一點召回率換數百倍速度。線上幾乎都選 ANN，<strong>用暴力的結果當「標準答案」來檢查 ANN 夠不夠準</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 記憶體 vs 磁碟</span>
+    索引放記憶體最快但貴；壓縮後塞記憶體、或把冷門資料放硬碟分層。看你願意花多少錢換多少速度。</div>
+  <div class="fear"><span class="label">⚖️ 嵌入模型好不好，是天花板</span>
+    翻譯機（嵌入模型）翻得爛，意思相近的點根本沒靠在一起，後面 ANN 再強也白搭。<strong>選對/微調嵌入模型，往往比調索引更重要。</strong></div>
+  <details class="qa"><summary>💭 追問：為什麼建資料庫和查詢一定要用「同一台翻譯機」？</summary>
+    因為不同模型把東西翻到<strong>不同的座標系</strong>。用 A 翻資料、用 B 翻查詢，就像一個用經緯度、一個用門牌號，<strong>根本對不上</strong>，算出來的「最近」毫無意義。</details>
+  <details class="qa"><summary>💭 追問：召回率不是越高越好嗎，為什麼不直接追求 100%？</summary>
+    100% 召回＝幾乎等於暴力搜尋（看遍所有區），那就失去 ANN 「快」的意義了。實務是<strong>在可接受的延遲下，把召回拉到夠用（如 95%）</strong>就好。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「暴力 vs ANN 各掃幾個點、會不會漏」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8052 -t public
+# 然後瀏覽器打開 http://localhost:8052</code></pre>
+  <ol>
+    <li>裡面預設有 9 個 4 維的點，刻意分成<strong>水果 / 交通 / 天氣</strong>三群。</li>
+    <li>在查詢框輸入一個查詢向量（例如 <code>0.9,0.1,0,0</code>，靠近「水果」那群）。</li>
+    <li>按 <strong>「兩者比較」</strong>：看 <strong>暴力 kNN 掃了 9 個</strong>（全部）、<strong>ANN 只掃了 3 個</strong>（一個群），以及<strong>召回率</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把查詢改成 <code>0.5,0.5,0,0</code>（剛好<strong>卡在水果和交通兩群中間</strong>），用 ANN（nprobe=1）查 → 你會看到<strong>召回率掉到 0.75</strong>（漏了一個落在隔壁群的近點）！再把 <strong>nprobe 調成 2 或 3</strong>（多看幾區），召回率就補回 1.0——這就親眼看到了<strong>「準 vs 快」的旋鈕</strong>。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>Similarity</strong>（量「兩點多像」的尺）→ <strong>VectorIndex</strong>（暴力 vs 分群 ANN 的大腦）→ <strong>VectorStore</strong>（存點的倉庫）。查詢一來，就靠這幾段跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>量相似度：兩點方向多接近（Similarity）</h3>
+    <p>一切的基礎：給兩個點，算「它們有多像」。最常用<strong>餘弦相似度</strong>——只看方向、不管長短。</p>
+<pre><code>function 相似度(a, b) {
+    分子 = a 和 b 逐項相乘再相加     // 內積：方向一致 → 大
+    分母 = a 的長度 × b 的長度       // 除掉長度，只比方向
+    return 分子 / 分母              // 越接近 1 → 越像
+}</code></pre>
+    <p class="codecaption">這就是那把「尺」。整個搜尋無數次呼叫它——所以它要簡單、要快。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>暴力 kNN：跟全部比一遍，當標準答案（VectorIndex）</h3>
+    <p>最直白的搜尋：把查詢點 q 跟<strong>每一個點</strong>都算一次相似度，排序，挑最像的 k 個。</p>
+<pre><code>function 暴力找最近(q, k) {
+    對「每一個點」算 相似度(q, 點)    // ← 掃 N 個（全部）
+    照分數由高到低排序
+    return 前 k 個
+}                                  // 一定正確，但 N 大就慢</code></pre>
+    <p class="codecaption">它保證找到<strong>真正最像的</strong>，所以拿來當「<strong>標準答案</strong>」檢查 ANN 漏了沒。缺點就一個字：慢。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>ANN 分群：只比最近幾區（VectorIndex 的核心）</h3>
+    <p>這是<strong>全題的心臟</strong>。先把點分群（事先做好），查詢時<strong>只進最近的 nprobe 個群</strong>找：</p>
+<pre><code>// 事先：把所有點分成 nlist 群，每群算一個「中心(centroid)」
+
+function ANN找最近(q, k, nprobe) {
+    對「每個群的中心」算 相似度(q, 中心)   // ← 只比幾個中心，很快
+    挑出最近的 nprobe 個群
+
+    候選 = 這幾個群裡的所有點            // ← 只掃 M 個（M 遠小於 N）
+    對「候選」算 相似度(q, 點)、排序
+    return 前 k 個
+}</code></pre>
+    <p class="codecaption">關鍵就在 <code>挑最近的 nprobe 個群</code>＋<code>只掃這幾群的點</code>：把「掃 N 個」變成「掃 M 個」。<code>nprobe</code> 調大 → 掃更多群 → 更準更慢；調小 → 更快但可能漏。這正是面試官最愛追問的一段。</p>
+    <p class="pause">💭 停一下：ANN 為什麼可能「漏掉」真正最近的點？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為它<strong>只進最近的幾個群</strong>找。萬一「真正最像的點」剛好落在一個<strong>沒被選中的群</strong>裡（例如它離查詢點近、卻被分到隔壁群），就被跳過了。多看幾個群（調大 nprobe）能降低這種漏失。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>算召回率：ANN 跟標準答案差多少（VectorIndex）</h3>
+    <p>最後一步，誠實地量「ANN 漏了沒」：拿 ANN 的答案跟暴力的標準答案<strong>比交集</strong>。</p>
+<pre><code>function 召回率(暴力答案, ANN答案) {
+    命中 = 兩邊都有的編號數量          // 交集
+    return 命中 / 暴力答案的數量       // 1.0 = 一個沒漏
+}</code></pre>
+    <p class="codecaption">這個數字就是「準」的量尺。demo 裡你調 nprobe 看著它變動，就能<strong>親手感受「準 vs 快」的取捨</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 變成向量</td><td>（嵌入模型，demo 用手填的假嵌入）</td><td>預設塞的 9 個點</td></tr>
+      <tr><td>量「多像」的尺</td><td>Similarity</td><td><code>相似度()</code></td></tr>
+      <tr><td>② 分群 + ③ 只比近群</td><td>VectorIndex</td><td><code>ANN找最近()</code></td></tr>
+      <tr><td>④ 準 vs 快（召回率）</td><td>VectorIndex</td><td><code>召回率()</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈」換成「<strong>Faiss / Milvus / pgvector</strong>」這種專業向量資料庫，還會用<strong>真實嵌入模型</strong>、<strong>壓縮</strong>、<strong>分片</strong>，
+  但<strong>上面這幾段判斷邏輯（量相似度、分群只比近群、用暴力當標準答案算召回）一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「億人城市找最像的人」解釋，這題的核心難關是什麼？</summary>
+    要在幾億個點裡找「離查詢點最近的 k 個」。逐一比對全部（暴力）保證正確但慢到不能用。解法是事先把相近的點分區，查詢只進最近的幾區比——這就是 ANN。</details>
+  <details class="qa"><summary>Q2：暴力搜尋和 ANN 差在哪？各有什麼優缺點？</summary>
+    暴力＝跟全部點比一遍，一定正確但慢；ANN＝只比最近幾區，快很多但可能漏掉一兩個。線上用 ANN，拿暴力結果當「標準答案」檢查 ANN 夠不夠準。</details>
+  <details class="qa"><summary>Q3：「召回率」是什麼？怎麼用一句話說明？</summary>
+    召回率＝ANN 找到的，跟「標準答案（暴力結果）」重疊多少的比例。1.0 表示一個都沒漏。它是衡量 ANN「準不準」的尺。</details>
+  <details class="qa"><summary>Q4：nprobe（看幾區）調大調小各有什麼後果？</summary>
+    調大＝多看幾區 → 更不容易漏掉最像的（召回率高）但更慢；調小＝少看幾區 → 更快但更可能漏。它就是「準 vs 快」的旋鈕。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼建資料庫和查詢要用同一個嵌入模型？</summary>
+    因為不同模型把東西翻到不同座標系，混用就像一邊用經緯度、一邊用門牌號，根本對不上，算出的「最近」沒有意義。</details>
+  <details class="qa"><summary>Q6（工程）：3 TB 向量裝不進記憶體，有哪兩招？</summary>
+    ① 量化壓縮（PQ）：把每個向量用更少位元近似存，省記憶體；② 分片：切成好幾台機器分開放，查詢時各台找各自的 top-k 再合併。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼說「嵌入模型的品質是天花板」？</summary>
+    如果翻譯機翻得爛，意思相近的東西根本沒被放在一起，那後面 ANN 再快再準也只是在錯的座標上找最近——選對/微調嵌入模型往往比調索引更關鍵。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>向量搜尋 = 把萬物變成座標上的點，找離查詢點最近的幾個。</strong></p>
+    <p><strong>4 個關卡：</strong>① 用翻譯機<strong>變成向量</strong> → ② 事先<strong>分群（分區）</strong> → ③ 查詢只比<strong>最近的幾區</strong>（ANN） → ④ 用<strong>「看幾區」旋鈕</strong>在<strong>召回率 vs 速度</strong>之間調。</p>
+    <p><strong>3 個怕：</strong>怕慢/算不動（分群只比近區）、怕漏掉最像的（調 nprobe 拉召回）、怕裝不下記憶體（壓縮 + 分片）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>暴力是「標準答案」但 O(N) 不能線上 → ANN（IVF 分群只搜近群 / HNSW 沿圖跳近）把比對量壓成 M；3 TB 用量化壓縮 + 分片裝下；嵌入模型品質是天花板；召回 vs 速度沒有免費午餐。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>52 向量資料庫 / ANN 搜尋 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

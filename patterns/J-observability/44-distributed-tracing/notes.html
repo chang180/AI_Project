@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊹ 分散式追蹤系統 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅹 可觀測性</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊹ 分散式追蹤系統：把一個請求在 N 個服務間的旅程串成一棵樹</h1>
+  <p class="subtitle">
+    <span class="tag group">J 可觀測性</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design a Distributed Tracing System</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把跨服務的因果鏈，用同一個 trace_id 串起來、靠 parent 關係重建成呼叫樹</strong>」的系統。
+    難點不在「存 span」，而在 <em>context 如何跨網路傳播</em>、<em>由扁平 span 正確重建樹並找出關鍵路徑/瓶頸</em>、以及 <em>用取樣把海量資料壓到負擔得起</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（高基數 / 取樣 / 儲存）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>一個使用者請求會跨 <strong>N 個微服務</strong>（gateway → order → payment → DB…）。要能回答：<strong>這條請求在每個服務各花多久？哪一段慢？哪裡出錯？</strong></li>
+    <li>每個工作單元產生一個 <strong>span</strong>（含 trace_id / span_id / parent_span_id / 服務 / 操作名 / 起始 / 耗時）。</li>
+    <li>查詢：給 <code>trace_id</code> 取回整條 trace，<strong>重建成呼叫樹</strong>，以<strong>火焰圖</strong>呈現各 span 的時間軸。</li>
+    <li>能算整條 trace 總時間、標出<strong>最慢的 span</strong> 與<strong>關鍵路徑</strong>。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低埋點開銷</strong>：trace 不能拖慢被追蹤的業務請求（加 span 的成本要極低、非同步上報）。</li>
+    <li><strong>高寫入吞吐</strong>：每秒可能數百萬 span。</li>
+    <li><strong>可承受漏失</strong>：監控系統的可靠性優先於完整性——掉幾條 trace 可接受（這正是取樣存在的理由）。</li>
+    <li><strong>查詢可用</strong>：依 trace_id 秒級取回；能依服務 / 操作 / 延遲區間搜尋。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「metrics、logs、traces 三者要哪個？」本題是 <strong>trace</strong>（可觀測性三支柱中專門回答「<em>單一請求跨服務的因果鏈與時間分佈</em>」）。metrics 是聚合數值（適合告警）、logs 是離散事件文字；trace 把一個請求在各服務的足跡<strong>用因果關係串起來</strong>。接著問「<strong>head 還是 tail 取樣</strong>？」這決定收集器設計。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>請求量</td><td>10 萬 req/s</td><td>每請求平均跨 <strong>20 個 span</strong></td></tr>
+    <tr><td>原始 span 率</td><td>10萬 × 20</td><td>~<strong>200 萬 spans/s</strong>（不取樣會爆）</td></tr>
+    <tr><td>取樣後</td><td>head 取樣 1%</td><td>~2 萬 spans/s 真正落地儲存</td></tr>
+    <tr><td>單 span 大小</td><td>~500 bytes（含 tags）</td><td>2萬 × 500B ≈ 10 MB/s ≈ <strong>~860 GB/日</strong></td></tr>
+    <tr><td>保留</td><td>7 天</td><td>≈ 6 TB（取樣後；不取樣是 100 倍）</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>原始 span 量是<strong>請求量 × 每請求 span 數</strong>的乘積，輕鬆破百萬/秒——所以<strong>取樣不是選配，是生存必需</strong>。設計的核心張力是「<em>取樣降量</em>」與「<em>別漏掉出問題的那條 trace</em>」之間的拉鋸。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 上報 span（被埋點 SDK 批次送，走 OTLP）
+POST /v1/traces            # OpenTelemetry OTLP
+Body: { "resourceSpans": [ ... 一批 span ... ] }
+→ 202 Accepted（非同步，盡量不阻塞）
+
+# 取回整條 trace（重建樹）
+GET /api/trace/{trace_id}
+→ { trace_id, total_ms, slowest, critical_path, tree:[...] }
+
+# 搜尋 trace（找慢/錯的代表）
+GET /api/search?service=payment&min_duration_ms=500&error=true&limit=20
+
+# 取樣決策（教學示範用）
+POST /api/sample   Body: { trace_id, rate }  → { sampled, bucket, rate }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>span（一個工作單元；trace = 同一 trace_id 的 span 集合）
+  trace_id        BINARY(16)   -- 一整條請求鏈共用（全域唯一）
+  span_id         BINARY(8)    -- 單一 span 唯一
+  parent_span_id  BINARY(8)    -- 指向上一層 span；根 span 為空
+  service         VARCHAR      -- 服務名
+  name            VARCHAR      -- 操作名（GET /checkout、SELECT…）
+  start_us        BIGINT       -- 起始時間（微秒）
+  duration_us     BIGINT       -- 耗時
+  status          ENUM(ok,error)
+  tags / attrs    JSON         -- http.method、db.statement…（小心高基數）
+
+-- trace 不是一張表，而是「同 trace_id 的所有 span」。
+-- parent_span_id 把扁平 span 連成一棵「呼叫樹」（DAG，通常是樹）。</code></pre>
+  <div class="box"><span class="label">為何依 trace_id 分片</span>查詢的單位是「整條 trace」，把同一 trace_id 的所有 span 放在<strong>同一個分片</strong>，取回時一次撈完、不用跨分片 join。寫入則是高頻 append-only，適合<strong>寬欄/列式儲存</strong>（Cassandra / ClickHouse / ES）。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 應用服務(埋點 OTel SDK) ──OTLP──▶ 收集 Agent(每台主機, batch) ──▶ 收集器 Collector
+   產 span / 傳 context                                            (取樣 head/tail)
+                                                                      │ 寫入
+                                                                      ▼
+   UI/火焰圖 ◀── 查詢服務(重建樹/總時間/最慢/關鍵路徑) ◀── Trace 儲存(依 trace_id 分片)</code></pre>
+  <ol>
+    <li><strong>埋點 SDK</strong>：在每個服務產生 span、把 <code>trace_id</code> 與 <code>span_id</code> 透過 <strong>context propagation</strong>（如 W3C <code>traceparent</code> header）傳到下游。</li>
+    <li><strong>收集 Agent / Collector</strong>：批次收 span、做<strong>取樣決策</strong>、轉送儲存（解耦應用與後端）。</li>
+    <li><strong>查詢服務</strong>：依 trace_id 撈出所有 span，<strong>重建呼叫樹</strong>，算總時間 / 最慢 / 關鍵路徑，餵給 UI 畫火焰圖。</li>
+    <li><strong>OpenTelemetry</strong> 是這套的事實標準：統一 SDK、語意慣例與 OTLP 協定。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>trace_id / span_id 傳播（context propagation）</h3>
+  <ul>
+    <li>請求進入第一個服務 → 產生 <code>trace_id</code> 與根 <code>span_id</code>。呼叫下游時，把這兩者塞進 <strong>HTTP header（<code>traceparent</code>）</strong>或訊息 metadata。</li>
+    <li>下游服務讀到 header → 用同一 <code>trace_id</code>、把自己的 span 的 <code>parent_span_id</code> 設為上游的 span_id。<strong>這一步是整個系統的命脈</strong>：漏傳就斷鏈，trace 變成一截一截的孤兒。</li>
+  </ul>
+  <h3>parent-child 重建呼叫樹</h3>
+  <ul>
+    <li>儲存裡的 span 是<strong>扁平</strong>的。查詢時用 <code>parent_span_id</code> 把每個 span 掛到父 span 底下，重建成樹（兩輪掃描：先建節點索引，再依 parent 掛載）。</li>
+    <li>父 span 不在這批（被取樣掉/掉包）→ 出現<strong>孤兒 span</strong>，實務上接到根上、不讓樹斷。</li>
+  </ul>
+  <h3>關鍵路徑（critical path）vs 最慢 span</h3>
+  <ul>
+    <li><strong>關鍵路徑</strong>：從根出發，每層挑「結束時間最晚」的子 span 一路走到葉——這串 span <strong>決定整條 trace 何時完成</strong>，是「該優化哪裡」的依據。</li>
+    <li><strong>最慢 span ≠ 一定在關鍵路徑上</strong>：若某個慢 span 與別人<strong>並行</strong>、卻不是最後完成的那個，優化它不會縮短總時間。找瓶頸常看 <strong>self-time（獨佔時間 = 自身耗時 − 子 span 耗時）</strong>，避免把「涵蓋全部的根 span」誤判為瓶頸。</li>
+  </ul>
+  <h3>head vs tail 取樣</h3>
+  <ul>
+    <li><strong>head-based</strong>：在 trace <em>開頭</em>就決定整條留不留（如 <code>hash(trace_id) % N == 0</code>）。優點：便宜、各服務決策一致（同 trace_id 一致）、不用先全收。缺點：<strong>盲取樣</strong>——出問題的慢/錯 trace 也可能被丟。</li>
+    <li><strong>tail-based</strong>：先把整條 trace <em>全部緩衝</em>，看完再決定（留住「慢的、有錯的、罕見的」）。優點：留下最有價值的 trace。缺點：收集器要暫存整條、記憶體與複雜度高。</li>
+  </ul>
+  <h3>火焰圖（flame graph）</h3>
+  <p>把每個 span 畫成一條<strong>水平長條</strong>，<em>左端 = 起始時間、長度 = 耗時</em>，依父子<strong>垂直堆疊</strong>。一眼看出「哪段最寬（最慢）、哪些並行、時間花在哪」。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸（高基數 / 取樣 / 儲存）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>埋點開銷</td><td>產 span 拖慢業務請求</td><td>非同步 batch 上報、span 本地緩衝、低開銷 SDK</td></tr>
+    <tr><td>原始 span 量</td><td>200 萬 spans/s 灌爆收集/儲存</td><td><strong>取樣</strong>（head 便宜 / tail 留價值）+ Collector 批次/限流</td></tr>
+    <tr><td>高基數 tags</td><td>把 user_id / 完整 URL 塞進 tag → 索引爆炸</td><td>tag 值要有界；高基數放 span body 不建索引</td></tr>
+    <tr><td>儲存成本</td><td>全量保留太貴</td><td>短保留期 + 冷熱分層 + 取樣後才落地</td></tr>
+    <tr><td>查詢「整條 trace」</td><td>span 散在多分片要 join</td><td>依 <strong>trace_id 分片</strong>，同 trace 同片，一次撈完</td></tr>
+    <tr><td>跨服務斷鏈</td><td>某服務沒傳 context</td><td>標準化傳播（W3C traceparent）+ SDK 自動注入</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>取樣率 vs 完整性</strong>：取樣越低越省，但越可能漏掉「剛好出問題」的 trace。常見折衷：基礎 head 取樣 + 對 error/慢請求<strong>強制保留</strong>（或上 tail-based）。</li>
+    <li><strong>head vs tail sampling</strong>：head 便宜、決策一致、但盲取；tail 留住有價值 trace、但要緩衝整條、貴且複雜。實務常混用（邊緣 head 粗篩 + 後端 tail 精選）。</li>
+    <li><strong>埋點成本 vs 覆蓋率</strong>：自動埋點（框架 hook）覆蓋廣但細節少；手動埋點精準但人力貴。先靠自動埋點打底，關鍵路徑再手動補。</li>
+    <li><strong>trace vs metrics vs logs</strong>：三支柱互補。trace 回答「這一條請求發生什麼」；別把高基數塞進 metrics label，該用 trace/log 的就用它們。三者可用 <code>trace_id</code> 互相關聯。</li>
+    <li><strong>常見追問</strong>：context 怎麼跨非同步/訊息佇列傳？→ 把 traceparent 放進訊息 header。時鐘不同步怎麼辦？→ 用相對時間/父子關係而非絕對牆鐘排序。如何找瓶頸？→ 關鍵路徑 + self-time，而非單看最大 duration。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 用 PHP 內建伺服器把<strong>追蹤系統的核心邏輯</strong>做成真實可跑：</p>
+  <ul>
+    <li><code>src/TraceStore.php</code>　由扁平 span 依 <code>parent_span_id</code> <strong>重建呼叫樹</strong>、算<strong>總時間</strong>、用 <strong>self-time 找最慢 span</strong>、走<strong>關鍵路徑</strong>，並做 <strong>head-based 取樣</strong>（<code>crc32(trace_id) % rate</code>），以 <code>flock</code> 持久化到 JSON。</li>
+    <li><code>public/index.php</code>　路由 <code>GET /</code>（測試頁：內建一條跨 4 服務的 trace，看重建樹 + 火焰圖長條 + 標最慢 + 取樣示範）、<code>POST /api/spans</code>（批次收 span）、<code>GET /api/trace/{trace_id}</code>（回樹 + 總時間 + 最慢 + 關鍵路徑）、<code>POST /api/sample</code>（取樣決策）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8044 -t public
+# 瀏覽器開 http://localhost:8044：看 /checkout 的呼叫樹被重建、火焰圖標出最慢的 call_bank_api、取樣 1/10 的決策</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機 JSON 模擬</strong>；<strong>由扁平 span 重建呼叫樹、總時間 / 最慢 span(self-time) / 關鍵路徑、head-based 取樣皆為真實可執行邏輯</strong>。<strong>未做</strong>真正的 OTLP 收集、context 跨網路傳播、tail-based 取樣緩衝、列式/寬欄儲存與索引。要接真系統，把 span 改由 OpenTelemetry SDK 產生、用 OTLP 上報到 Collector 即可，<strong>分析邏輯一字不改</strong>。
+  </div>
+
+  <footer>㊹ 分散式追蹤系統 · J 可觀測性 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

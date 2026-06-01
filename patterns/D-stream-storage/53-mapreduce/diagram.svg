@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 1238 538" width="1238" height="538" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah3b0b01" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5c5f66"/></marker>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="1238" height="538" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">MapReduce Word Count — 三階段（map=藍 shuffle=黃 reduce=綠）</tspan>
+</text>
+<rect x="40" y="230" width="150" height="70" rx="8" fill="#e9ecef" stroke="#5c5f66" stroke-width="2"/>
+<text x="115" y="246" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">輸入</tspan>
+<tspan x="115" dy="18.75">(HDFS/S3)</tspan>
+</text>
+<rect x="240" y="230" width="140" height="70" rx="8" fill="#e9ecef" stroke="#5c5f66" stroke-width="2"/>
+<text x="310" y="246" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="310" dy="0">Input Split</tspan>
+<tspan x="310" dy="18.75">切片</tspan>
+</text>
+<rect x="440" y="120" width="150" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="515" y="137" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="515" dy="0">Map task 1 →(詞,1)</tspan>
+</text>
+<rect x="440" y="196" width="150" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="515" y="213" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="515" dy="0">Map task 2 →(詞,1)</tspan>
+</text>
+<rect x="440" y="272" width="150" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="515" y="289" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="515" dy="0">Map task 3 →(詞,1)</tspan>
+</text>
+<rect x="650" y="196" width="160" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="730" y="206" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="730" dy="0">Shuffle / Sort</tspan>
+<tspan x="730" dy="17.5">hash(詞)%R 分組</tspan>
+</text>
+<rect x="880" y="140" width="150" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="955" y="157" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="955" dy="0">Reduce 1 加總</tspan>
+</text>
+<rect x="880" y="260" width="150" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="955" y="277" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="955" dy="0">Reduce 2 加總</tspan>
+</text>
+<rect x="1080" y="200" width="150" height="56" rx="8" fill="#e9ecef" stroke="#5c5f66" stroke-width="2"/>
+<text x="1155" y="217" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="1155" dy="0">輸出 (詞,總數)</tspan>
+</text>
+<rect x="480" y="410" width="320" height="56" rx="8" fill="#eebefa" stroke="#862e9c" stroke-width="2"/>
+<text x="640" y="427" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="640" dy="0">Master：排程 task / 監控心跳 / 失敗重跑 / speculative</tspan>
+</text>
+<polyline points="192,265 238,265" fill="none" stroke="#5c5f66" stroke-width="2" marker-end="url(#ah3b0b01)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="382,258 438,148" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="382,265 438,224" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="382,272 438,300" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="592,148 648,228" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="592,224 648,228" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="592,300 648,228" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="812,222 878,168" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="812,236 878,288" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="1032,168 1078,220" fill="none" stroke="#5c5f66" stroke-width="2" marker-end="url(#ah3b0b01)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="1032,288 1078,236" fill="none" stroke="#5c5f66" stroke-width="2" marker-end="url(#ah3b0b01)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="40" y="470" font-size="13" fill="#5c5f66" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">瓶頸：shuffle 是跨網路 all-to-all；資料傾斜＝某熱門 key 把單一 reducer 壓垮。</tspan>
+<tspan x="40" dy="16.25">combiner 在 map 端先本地加總，可大幅減少 shuffle 流量。</tspan>
+</text>
+</svg>

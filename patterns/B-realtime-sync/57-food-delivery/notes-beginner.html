@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>57 外送平台 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>57 外送平台 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="box tip">
+    <span class="label">🔗 它跟「叫車（RoboTaxi）」是親戚</span>
+    這題其實是叫車那題的<strong>升級版</strong>：一樣要「在地圖上找最近的人去接」、一樣要「同一個人別被指派兩次」、一樣要「即時看他到哪了」。
+    <strong>唯一多出來的麻煩</strong>是——叫車是「人上車就走」，外送卻多了「<strong>餐廳要先把餐做好</strong>」這一關。就是這一關，讓整題變有趣。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「記訂單」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你肚子餓，打開 App 點了一份牛肉麵。幾分鐘後你看到「<strong>餐廳已接單 → 製作中 → 外送員已取餐 → 正在送來</strong>」，
+  地圖上有個小機車圖示<strong>一路朝你移動</strong>，還告訴你「<strong>還有 8 分鐘到</strong>」。這就是外送平台。</p>
+  <p>它要同時服務<strong>三種人</strong>：點餐的<strong>食客</strong>、做菜的<strong>餐廳</strong>、跑腿的<strong>外送員</strong>。
+  系統像個總指揮：收到單 → 通知餐廳做 → 在附近找一位外送員去接 → 全程讓你看到進度。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    外送平台 = <strong>串起「食客 / 餐廳 / 外送員」三方的即時總指揮</strong>：
+    一張單進來，要<strong>找到最近的外送員</strong>（而且別把同一位派去兩張單）、<strong>盯著餐做好沒</strong>、再讓你<strong>即時看到餐到哪了、還要多久</strong>。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「記訂單」？</h2>
+  <p>很多人第一次看會想：「不就是存一筆訂單、改改狀態嗎？」——這想法漏掉了三個真正的難關。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：餐廳門口的調度員</span>
+    想像尖峰時段，一條街上有幾十位外送員在跑、幾百家餐廳同時出餐。
+    一張單做好了，你要<strong>瞬間在地圖上找出「離這家餐廳最近、現在有空」的外送員</strong>派過去。
+    你不可能把所有外送員從頭問一遍「你在哪、有空嗎」（太慢），也<strong>絕不能把同一位外送員同時派給兩張單</strong>（他分身乏術）。
+  </div>
+  <p>所以三個難關是：</p>
+  <ul>
+    <li>① <strong>在地圖上快速找最近的人</strong>（跟叫車一樣，叫「地理媒合」）。</li>
+    <li>② <strong>同一位外送員別被搶兩次</strong>（兩張單幾乎同時派，都看上同一位 → 要有「先搶先贏、搶到才算」的機制）。</li>
+    <li>③ <strong>多了「餐廳備餐」這一關</strong>：太早派外送員到了乾等做菜，太晚派你又多等外送員過來——<strong>抓派單的時機</strong>是外送獨有的頭痛事。</li>
+  </ul>
+  <p class="pause">💭 停一下：為什麼「同一位外送員不能被派兩張單」這件事，需要特別設計？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為兩張單可能<strong>幾乎同時</strong>要派，系統一查附近，兩張單都看到「外送員 c2 有空」，於是各自把 c2 派走 → c2 同時背兩單。
+    解法是「<strong>搶到才算</strong>」：派的時候做一個條件動作「只有當 c2 還是『有空』才把他改成『忙』」，誰先改成功誰拿到，另一張單發現改不動（已被搶）就<strong>自動換下一位</strong>。這叫 CAS（條件更新）。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>下單 + 餐廳備餐：把單立起來</h3>
+    <p>食客送出訂單，系統建一筆單，狀態先是「<strong>已下單</strong>」。接著餐廳「<strong>接受</strong>」、開始「<strong>備餐</strong>」。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：取餐號碼牌</span>
+      就像速食店給你一張號碼牌，上面的狀態會一格一格往前走：<strong>已點餐 → 製作中 → 可取餐</strong>。
+      外送多一層：可取餐之後還要有人<strong>幫你跑這一趟</strong>。
+    </div>
+    <p>這串「一格一格往前走、不能跳格也不能倒退」的設計，工程上叫<strong>狀態機</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>派單：在地圖上找最近、有空的外送員</h3>
+    <p>餐快做好了，要<strong>在餐廳附近找一位外送員</strong>去接。怎麼「快速找附近」？跟叫車一模一樣的招數。</p>
+    <div class="analogy">
+      <span class="label">🗺️ 比喻：把地圖切成方格找人</span>
+      與其問遍全城外送員「你在哪」，不如把地圖切成一格一格的<strong>方格（geohash）</strong>。
+      要找餐廳附近的人，<strong>只看餐廳那格和周圍幾格</strong>就好，不用掃整張地圖。找到候選後，再用真實距離排個序，挑最近的。
+    </div>
+    <p>挑到最近那位後，做一個「<strong>搶到才算</strong>」的動作把他標成「忙」——這就是第 2 節說的，防止同一位被派兩次。搶輸了就自動換下一位。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>取餐 → 送達：狀態繼續往前走</h3>
+    <p>外送員到餐廳<strong>取餐</strong>、再<strong>送到你家</strong>。號碼牌繼續走：<strong>已取餐 → 已送達</strong>。送達後，這位外送員<strong>恢復成「有空」</strong>，可以接下一單。</p>
+    <div class="analogy">
+      <span class="label">🚦 比喻：紅綠燈只能照順序變</span>
+      紅燈不會直接跳綠燈（中間要黃燈），也不會倒退。訂單狀態也是：<strong>只能照順序往前推</strong>，
+      系統每次推進前都檢查「現在這格對不對」，亂序或重複按都會被擋下來——這樣才不會出現「還沒取餐就顯示已送達」的怪事。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>即時追蹤：餐到哪了？還要多久？</h3>
+    <p>全程你都想知道「<strong>外送員到哪了、還有幾分鐘</strong>」。外送員的手機<strong>每幾秒回報一次 GPS 位置</strong>，系統據此更新地圖上的小機車，並重新估「還要多久到」（ETA）。</p>
+    <div class="analogy">
+      <span class="label">📍 比喻：朋友傳即時位置給你</span>
+      就像朋友開車來接你，一路把「即時位置」分享給你看，你看著那個點越來越近，心裡有底。
+      外送員越靠近，ETA 的數字就越小——這個「會隨位置變化的剩餘時間」就是<strong>動態 ETA</strong>。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>下單 + 餐廳備餐</strong>（號碼牌起步）→ ② <strong>派單</strong>（地圖找最近、搶到才算）→ ③ <strong>取餐送達</strong>（狀態照順序走）→ ④ <strong>即時追蹤</strong>（看小機車移動 + 動態 ETA）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「同一位外送員被派兩單」</span>
+    兩張單幾乎同時派、都看上同一位有空的外送員 → 他被迫分身。
+    所以才需要「<strong>搶到才算（CAS 條件更新）</strong>」：誰先把他從「有空」改成「忙」誰拿到，另一張單發現改不動就換人。<em>同一位，只能被一張單拿走。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「派單時機抓不準」</span>
+    太早派 → 外送員到餐廳乾等做菜（浪費他時間）；太晚派 → 餐做好了沒人接，食客多等。
+    所以要<strong>估餐廳大概多久出餐</strong>，反推「提前多久派」，讓外送員到達時餐剛好做好。<em>剛剛好，不早不晚。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「位置更新太多，把系統壓垮」</span>
+    幾十萬外送員每幾秒回報一次位置，這個「寫入量」是全系統最大的負擔。
+    所以「<strong>當前位置</strong>」只放在<strong>記憶體裡覆寫</strong>（只留最新、查最近用），「歷史軌跡」另外慢慢存檔，兩者分開走。<em>熱的放手邊，冷的另外收。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，看三條線：</p>
+  <ul>
+    <li>🍔 <strong>食客 App</strong> 下單 → 進<strong>派單引擎</strong> → 去<strong>地圖索引</strong>找餐廳附近最近、有空的外送員（藍色寫入線）。</li>
+    <li>🏪 <strong>餐廳 App</strong> 接單 / 備餐 → 推進<strong>訂單狀態機</strong>（一格一格往前走）。</li>
+    <li>🛵 <strong>外送員 App</strong> 高頻回報 GPS → <strong>位置串流閘道</strong> → <strong>位置更新 + ETA</strong> → 餵回地圖索引（綠色位置線）。</li>
+    <li>📡 三方都透過 <strong>Pub/Sub 追蹤推播</strong>，即時看到狀態變化與小機車移動。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><td>三邊市場</td><td>系統要同時服務三種人：食客 / 餐廳 / 外送員</td></tr>
+    <tr><td>geohash / 地理索引</td><td>把地圖切成方格，找附近只看那幾格，不用掃全圖</td></tr>
+    <tr><td>haversine</td><td>算地球上兩點直線距離的公式（拿來排「誰最近」）</td></tr>
+    <tr><td>地理媒合</td><td>在地圖上找最近、有空的人去接（派單的核心）</td></tr>
+    <tr><td>CAS（搶到才算 / 條件更新）</td><td>「只有當他還有空才把他改成忙」，誰先改成功誰拿到</td></tr>
+    <tr><td>原子操作</td><td>一個動作要嘛整個成功要嘛整個沒做，中間不會被插隊</td></tr>
+    <tr><td>狀態機</td><td>訂單像號碼牌：只能照順序往前走，不能跳格 / 倒退 / 重複</td></tr>
+    <tr><td>ETA</td><td>預計還要多久到（會隨外送員位置變化）</td></tr>
+    <tr><td>位置串流</td><td>外送員手機每幾秒回報一次 GPS 的那股資料流</td></tr>
+    <tr><td>Pub/Sub</td><td>「發佈/訂閱」：一處更新，所有訂閱者即時收到（用來推播追蹤）</td></tr>
+    <tr><td>順路批量指派</td><td>一位外送員順路帶多單、或一批單一起算最省的派法</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>水平擴展</td><td>不夠快就「多找幾台機器一起做」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>同時上線外送員</td><td>尖峰 ~50 萬位</td><td>要維持幾十萬條「即時連線」聽他們回報位置</td></tr>
+    <tr><td>位置回報（寫）</td><td>每人每 4 秒一次 → 約 12 萬+ 筆/秒</td><td>這是全系統最大的「寫入」壓力 → 當前位置只放記憶體</td></tr>
+    <tr><td>下單（要派單）</td><td>尖峰約每秒 100 筆</td><td>每筆要「查附近 + 搶到才算 + 算兩段 ETA」</td></tr>
+    <tr><td>進行中訂單</td><td>同時數十萬筆</td><td>狀態一直在變 → 放可靠、可審計的主資料庫</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：壓力不在「下單」，在「位置回報」</span>
+    每秒才一百筆下單，聽起來很閒。但<strong>幾十萬外送員每幾秒回報一次位置</strong>，加起來是每秒十幾萬筆寫入——這才是大頭。
+    所以系統把「當前位置」放<strong>記憶體覆寫</strong>（只留最新），歷史另外慢慢存，這樣才扛得住。
+  </div>
+  <p class="pause">💭 停一下：下單量不大，為什麼還要那麼在意「位置回報」？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為位置回報的<strong>筆數是下單的上千倍</strong>：一筆訂單從頭到尾才幾次狀態變更，但外送員這段時間每幾秒就回報一次位置。
+    真正會把資料庫寫爆的是這股「位置洪流」，所以才要把它跟訂單分開、只放記憶體覆寫。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 食客下單（最常用）
+   POST /api/order
+   給我：{ 食客, 餐廳座標, 送達座標 }
+   我回：201「建好了！狀態：placed（已下單）」</code></pre>
+  <pre><code>② 推進狀態（餐廳接單備餐 / 外送員取餐送達都走這支）
+   POST /api/order/advance   給我：{ 訂單編號 }
+   → 把號碼牌往前推一格（亂推會被擋）</code></pre>
+  <p class="codecaption">所有狀態變更走<strong>同一支 advance</strong>，由系統檢查「現在這格能不能往前」——比每個動作各開一支 API 更不容易出錯。</p>
+  <pre><code>③ 外送員上線 / 回報位置
+   POST /api/courier/location   給我：{ 外送員 id, lat, lng }
+   → 更新他在地圖上的位置（模擬每幾秒一次的 GPS 串流）</code></pre>
+  <pre><code>④ 派單（地圖找最近、搶到才算）
+   POST /api/dispatch   給我：{ 訂單編號 }
+   我回：派到哪位外送員、距餐廳多遠、ETA 幾分鐘</code></pre>
+  <pre><code>⑤ 追蹤（看餐到哪了、還要多久）
+   GET /api/track/{訂單編號}
+   我回：{ 狀態, 外送員目前位置, 即時 ETA }</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩本筆記本 + 一張地圖</span>
+    系統把資料記在「筆記本」（資料表）裡。這題主要兩本筆記本，加一張會動的地圖：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🛵</span>外送員簿（誰在哪、有沒有空）</h3>
+    <p>每位外送員一列：<code>外送員編號、目前座標、<strong>狀態(有空/忙/離線)</strong>、目前在送哪張單</code>。
+    「座標」會被高頻覆寫（一直更新成最新位置）；「狀態」是搶單時 CAS 要比對的關鍵欄位。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧾</span>訂單簿（每張單走到哪一格了）</h3>
+    <p>每張單一列：<code>訂單編號、食客、餐廳座標、送達座標、<strong>狀態(placed→accepted→preparing→picked_up→delivered)</strong>、指派到哪位外送員、ETA、每次轉移的時間戳</code>。
+    多存「每次轉移的時間」，是為了<strong>事後查帳 / 客服</strong>（誰幾點接單、幾點取餐）。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗺️</span>地圖索引（找附近用——核心！）</h3>
+    <p>給一個座標（餐廳），要能<strong>瞬間取出附近、有空的外送員</strong>。
+    工程上把外送員位置丟進<strong>geohash 方格</strong>（或更高級的 Redis GEO / S2），查附近只看那幾格。</p>
+    <div class="analogy"><span class="label">為什麼不用「一個個算距離」？</span>
+      如果每次派單都把全城外送員都算一遍距離（幾十萬人 → 慢）。
+      切成方格後，<strong>只看餐廳那格和周圍幾格</strong>就把範圍縮到幾十人，再精算排序——這就是把「掃全城」變成「看附近幾格」的精髓。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>位置回報：幾十萬人每幾秒回報</td><td>當前位置只放<strong>記憶體覆寫</strong>（只留最新），歷史另外慢慢存檔</td></tr>
+    <tr><td>派單搶人：同一位被兩張單搶</td><td><strong>搶到才算（CAS）</strong>，搶輸就換下一位候選；鎖只鎖到「單一外送員」</td></tr>
+    <tr><td>找附近：全城外送員逐一算距離</td><td>用<strong>地圖方格（geohash）</strong>只看附近幾格，再精算排序</td></tr>
+    <tr><td>用餐尖峰某商圈：單多人少</td><td>動態<strong>加給 / 加價</strong>引導外送員過去 + 排隊派發 + 方格自動細分</td></tr>
+    <tr><td>派單算太久 / 挑太隨便</td><td>分區<strong>並行</strong>計算、限時就<strong>退回挑最近</strong>、依備餐時間<strong>提前派</strong></td></tr>
+    <tr><td>跨城查詢沒意義還拖慢</td><td>以城市 / 區域<strong>分區隔離</strong>，就近部署</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 挑最近(貪婪) vs 順路批量</span>
+    一單一派、挑最近最快最直觀；但<strong>每幾秒收一批一起算</strong>（甚至一位外送員順路帶多單）總路程更省、外送員賺更多，代價是<strong>派單稍微慢一點</strong>、實作複雜。</div>
+  <div class="fear"><span class="label">⚖️ 一下單就派 vs 等餐快好才派</span>
+    一下單就派：外送員早早出發但可能到餐廳乾等做菜；等餐快好才派：外送員少等但要<strong>準確估出餐時間</strong>。折衷是<strong>用備餐預估反推何時派</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 位置回報要多密？</span>
+    回報越密（每秒）→ 追蹤越準但<strong>寫入量爆、外送員耗電</strong>；越疏（每 10 秒）→ 省成本但 ETA 會抖。常見折衷：<strong>快到了才加密回報</strong>。</div>
+  <details class="qa"><summary>💭 追問：外送員接了單卻失聯 / 拒單，系統怎麼辦？</summary>
+    把這張單<strong>退回待派</strong>、釋放外送員、<strong>重新媒合</strong>給下一位；對拒單 / 失聯設懲罰。位置太久沒更新的（殭屍）用「心跳 + 逾時淘汰」移出地圖索引。</details>
+  <details class="qa"><summary>💭 追問：為什麼訂單狀態一定要「照順序、不能跳格」？</summary>
+    避免出現「還沒取餐就顯示已送達」這種錯亂，也防止並發下重複推進。每次推進前都檢查「現在這格對不對」（用 CAS），不對就擋下來——這就是狀態機的價值。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「地理派單 + 搶到才算 + 狀態機 + 即時 ETA」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8057 -t public
+# 然後瀏覽器打開 http://localhost:8057</code></pre>
+  <ol>
+    <li>先讓<strong>幾位外送員上線報位置</strong>（不同座標，模擬路上的車）。</li>
+    <li><strong>食客下單</strong>（填餐廳座標 + 送達座標）→ 把訂單推進到 <code>accepted</code> → <code>preparing</code>（模擬餐廳接單備餐）。</li>
+    <li><strong>派單</strong>：看系統派到「離餐廳最近、有空」的那位，顯示距餐廳多遠、ETA 幾分鐘。</li>
+    <li><strong>再下一張同餐廳的單、也派單</strong> → 看它<strong>派給不同的人</strong>（同一位不會被搶兩次！）。</li>
+    <li>繼續推進 <code>picked_up</code> → <code>delivered</code>，送達後那位外送員<strong>變回有空</strong>。<strong>移動某位外送員的位置</strong>，回追蹤頁看 <strong>ETA 跟著變</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>同一個餐廳連派兩張單，看兩張單<strong>是不是派到不同人</strong>（這就是「搶到才算」防重複）。
+  把外送員位置<strong>移近送達點</strong>再看追蹤，<strong>ETA 是不是變小了</strong>（這就是動態 ETA 跟著位置走）。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>GeoIndex</strong>（地圖索引：找附近最近的人）→ <strong>Dispatcher</strong>（派單大腦 + 訂單狀態機）→ <strong>Store</strong>（兩本筆記本 + 「搶到才算」的鎖）。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>找附近最近的人（GeoIndex）</h3>
+    <p>在「餐廳座標」附近，把<strong>有空</strong>的外送員照距離由近到遠排出來：</p>
+<pre><code>function 找附近可用外送員(餐廳lat, 餐廳lng) {
+    對每一位外送員:
+        if (他不是「有空」) 跳過          // 忙 / 離線的不算
+        算他到餐廳的直線距離(haversine)
+    照距離由近到遠排序
+    回傳前幾位                         // 這就是「候選名單」
+}</code></pre>
+    <p class="codecaption">demo 為了好懂用迴圈掃一遍；真實系統把它換成 Redis GEO（geohash 方格），<strong>只看附近幾格</strong>，一次就撈出來——<strong>邏輯一樣</strong>，只是換更快的工具。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>派單：挑最近 + 搶到才算（Dispatcher + Store）</h3>
+    <p>這是<strong>防重複指派的心臟</strong>。拿到候選名單後，<strong>從最近的開始一個個試「搶」</strong>：</p>
+<pre><code>候選 = 找附近可用外送員(餐廳座標)
+對每一位候選 c（由近到遠）:
+    搶到了 = 把 c 從「有空」改成「忙」(只有他還有空才改得動)  // ← CAS
+    if (搶到了) {
+        把 c 綁到這張單; 算 ETA; 回傳這張單   // 成功！
+    }
+    // 沒搶到（已被別張單搶走）→ 自動換下一位候選
+回傳「附近沒有可用外送員」</code></pre>
+    <p class="codecaption">關鍵就是那句「<strong>只有他還有空才改得動</strong>」（CAS）。兩張單同時搶同一位，只有一個改得動，另一個自動跳下一位——<strong>同一位永遠不會被派兩次</strong>。這跟叫車那題（RoboTaxi）防止同一台車被搶兩次，是<strong>一模一樣的招數</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>訂單狀態機：只能照順序往前（Dispatcher）</h3>
+    <p>每次推進，先查「<strong>現在這格的下一格是什麼</strong>」，而且只有現在這格沒被別人改過才推得動：</p>
+<pre><code>下一格表 = { placed→accepted, accepted→preparing,
+            preparing→picked_up, picked_up→delivered }
+
+function 推進(訂單) {
+    現在 = 訂單.狀態
+    if (現在沒有下一格) return 「已是終點，不能再推」
+    下一格 = 下一格表[現在]
+    if (現在=preparing 但還沒派外送員) return 「先派外送員才能取餐」
+    推成功 = 把狀態從「現在」改成「下一格」(只有還在「現在」才改得動)  // ← 也是 CAS
+    if (下一格 = delivered) 把外送員改回「有空」      // 送達 → 釋放
+}</code></pre>
+    <p class="codecaption">「只能照順序、不能跳格、不能重複」全靠這段。亂序或並發重複推進都會被「只有還在現在這格才改得動」擋下來。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>即時 ETA：外送員一動就重算（Dispatcher 追蹤）</h3>
+    <p>追蹤時，依「現在走到哪一格」算剩餘時間：</p>
+<pre><code>function 追蹤(訂單) {
+    if (還沒取餐)  ETA = 備餐剩餘 + (外送員→餐廳→食客) ÷ 平均車速
+    if (已取餐)    ETA = (外送員→食客) ÷ 平均車速        // 只剩送這段
+    if (已送達)    ETA = 0
+    回傳 { 狀態, 外送員目前位置, ETA }
+}</code></pre>
+    <p class="codecaption">外送員每次回報新位置，下次追蹤算出來的 ETA 就跟著變小——這就是<strong>動態 ETA</strong>。真實系統把「直線距離 ÷ 平均車速」換成路網路由引擎（會考慮紅綠燈、路況），<strong>判斷邏輯不變</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>② 派單找最近</td><td>GeoIndex</td><td><code>找附近可用外送員()</code></td></tr>
+      <tr><td>② 搶到才算（防重複）</td><td>Dispatcher + Store</td><td>候選逐一 <code>CAS</code> 改「忙」</td></tr>
+      <tr><td>①③ 狀態機照順序走</td><td>Dispatcher</td><td><code>推進()</code> 的下一格表 + CAS</td></tr>
+      <tr><td>④ 即時 ETA</td><td>Dispatcher</td><td><code>追蹤()</code> 依進度分兩段算</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈」換成「Redis GEO + 分散式鎖 + 訊息佇列」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：這題跟「叫車（RoboTaxi）」最大的不同是什麼？</summary>
+    多了「<strong>餐廳備餐</strong>」這一環。叫車是人上車就走；外送要先等餐廳把餐做好，所以多了派單時機的取捨（太早外送員乾等、太晚食客多等），ETA 也變成「外送員→餐廳→食客」兩段路。</details>
+  <details class="qa"><summary>Q2：為什麼派單要「搶到才算（CAS）」？不這樣會怎樣？</summary>
+    因為兩張單可能同時看上同一位有空的外送員。不用 CAS 的話兩張單各自把他派走 → 同一位背兩單。用 CAS「只有他還有空才改得動」，誰先改成功誰拿到，另一張自動換下一位。跟叫車防止同一台車被搶兩次同招。</details>
+  <details class="qa"><summary>Q3：用「切方格」解釋怎麼快速找附近外送員。</summary>
+    把地圖切成 geohash 方格，找餐廳附近只看「餐廳那格 + 周圍幾格」，把候選從全城幾十萬人縮到幾十人，再用真實距離（haversine）精算排序挑最近——不用掃整張地圖。</details>
+  <details class="qa"><summary>Q4：訂單狀態為什麼要做成「只能照順序走的狀態機」？</summary>
+    避免「還沒取餐就顯示已送達」這種錯亂，也防並發下重複推進。每次推進前檢查「現在這格能不能往前」（用 CAS），亂序 / 重複都會被擋下。</details>
+  <details class="qa"><summary>Q5：下單量不大，為什麼系統的最大壓力是「位置回報」？</summary>
+    因為位置回報筆數是下單的上千倍：幾十萬外送員每幾秒回報一次，加起來每秒十幾萬筆寫入。所以「當前位置」放記憶體覆寫、只留最新，歷史另外存，才扛得住。</details>
+  <details class="qa"><summary>Q6（工程）：「動態 ETA」是怎麼隨外送員位置變化的？</summary>
+    外送員每次回報新位置，追蹤時就重算剩餘時間：還沒取餐算「外送員→餐廳→食客」，取餐後只算「外送員→食客」。外送員越靠近、ETA 越小。真實系統用路網路由取代直線距離，邏輯不變。</details>
+  <details class="qa"><summary>Q7（工程）：外送員接單後失聯，系統要做哪些事？</summary>
+    把單退回待派、釋放該外送員、重新媒合給下一位；對失聯 / 拒單設懲罰；位置太久沒更新的用「心跳 + 逾時淘汰」移出地圖索引，避免被當成可用的殭屍。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>外送平台 = 串起「食客 / 餐廳 / 外送員」三方的即時總指揮。</strong></p>
+    <p><strong>4 個關卡：</strong>① <strong>下單 + 餐廳備餐</strong>（號碼牌起步）→ ② <strong>派單</strong>（地圖找最近、搶到才算）→ ③ <strong>取餐送達</strong>（狀態照順序走）→ ④ <strong>即時追蹤</strong>（看小機車移動 + 動態 ETA）。</p>
+    <p><strong>3 個怕：</strong>怕同一位外送員被派兩單（CAS 搶到才算）、怕派單時機抓不準（用備餐預估反推何時派）、怕位置更新壓垮系統（當前位置放記憶體覆寫、歷史另存）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>它是叫車題的升級版（多了備餐這一環）→ 用「點餐單(API)」溝通、外送員簿 + 訂單簿 + 地圖索引三本記憶 → geohash 找附近、CAS 防重複、狀態機照順序、ETA 隨位置動 → 找出塞車環節各自拓寬，最大的塞點是位置回報量。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>57 外送平台 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>53 MapReduce / 批次處理 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>53 MapReduce / 批次處理：把 PB 級資料切碎、平行算、再合起來</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design MapReduce / Batch Processing</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes.html">🛠️ 完整版（你在這）</a>
+    <a href="notes-beginner.html">🌱 初學版（看故事就懂）</a>
+  </div>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用「全班一起數錢」的比喻把三階段拆開，邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把一份巨大的離線資料，切成很多片 → 每片平行處理(map) → 依 key 重新分組(shuffle) → 每組各自彙總(reduce)</strong>」的分散式批次運算框架。
+    它是串流（即時、一筆一筆）的<em>另一半</em>：<strong>離線、整批、吞吐優先</strong>。面試考的是三階段的資料流、partition 規則、shuffle 為何是瓶頸、以及與 Spark / 串流的取捨。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API / 程式介面</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>對 <strong>PB 級的離線資料</strong>（log、網頁、交易紀錄）做整批計算：word count、反向索引、去重、join、聚合報表等。</li>
+    <li>使用者只寫兩個函式：<code>map(k,v) → list(k2,v2)</code> 與 <code>reduce(k2, list(v2)) → list(v3)</code>；框架負責切片、排程、平行、分組、容錯。</li>
+    <li>輸入來自分散式檔案系統（HDFS / S3），輸出寫回分散式檔案系統。</li>
+    <li>能跑「一連串」job（前一個的輸出當下一個的輸入），組成資料管線 / DAG。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高吞吐優先、非低延遲</strong>：跑幾分鐘到幾小時都可接受，重點是「算得完、算得對」。</li>
+    <li><strong>水平擴展</strong>：加機器就能處理更大的資料、更快算完。</li>
+    <li><strong>容錯</strong>：上千台機器中總有幾台會掛 → 單一 task 失敗可<strong>原地重跑</strong>，不影響整體。</li>
+    <li><strong>資料局部性</strong>：把運算搬到資料所在的節點（move compute to data），省下昂貴的網路搬運。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「是<strong>離線整批</strong>還是<strong>即時串流</strong>？」決定了走 MapReduce/Spark（批）還是 Flink/Kafka Streams（流）。本題是「批」這一半——資料已經躺在那、要整批掃過算出結果。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>輸入資料量</td><td>1 PB log</td><td>需切成大量 split 平行處理</td></tr>
+    <tr><td>split 數（= map task 數）</td><td>每片 128 MB（HDFS block）</td><td>1 PB / 128 MB ≈ <strong>800 萬個 split / map task</strong></td></tr>
+    <tr><td>map 平行度</td><td>叢集 1 萬核心，每核一次一個 map</td><td>800 萬 / 1 萬 ≈ 800 波，每波數十秒</td></tr>
+    <tr><td>reduce 數 (R)</td><td>人為設定，常數百~數千</td><td>R 決定輸出檔數與並行度；太少→傾斜，太多→小檔多</td></tr>
+    <tr><td>shuffle 搬運量</td><td>map 輸出 ≈ 輸入同量級</td><td>近 1 PB 要<strong>跨網路 all-to-all</strong> → 主要成本</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>map 任務數由<strong>輸入大小 / split 大小</strong>自動決定；reduce 任務數 (R) 由<strong>工程師設定</strong>。整題的成本與風險幾乎都集中在中間那一步 <strong>shuffle</strong>（跨網路搬資料 + 排序）。</div>
+
+  <h2 id="api">3. API / 程式介面</h2>
+  <pre><code># 使用者只需實作兩個函式（word count 為例）
+map(documentName, lineText):
+    for word in tokenize(lineText):
+        emit(word, 1)                 # 中間對 (k2, v2)
+
+reduce(word, listOfCounts):
+    emit(word, sum(listOfCounts))     # 最終對 (k2, v3)
+
+# 可選：combiner（map 端本地預聚合，介面同 reduce）
+combine(word, listOfCounts):
+    emit(word, sum(listOfCounts))
+
+# 可選：partitioner（決定 k2 去哪個 reducer，預設 hash 取模）
+partition(key, R) = hash(key) % R
+
+# 提交 job（框架層）
+submitJob(inputPath, outputPath, mapFn, reduceFn,
+          numReducers=R, combiner=null)
+</code></pre>
+  <div class="box"><span class="label">本 demo 對應</span>demo 用 HTTP 介面包住同一套語意：<code>POST /api/job { text, mappers, reducers, combiner }</code> 跑一輪、<code>GET /api/state</code> 取回三階段中間產物。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>輸入（HDFS/S3）
+  大檔 → 由框架依 block 切成 input split（如 128MB/片）
+  每個 split → 一個 map task
+
+中間資料（map 輸出，落在 mapper 本地磁碟）
+  (k2, v2) 對，例：("fox", 1) ("the", 1) ...
+  依 partition = hash(k2) % R 分桶，桶內依 k2 排序
+
+shuffle 後（reducer 端）
+  每個 reducer 收到「分給它的所有 k2」+「各 k2 的 v2 清單」
+  例：reducer#0 收到 { "fox":[1,1,1], "the":[1,1,1,1] }
+
+輸出（HDFS/S3）
+  每個 reducer 寫一個輸出檔 part-r-00000, part-r-00001 ...
+  (k2, v3) 對，例：("fox", 3) ("the", 4)</code></pre>
+  <div class="box"><span class="label">partition 的鐵則</span><strong>同一個 key 必須匯到同一個 reducer</strong>（否則加總會分散、算錯）。靠 <code>hash(key) % R</code> 這個確定性函式保證：不管哪個 mapper 產生的 "fox"，算出的 partition 都一樣。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 輸入(HDFS/S3)
+      │ 切片
+      ▼
+ ┌─split─┬─split─┬─split─┐
+ │ Map 1 │ Map 2 │ Map 3 │   每片一個 map task →(詞,1)（可選 combiner 本地預聚合）
+ └───┬───┴───┬───┴───┬───┘
+     └───────┼───────┘
+             ▼  Shuffle / Sort：依 hash(詞)%R 分組，同詞匯到同 reducer（跨網路）
+     ┌───────┴───────┐
+     ▼               ▼
+ ┌Reduce 1┐      ┌Reduce 2┐    每個 reducer 把同詞 value 加總
+ └───┬────┘      └───┬────┘
+     └───────┬───────┘
+             ▼
+        輸出(HDFS/S3) part-r-*
+
+ Master：切 task、指派 worker、監控心跳、失敗重跑、落後者 speculative execution</code></pre>
+  <ol>
+    <li><strong>Master（排程器）</strong>：把 job 切成 M 個 map task + R 個 reduce task，指派給 worker，追蹤狀態與心跳。</li>
+    <li><strong>Map worker</strong>：讀 split、跑 map、輸出寫本地磁碟並依 partition 分桶。</li>
+    <li><strong>Reduce worker</strong>：從每個 mapper 拉取屬於自己 partition 的資料（shuffle）、合併排序、跑 reduce、寫輸出。</li>
+    <li><strong>Spark 的演進</strong>：把多個 map/reduce 串成 <strong>DAG</strong>，中間結果儘量留在<strong>記憶體</strong>（RDD/DataFrame），省去反覆落地磁碟，迭代型工作快上數量級。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>三階段：map → shuffle → reduce</h3>
+  <ul>
+    <li><strong>Map</strong>：對每個 split 獨立、無共享狀態地產生 (k2,v2)。無狀態 → 可任意平行、可重跑。</li>
+    <li><strong>Shuffle / Sort</strong>：把所有 mapper 的中間對<strong>依 key 重新分組</strong>並排序，送到對應 reducer。這是唯一需要「跨所有 mapper × 所有 reducer」搬資料的步驟。</li>
+    <li><strong>Reduce</strong>：對每個 key 拿到完整 value 清單，做彙總（sum / avg / topN…）。換聚合函式就換一種 job，map/shuffle 不動。</li>
+  </ul>
+  <h3>partition：依 key 分 reducer</h3>
+  <p><code>partition = hash(key) % R</code>。決定每個 key 去哪個 reducer，並保證同 key 同 reducer。自訂 partitioner 可處理特殊分佈（如範圍分區做全域排序）。</p>
+  <h3>combiner：本地預聚合</h3>
+  <p>在 map 端先把同 key 的 value <strong>本地加總</strong>（介面同 reduce），例如一個 mapper 內 ("the",1)×100 先變成 ("the",100)。<strong>大幅減少 shuffle 要搬的資料量</strong>。前提是聚合函式可結合（sum/max 可，avg 要拆成 sum+count）。</p>
+  <h3>資料局部性：move compute to data</h3>
+  <p>Master 盡量把 map task 排到「該 split 的副本所在的節點」上，讓讀取走本地磁碟而非網路，省下昂貴的跨機頻寬。</p>
+  <h3>容錯：重跑</h3>
+  <p>worker 掛了 → master 偵測心跳逾時 → 把該 worker 未完成（甚至已完成的 map，因中間檔在本地）的 task <strong>重新指派</strong>給別的 worker。因為 map/reduce 是<strong>確定性、無副作用</strong>的純函式，重跑結果一致。</p>
+  <h3>落後者：speculative execution</h3>
+  <p>某台機器特別慢（硬碟壞軌、負載高）會拖垮整個 job（要等最慢的 reducer）。master 對這種<strong>落後 task 額外起一個備援副本</strong>並行跑，誰先完成就用誰、砍掉另一個。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>成因</th><th>對策</th></tr>
+    <tr><td><strong>Shuffle</strong>（頭號瓶頸）</td><td>map 輸出近輸入量級，要跨網路 all-to-all 搬 + 排序</td><td>combiner 本地預聚合、壓縮中間資料、提高網路、減少中間資料量</td></tr>
+    <tr><td><strong>資料傾斜</strong>（data skew）</td><td>某個熱門 key（如 "the"、null、熱門用戶）value 暴量 → 單一 reducer 累死，其他閒置</td><td>加鹽打散（salting）、自訂 partitioner、傾斜 key 二階段聚合、combiner 先壓</td></tr>
+    <tr><td><strong>小檔問題</strong></td><td>輸入是海量小檔 → 每個小檔一個 map task，排程開銷&gt;運算</td><td>合併小檔（CombineFileInputFormat）、預先打包成大檔</td></tr>
+    <tr><td>落後者拖尾</td><td>最慢的 task 決定總時長</td><td>speculative execution 備援副本</td></tr>
+    <tr><td>反覆落地磁碟</td><td>每個 job 中間結果寫 HDFS，迭代慢</td><td>改用 Spark：DAG + 記憶體中間結果</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>MapReduce vs Spark</strong>：MapReduce 每步落地磁碟、極穩健、適合超大一次性批次；Spark 中間結果留記憶體、DAG 排程，迭代 / 互動式快得多，但吃記憶體。多數新專案選 Spark。</li>
+    <li><strong>批次 vs 串流</strong>：批（MapReduce/Spark）吞吐高、延遲高（分鐘~小時）、重算容易；串流（Flink/Kafka Streams）延遲低（毫秒~秒）、一筆筆處理、狀態管理複雜。Lambda 架構同時跑兩套（批保正確、流保即時），Kappa 只用串流。</li>
+    <li><strong>combiner 能不能用？</strong>：聚合函式須可結合且可交換（sum、count、max 可；average 要改成 (sum,count) 兩個量）。</li>
+    <li><strong>R 怎麼定？</strong>：太小 → 並行不足、易傾斜、單檔太大；太大 → 輸出一堆小檔、排程開銷增。常依資料量與叢集核心數估。</li>
+    <li><strong>常見追問</strong>：為什麼 shuffle 是瓶頸？（跨網路 all-to-all + 排序）怎麼處理熱門 key 傾斜？（salting / 自訂 partitioner）map 輸出存哪？（mapper 本地磁碟，等 reducer 來拉）一台機器掛了怎辦？（task 重跑，因為純函式確定性）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於 <strong>MapReduce 三階段的資料流與 partition 規則</strong>（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來，把每一階段的中間產物攤開來看：</p>
+  <ul>
+    <li><code>src/Splitter.php</code>　把輸入文字依行切成 N 個 input split（餵給 N 個 map task）。</li>
+    <li><code>src/Mapper.php</code>　map：每行斷詞，每個詞輸出 <code>(詞,1)</code>；可選 combiner 本地預聚合。</li>
+    <li><code>src/Shuffler.php</code>　shuffle/sort：依 <code>partition = hash(詞) % R</code> 分組，<strong>同詞匯到同 reducer</strong>。</li>
+    <li><code>src/Reducer.php</code>　reduce：每個詞把 value 清單加總。</li>
+    <li><code>src/Job.php</code>　master：模擬多個 map/reduce task 平行，串起三階段並保留所有中間產物（<code>flock</code> 落地）。</li>
+    <li><code>public/index.php</code>　路由 + 三階段視覺化測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8053 -t public
+# 瀏覽器開 http://localhost:8053 貼一段文字 → 跑 job → 看 map 輸出 / shuffle 分組 / reduce 結果三階段</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 在<strong>單機</strong>上用迴圈<strong>模擬</strong>多個 map / reduce worker 平行；真實 MapReduce 由 master 把 task 分散到叢集 worker，並處理容錯重跑、speculative execution、跨網路 shuffle。但 <strong>split → map → shuffle（含 <code>hash(詞)%R</code> partition、同詞匯同 reducer）→ reduce（加總）的三階段邏輯與中間產物為真實可執行</strong>，要擴成分散式只需把 task 換成跨機 worker、shuffle 換成跨網路拉取，計算邏輯一字不用改。
+  </div>
+
+  <footer>53 MapReduce / 批次處理 · D 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

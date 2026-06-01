@@ -20,3 +20,7 @@
 | 21 | 直播（Twitch） | 低延遲 HLS 滑動視窗 manifest、聊天 fan-out |
 | 22 | 廣告點擊聚合 | 去重 exactly-once、防欺詐、tumbling window |
 | 29 | 遊戲排行榜 | Redis ZSET 語意、Top-K、我的名次±鄰居、分窗榜 |
+| 48 | CDC 資料管線（Debezium） | 讀 binlog 變更事件、有序 + LSN 冪等套用、下游衍生視圖最終一致 |
+| 53 | MapReduce / 批次處理 | map→shuffle(依 key 分區)→reduce 三階段、combiner 預聚合、資料傾斜 |
+| 54 | OLAP 列式儲存 | 列式 vs 行式只掃需要欄、欄壓縮(字典/RLE)、向量化聚合、OLTP vs OLAP |
+| 59 | 反詐騙風控 | 滑動視窗速度特徵、規則引擎加權評分、三分決策 allow/review/deny、誤殺 vs 漏抓 |

@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊻ 資料庫分片 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊻ 資料庫分片 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼難點不是「把資料存起來」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像一間超大圖書館，書多到<strong>一棟樓塞不下</strong>，櫃台也忙到<strong>排隊排到門口</strong>。怎麼辦？
+  蓋<strong>好幾間分館</strong>，把書分散放——這就是<strong>資料庫分片（Sharding）</strong>：把原本擠在「一台資料庫」裡的資料，<strong>水平切開、分散到很多台</strong>。</p>
+  <p>聽起來只是「多買幾台機器」對吧？難的是：書一旦分散到好幾間分館，<strong>「怎麼快速找到某本書在哪間館」</strong>、<strong>「要統計全館總共幾本書」</strong>、<strong>「每本書怎麼編一個全館不重複的編號」</strong>、以及<strong>「開新分館時要搬多少書」</strong>——這四件事，全都變麻煩了。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    分片 = <strong>一台資料庫裝不下/忙不過來時，把資料切開分到很多台</strong>。
+    好處是「能無限長大」，代價是「<strong>跨館的事情都變貴</strong>」（找遍全館、統計全館、全館不撞號、開館要搬書）。
+  </div>
+
+  <h2 id="why">2. 為什麼難點不是「把資料存起來」？</h2>
+  <p>很多人第一次看會想：「不就是多開幾個資料庫，把資料丟進去嗎？」——這想法漏掉了「<strong>切開之後</strong>」才冒出來的麻煩。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：連鎖書店 vs 一間大店</span>
+    一間大店時，店員要找書、要盤點、要編書號，<strong>在同一個地方</strong>做都很簡單。
+    一旦變成<strong>好幾間分店</strong>：你問「《哈利波特》在哪？」如果<strong>事先約好「H 開頭的書都在 3 號店」</strong>，一通電話就找到（快）；
+    但你問「<strong>全公司總共幾本書？</strong>」就得<strong>打給每一間店各自盤點、再加起來</strong>（慢）。
+  </div>
+  <p>這就是分片的核心難點：<strong>知道「東西放哪間」就快；不知道、要問遍全部就慢</strong>。而且每間店各自編書號會<strong>撞號</strong>（兩間店都有「1 號書」），開新店還得<strong>把舊店的書搬一部分過去</strong>。</p>
+  <p class="pause">💭 停一下：為什麼「問全公司總共幾本書」會比「問某本書在哪」慢這麼多？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為「某本書在哪」事先用書名約好了規則（H 開頭→3 號店），<strong>一步直達一間店</strong>；
+    而「總共幾本」沒有任何線索能縮小範圍，只能<strong>每一間店都問一遍、再把答案加起來</strong>——店越多越慢，還要等最慢的那間回覆。這就是後面要講的 scatter-gather。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>分片要處理的，其實就是這 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>路由：這筆資料該放哪一台？</h3>
+    <p>資料進來，要先決定<strong>放第幾台</strong>。做法是挑一個欄位當<strong>分片鍵</strong>（例如「使用者編號」），算一個數字、除以台數取餘數，餘數幾就放第幾台。</p>
+    <div class="analogy">
+      <span class="label">🗂️ 比喻：依姓氏分櫃</span>
+      公司收信，依「<strong>姓氏第一個字</strong>」決定丟哪個信箱。下次要找王先生的信，<strong>直接走到「王」那一櫃</strong>，不用翻遍所有信箱。
+      分片鍵就是這個「姓氏」——選對了，多數查詢一步直達。
+    </div>
+    <p>👉 面試最愛問：「<strong>分片鍵要選哪個欄位？</strong>」因為它同時決定「資料放哪」和「哪些查詢會快」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>找遍全部：沒有線索的查詢（scatter-gather）</h3>
+    <p>如果查詢<strong>沒帶分片鍵</strong>（例如「全公司總共幾筆訂單？」「金額前 10 大的訂單？」），就沒辦法一步直達，只能<strong>問遍每一台、再把答案合起來</strong>。</p>
+    <div class="analogy">
+      <span class="label">📞 比喻：打給每間分店再加總</span>
+      「全公司總共幾本書？」→ 打給<strong>每一間店</strong>各自盤點 →（scatter，撒出去）→ 收回每間的數字 →（gather，收回來）→ 加總。
+      要排「全公司最貴的前 10 本書」更麻煩：每間先報自己的前 10，<strong>你再把這些湊起來重新排一次</strong>取前 10。
+    </div>
+    <p>這個「<strong>撒出去問所有台、再收回來合併</strong>」就叫 <strong>scatter-gather</strong>。它慢，而且<strong>要等最慢的那台</strong>。所以好的分片設計，會盡量讓查詢都帶分片鍵、走第 1 關的「直達」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>全域編號：別兩台都叫「1 號」</h3>
+    <p>每筆資料要有一個<strong>不重複的編號（主鍵）</strong>。但如果<strong>每台各自從 1 開始編</strong>，第 0 台和第 1 台就都會有「1 號」——<strong>撞號</strong>了！</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：銀行抽號碼牌</span>
+      銀行不會讓每個櫃台各自從 1 號發牌（會一堆人都拿到「3 號」）。而是有一台<strong>總發號機</strong>：
+      「<strong>1~1000 號給 A 櫃、1001~2000 給 B 櫃</strong>」，各櫃在自己的號段裡發，<strong>全行永遠不撞號</strong>。
+    </div>
+    <p>系統也一樣：用一個<strong>全域發號器</strong>，把號碼<strong>切成不重疊的「號段」分配給各台</strong>，各台在自己的號段裡遞增。這樣全系統的編號保證唯一。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>開新分館：加一台要搬多少書？</h3>
+    <p>資料又長大了，要<strong>再加一台</strong>。問題來了：原本「除以 2 取餘數」的規則，變成「除以 3 取餘數」——<strong>幾乎每筆資料算出來的台號都變了</strong>，意思是<strong>幾乎全部都要搬家</strong>！</p>
+    <div class="analogy">
+      <span class="label">🚚 比喻：改分櫃規則就要大搬家</span>
+      原本「姓氏除以 2」分兩櫃，現在改「除以 3」分三櫃——<strong>絕大多數信的櫃號都變了</strong>，等於要把信幾乎全部重搬一次。累死人。
+    </div>
+    <p>這就是<strong>取模分片（除以台數取餘數）最大的痛</strong>：加機器＝大搬家。工程上的解法：<strong>一開始就先切很多「邏輯小櫃」</strong>（例如先切 32 櫃，雖然只有 2 台機器，一台先放 16 櫃），擴容時<strong>整櫃搬到新機器</strong>就好，規則不變、不用重算每封信。這個「重新切、搬資料」的動作就叫 <strong>re-shard</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 用分片鍵<strong>路由</strong>（這筆放哪台）→ ② 沒線索就<strong>找遍全部再合併</strong>（scatter-gather）→ ③ <strong>全域發號</strong>（別撞號）→ ④ 加機器要<strong>搬家</strong>（re-shard，取模分片幾乎全搬）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>把取捨換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「分片鍵選錯」</span>
+    分片鍵一旦選定，資料就照它分散了。選錯（例如多數查詢其實是用另一個欄位查）→ 大量查詢都得<strong>找遍全部（scatter-gather）</strong>，慢到爆。
+    而且<strong>改分片鍵幾乎等於整個重灌搬家</strong>。所以選之前要先想清楚「<strong>最常用什麼欄位查</strong>」。<em>選對鍵，半題就解了。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「跨片的事情」</span>
+    跨好幾台的查詢（找遍全部、全域排序、跨台 JOIN、跨台轉帳交易）<strong>又慢又難保證正確</strong>。
+    所以設計時要<strong>盡量讓相關的資料落在同一台</strong>（用同一個分片鍵），能在一台內搞定就別跨台。<em>能不跨台，就不跨台。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「熱點：某一台被打爆」</span>
+    如果分片鍵分得不均（例如用「日期」當鍵 → 大家都在寫「今天」那一台；或某個大客戶資料特別多 → 他那台特別累），就會<strong>一台累死、其他台閒著</strong>。
+    對策：選<strong>分佈均勻</strong>的分片鍵、把大客戶<strong>打散</strong>。<em>雨露均霑，別偏心。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🧑‍💻 <strong>應用程式</strong>以為自己在用「一張大表」（它不知道背後切了幾台）→</li>
+    <li>🧭 <strong>分片中介層</strong>（像總機）拿到查詢：<strong>帶分片鍵</strong>就「算一下→直達那一台」；<strong>沒帶</strong>就「撒給所有台→收回來合併」（scatter-gather）→</li>
+    <li>🗄️ 後面是<strong>好幾台 MySQL 分片</strong>，每台還可掛<strong>讀副本</strong>分擔讀（寫走主、讀走副本）→</li>
+    <li>🎫 旁邊有個<strong>全域發號器</strong>，負責發「全系統不撞號」的編號 →</li>
+    <li>🚚 <strong>虛線那台</strong>是 re-shard 新加的分片，加它的時候要<strong>從舊台搬一部分資料</strong>過來。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>分片 / Sharding</td><td>一台裝不下時，把資料水平切開分到很多台</td></tr>
+    <tr><td>分片鍵 (shard key)</td><td>決定「這筆放哪台」的那個欄位（像分櫃的姓氏）</td></tr>
+    <tr><td>取模分片 (hash % N)</td><td>算個數字除以台數取餘數，餘數幾就放第幾台</td></tr>
+    <tr><td>路由</td><td>依分片鍵算出「該去哪一台」的動作</td></tr>
+    <tr><td>單片直達</td><td>帶分片鍵的查詢，一步走到一台（最快）</td></tr>
+    <tr><td>scatter-gather</td><td>沒帶分片鍵 → 撒給所有台問、再收回來合併（慢，等最慢那台）</td></tr>
+    <tr><td>跨片 JOIN / 交易</td><td>要橫跨好幾台才能完成的關聯/轉帳，又慢又難保證對</td></tr>
+    <tr><td>全域 ID / 發號器</td><td>全系統不重複的編號；用「號段」切給各台各自發</td></tr>
+    <tr><td>號段 (segment)</td><td>把號碼切成不重疊的區間（1~1000 給A、1001~2000 給B）</td></tr>
+    <tr><td>re-shard</td><td>加機器時重新切、搬資料；取模分片幾乎要全搬</td></tr>
+    <tr><td>熱點 / 傾斜</td><td>某一台被打爆（分片鍵分不均，如「日期」或大客戶）</td></tr>
+    <tr><td>讀寫分離 / 副本</td><td>寫走主、讀走副本，分擔讀流量</td></tr>
+    <tr><td>分片中介層</td><td>夾在應用和多台 MySQL 之間的「總機」(Vitess/ProxySQL)，負責路由與合併</td></tr>
+    <tr><td>垂直分 vs 水平分</td><td>垂直＝不同表/欄位拆庫；水平＝同一張表切多片</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要切幾台。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>資料量</td><td>20 億筆 × 1KB ≈ 2TB（加索引再 ×2）</td><td>一台 MySQL 吃緊 → 要切多台</td></tr>
+    <tr><td>每秒寫入</td><td>尖峰 8 萬寫/秒</td><td>單台主庫寫不動（頂多幾千~上萬）→ 要切多主</td></tr>
+    <tr><td>切幾片</td><td>每片目標 &lt;500GB、&lt;1萬寫/秒</td><td>大約 8 片起跳，預留成長切 16~32 片</td></tr>
+    <tr><td>讀寫比</td><td>讀:寫 ≈ 10:1</td><td>每片再掛 2 台讀副本分擔讀</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：一開始就「多切一點」</span>
+    與其之後痛苦搬家，不如<strong>一開始就切很多邏輯小片</strong>（如 32 片，先幾片擺一台機器）。
+    之後擴容只要<strong>把整片搬到新機器</strong>，規則不變、不用重算每筆資料的落點——把「加機器＝大搬家」變成「加機器＝搬幾片」。
+  </div>
+  <p class="pause">💭 停一下：明明只有 2 台機器，為什麼要先切成 32 片？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為「片數」一變，每筆資料的落點規則就全變了（要大搬家）。但如果片數固定是 32、只是改變「哪幾片擺哪台機器」，
+    那擴容時<strong>只要把某幾片整片搬去新機器</strong>，每筆資料還是屬於原本那片、落點規則沒變——搬遷量小很多。先多切片＝預留擴容空間。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」。這題的重點是：<strong>每張點餐單有沒有寫分片鍵</strong>，決定它快還是慢。
+  </div>
+  <pre><code>① 帶分片鍵 → 單片直達（快）
+   GET /orders?user_id=1001
+   有 user_id（分片鍵）→ 一步走到那一台 → 超快
+
+② 沒帶分片鍵 → 找遍全部（慢）
+   GET /orders?status=PAID&sort=amount&limit=20
+   沒有分片鍵 → 撒給所有台 → 各自查 → 收回來重新排序取前 20</code></pre>
+  <p class="codecaption">看出差別了嗎？<strong>同樣是查訂單，帶不帶 user_id 速度天差地遠</strong>。設計 API 時要心裡有數：哪些是單片、哪些會 scatter-gather。</p>
+  <pre><code>③ 寫入 → 路由到對的台 + 拿全域編號
+   POST /orders { user_id:1001, amount:120 }
+   → 算 user_id 落哪台 → 跟發號器要一個全域不重複的 id → 寫進去
+
+④ 運維：加一台分片（re-shard）
+   POST /admin/reshard { from:16, to:32 }
+   → 在背景把資料慢慢複製到新片，追上後再切換（不停機）</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：每間分館一本帳，外加一張「總規則表」</span>
+    每台 MySQL 各自存自己那份資料；另外要有一張「<strong>規則表</strong>」記住「<strong>用哪個欄位當分片鍵、現在切幾片</strong>」。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗄️</span>被切開的大表（每台各存一份）</h3>
+    <p>例如訂單表：<code>id（全域不重複）、<strong>user_id（分片鍵）</strong>、金額、狀態、時間</code>。
+    同一個 user_id 的訂單<strong>都落在同一台</strong>，所以「查某人的訂單」一步直達。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧭</span>路由規則表（中介層的腦袋）</h3>
+    <p>記住：<code>分片鍵是哪個欄位、用什麼規則（除以幾取餘數）、目前切幾片</code>。
+    中介層每次拿到查詢，就翻這張表決定「直達哪台」或「要不要找遍全部」。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🎫</span>全域發號的「水位表」</h3>
+    <p>記住<strong>每台目前領到的號段用到哪了</strong>（像「A 櫃發到 1538 號了」）。
+    用完一段就再領下一段，保證全系統<strong>永不撞號</strong>。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>某一台被打爆（熱點 / 大客戶）</td><td>選分佈均勻的分片鍵；把大客戶<strong>加鹽打散</strong>或單獨成一片</td></tr>
+    <tr><td>太多查詢沒帶分片鍵，一直找遍全部</td><td>讓相關資料<strong>落同一台</strong>、把欄位冗餘進來、或交給<strong>搜尋引擎</strong>做檢索</td></tr>
+    <tr><td>跨好幾台的轉帳交易</td><td>盡量讓交易<strong>落在同一台</strong>；真要跨台用「分步驟補償」(Saga)</td></tr>
+    <tr><td>加機器要搬好多資料</td><td><strong>一開始多切片</strong> + 背景<strong>限速搬遷</strong> + 可隨時退回</td></tr>
+    <tr><td>讀太多打爆主庫</td><td><strong>讀走副本</strong>（讀寫分離），每台多掛幾台讀副本</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 先做哪一步？副本 → 垂直分 → 水平分片</span>
+    分片很痛，是<strong>最後手段</strong>。先加<strong>讀副本</strong>（解讀爆）、再<strong>垂直分</strong>（不同表拆到不同庫，便宜又不犧牲 SQL），真的還不夠才<strong>水平分片</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 取餘數分 vs 照範圍分</span>
+    取餘數（hash）<strong>分得均勻、不易熱點</strong>，但<strong>不能做範圍查</strong>（「3 月所有訂單」會散在各台）、而且加機器要大搬家；
+    照範圍分（如按日期）<strong>能範圍查、搬家方便</strong>，但<strong>容易熱點</strong>（大家都寫今天那台）。常見折衷：取餘數 + 一開始多切片。</div>
+  <div class="fear"><span class="label">⚖️ 全域編號用「號段」還是「Snowflake」？</span>
+    號段（總發號機批號段）<strong>緊湊、好管</strong>，但發號機要夠穩；Snowflake（時間+機器號+序號）<strong>沒有中心、各台自己產</strong>，但編號較長、靠時鐘。看你怕「中心掛掉」還是怕「編號太長」。</div>
+  <details class="qa"><summary>💭 追問：怎麼「不停機」加一台分片？</summary>
+    背景先把要搬的資料<strong>慢慢複製</strong>到新片，同時持續追上後續的新變動；等新片資料追平了，<strong>先把讀切過去、再把寫切過去</strong>，
+    確認一致後才把舊路由下線。全程服務不中斷，出問題還能切回去。（Vitess 的 VReplication 就是這樣做的。）</details>
+  <details class="qa"><summary>💭 追問：分片鍵選 user_id，那「查某商品的所有訂單」怎麼辦？</summary>
+    這查詢沒帶 user_id（分片鍵）→ 只能 scatter-gather 找遍全部，慢。解法：另外建一張<strong>「商品→訂單」的對照索引</strong>（用商品當鍵存一份）、
+    或把這類檢索丟給<strong>搜尋引擎（如 Elasticsearch）</strong>處理，不要硬用分片庫做。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「路由 + 找遍全部 + 全域編號 + 搬家」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8046 -t public
+# 然後瀏覽器打開 http://localhost:8046</code></pre>
+  <ol>
+    <li>先按<strong>「一鍵塞 12 筆樣本」</strong>，看每筆資料被算到<strong>哪一片</strong>（<code>routed_to</code>）。</li>
+    <li><strong>依 key 點查</strong>：輸入某個 shard_key 查詢，看 <code>shards_scanned=1</code>（只打一台，超快）。</li>
+    <li><strong>跨片聚合</strong>：按 count / sum / top，看 <code>shards_scanned=N</code>（打了所有片再合併）。</li>
+    <li><strong>加 1 片</strong>：按下去，看 <code>moved_pct</code>——你會看到<strong>接近 100% 的資料要換家</strong>！這就是取模分片 re-shard 的痛。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>對比「依 key 點查只打 1 片」和「跨片聚合打 N 片」——這就是<strong>「帶不帶分片鍵」的天壤之別</strong>。再看加片時的 <code>moved_pct</code>，體會為什麼工程師要「一開始就多切片」來避開大搬家。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心都在<strong>一個小檔 <code>ShardRouter.php</code></strong> 裡，剛好對應前面講的四關。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 四個小幫手</span>
+    <strong>路由</strong>（算這筆放哪台）→ <strong>單片點查</strong>（帶鍵只打一台）→ <strong>scatter-gather</strong>（沒帶鍵打全部再合）→ <strong>發號 + 搬家</strong>（全域編號、加片搬資料）。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>路由：算這筆該放哪台（shardOf）</h3>
+    <p>核心就一行：把分片鍵算成數字，<strong>除以台數取餘數</strong>。</p>
+<pre><code>function 算落哪片(分片鍵) {
+    return crc32(分片鍵) % 台數;   // 餘數幾 → 放第幾台
+}
+// 插入時：先算落哪片 → 跟發號器要一個全域 id → 寫進那一片
+</code></pre>
+    <p class="codecaption">就這一行 <code>% 台數</code>，決定了每筆資料的家。簡單、均勻——但也正因為「台數」在分母，<strong>台數一變，幾乎每筆的餘數都變</strong>，這就埋下了第 4 關「大搬家」的伏筆。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>單片點查：帶分片鍵，只打一台（getByKey）</h3>
+    <p>查詢帶了分片鍵，就<strong>先算出落哪片，只翻那一片</strong>：</p>
+<pre><code>function 依鍵查詢(分片鍵) {
+    片 = 算落哪片(分片鍵);       // 一步算出在哪台
+    回傳 該片裡 shard_key 等於它的所有列;
+    // shards_scanned = 1 ← 只碰一台！
+}
+</code></pre>
+    <p class="codecaption">這就是「<strong>走到『王』那一櫃</strong>」——只打一台，最快。回傳的 <code>shards_scanned=1</code> 就是證據。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>找遍全部：沒帶鍵，打全部再合併（aggregate）</h3>
+    <p>這是<strong>關聯式分片最痛</strong>的一段。沒有分片鍵當線索，只能<strong>每一片都跑一次、再把結果合起來</strong>：</p>
+<pre><code>function 跨片聚合(操作) {
+    對 每一片 s {                  // ← scatter：撒給所有片
+        rows = 讀第 s 片;
+        累加 count、累加 sum、收集所有列;
+    }
+    // ← gather：把各片的部分結果合成最終答案
+    if (操作 == 'sum')  return 各片 sum 相加;
+    if (操作 == 'top')  { 把所有列重新排序; 取前 k; }   // 中介層二次排序
+    note = "打了全部 N 片，延遲取決於最慢那片";
+}
+</code></pre>
+    <p class="codecaption">注意 <code>對 每一片</code> 這個迴圈——它就是 scatter（撒出去問每一台）。最後的相加 / 重新排序就是 gather（收回來合併）。
+    台數越多越慢，還要<strong>等最慢那台</strong>。這就是為什麼設計時要拼命讓查詢「帶分片鍵」走第 2 關。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>全域編號 + 加片搬家（nextId / addShard）</h3>
+    <p>編號用「號段」讓各片不撞號；加片時老老實實算「<strong>誰要換家</strong>」：</p>
+<pre><code>// 全域編號：第 s 片的號 = s × 號段 + 該片本地序號 → 跨片永不重複
+function 發號(片 s) { return s × 號段大小 + 該片下一個序號++; }
+
+// 加一台片：N → N+1，幾乎每筆都要重算落點
+function 加一片() {
+    對 每一筆資料 {
+        新片 = crc32(分片鍵) % (N+1);    // 用新台數重算
+        if (新片 != 舊片) 記下「這筆要換家：舊片→新片」;
+    }
+    回報 換家比例;   // 取模分片 → 往往接近 100%！
+}
+</code></pre>
+    <p class="codecaption">看到 <code>% (N+1)</code> 了嗎？分母從 N 變 N+1，餘數幾乎全變 → <strong>幾乎全部換家</strong>。
+    這段就是 demo 裡讓你看到 <code>moved_pct</code> 接近 100% 的真相，也是「<strong>為什麼要一開始多切片</strong>」最有力的證據。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個函式</th><th>關鍵那行</th></tr>
+      <tr><td>① 路由（放哪台）</td><td>shardOf</td><td><code>crc32(key) % 台數</code></td></tr>
+      <tr><td>② 單片直達</td><td>getByKey</td><td><code>shards_scanned=1</code></td></tr>
+      <tr><td>③ 找遍全部</td><td>aggregate</td><td><code>對每一片</code> 的迴圈（scatter-gather）</td></tr>
+      <tr><td>④ 全域編號 + 搬家</td><td>nextId / addShard</td><td><code>s×號段+序號</code>、<code>% (N+1)</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈」換成「多台 MySQL + Vitess 中介層 + 線上搬遷」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「連鎖書店」解釋，分片的核心難點是什麼？</summary>
+    一間大店變很多分店後，「某本書在哪」如果事先用書名約好規則就能一步直達（快）；但「全公司總共幾本書」沒線索，只能打給每間店各自盤點再加總（慢）。難點就是「跨店的事情都變貴」。</details>
+  <details class="qa"><summary>Q2：分片鍵是什麼？為什麼選錯很痛？</summary>
+    分片鍵是決定「這筆資料放哪台」的欄位。它同時決定「哪些查詢能一步直達」。選錯（多數查詢其實用別的欄位查）→ 大量查詢要找遍全部（scatter-gather），而且改分片鍵幾乎要整個重灌搬家。</details>
+  <details class="qa"><summary>Q3：scatter-gather 是什麼？為什麼慢？</summary>
+    沒帶分片鍵的查詢，只能撒給所有台各自查（scatter）、再收回來合併（gather）。慢的原因：台數越多要問越多台，而且要等最慢的那台回覆（長尾）。全域排序還要在中介層二次排序。</details>
+  <details class="qa"><summary>Q4：每台各自從 1 開始編號會怎樣？怎麼解決？</summary>
+    會撞號（兩台都有「1 號」）。解法是全域發號器用「號段」把號碼切成不重疊的區間分給各台（1~1000 給A、1001~2000 給B），各台在自己區間裡遞增，全系統不撞號。</details>
+  <details class="qa"><summary>Q5：為什麼「取模分片」加一台機器會幾乎全搬家？怎麼緩解？</summary>
+    因為落點規則是「除以台數取餘數」，台數從 N 變 N+1 時，幾乎每筆資料算出來的台號都變了 → 幾乎全部要搬。緩解：一開始就多切邏輯片（如 32 片），擴容時整片搬到新機器，規則與落點不變。</details>
+  <details class="qa"><summary>Q6（工程）：分片是不是第一步就該做？順序是什麼？</summary>
+    不是，分片很痛是最後手段。順序：先加讀副本（解讀爆）→ 垂直分（不同表拆庫，便宜又保留 SQL）→ 真的不夠才水平分片（犧牲跨片 JOIN/交易換無限擴展）。</details>
+  <details class="qa"><summary>Q7（工程）：分片鍵選 user_id，「查某商品的所有訂單」怎麼快？</summary>
+    那查詢沒帶 user_id 會 scatter-gather。解法：另外維護一張「商品→訂單」的對照索引（用商品當鍵），或把這類檢索交給搜尋引擎（Elasticsearch）做，不硬用分片庫。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>資料庫分片 = 一台裝不下/忙不過來時，把資料水平切到很多台。</strong></p>
+    <p><strong>4 個關卡：</strong>① 用分片鍵<strong>路由</strong>（放哪台）→ ② 沒線索就<strong>找遍全部再合併</strong>（scatter-gather）→ ③ <strong>全域發號</strong>（號段，別撞號）→ ④ 加機器要<strong>搬家</strong>（re-shard，取模分片幾乎全搬）。</p>
+    <p><strong>3 個怕：</strong>怕分片鍵選錯（改它＝重灌）、怕跨片的事（JOIN/交易/排序都貴，能不跨就不跨）、怕熱點（某台被打爆，要分得均勻+打散大客戶）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先副本→垂直分→才水平分片；分片鍵選最高頻查詢的均勻欄位；一開始多切片避開大搬家；跨片查詢能共置就共置、不行就交給搜尋引擎；全域編號用號段或 snowflake；擴容用線上複製+切流不停機。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊻ 資料庫分片 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

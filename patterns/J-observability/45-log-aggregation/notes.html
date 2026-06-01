@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊺ 日誌聚合系統 ELK · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅹 可觀測性</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊺ 日誌聚合系統 ELK：從幾百台機器的 log 到一處可搜尋</h1>
+  <p class="subtitle">
+    <span class="tag group">J 可觀測性</span>
+    <span class="tag time">建議 42 分鐘</span>
+    <span class="tag">Design a Log Aggregation System (ELK)</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>分散式日誌的攝取管線 + 倒排索引全文搜尋 + 多維度（等級/時間/服務）過濾</strong>」。
+    難點不在「存文字」，而在 <em>每秒數十萬筆寫入的攝取吞吐</em>、<em>倒排索引的時間分片與保留分層</em>、以及 <em>高基數欄位與索引爆炸</em>的控制。
+  </div>
+
+  <div class="box"><span class="label">與第㉖題（全文搜尋）的關係</span>
+    本題共用「<strong>tokenize + 倒排索引</strong>」這個核心引擎，但多了三件日誌特有的事：<strong>攝取管線</strong>（agent → 緩衝 → 處理 → 索引）、<strong>等級維度</strong>（debug/info/warn/error 過濾）、<strong>時間範圍</strong>查詢（log 永遠是時序的）。把搜尋引擎放進「時間 + 等級」的座標系裡，就是日誌聚合。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算（日誌量 / 保留 / 索引大小）</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型（log 文件 / 倒排索引 / 時間分桶）</a></li>
+      <li><a href="#arch">高階架構（ELK 管線）</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（寫入吞吐 / 高基數 / 索引爆炸）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>從<strong>幾百台機器、幾十個服務</strong>收集 log，集中到一處可<strong>全文搜尋</strong>。</li>
+    <li>每筆 log 是<strong>結構化文件</strong>：時間戳、等級（level）、來源服務（service）、訊息（message）+ 任意欄位。</li>
+    <li>查詢支援：<strong>關鍵字</strong>（全文，多詞 AND/OR）+ <strong>等級過濾</strong>（只看 error）+ <strong>時間範圍</strong>（最近 1 小時）。</li>
+    <li>支援<strong>聚合</strong>：依服務/等級分組計數、畫趨勢圖（Kibana 儀表板）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高寫入吞吐</strong>：日誌是高頻 append-only，峰值每秒數十萬筆。</li>
+    <li><strong>查詢低延遲</strong>：「最近 15 分鐘所有 error」要秒級回應。</li>
+    <li><strong>可靠攝取</strong>：應用不能因為日誌系統慢就被拖垮 → 攝取要解耦、可緩衝、可丟（背壓）。</li>
+    <li><strong>成本可控</strong>：log 量極大，需保留分層（hot/warm/cold）與過期回收。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「三支柱（pillars）要哪個？」可觀測性 = <strong>metrics / logs / traces</strong>。本題是 <strong>logs</strong>：離散的、帶上下文的<strong>文字事件</strong>，適合「事後追查某次請求到底發生什麼」。metrics 是數值聚合（第㉗題）、traces 是跨服務鏈路（第㊹題）。logs 最貴（量大、要全文索引），所以<strong>攝取吞吐與索引成本</strong>是本題主軸。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>機器數 × 每台日誌率</td><td>500 台 × 每台 200 行/秒</td><td>~<strong>10 萬 logs/s</strong>（峰值 ×3 ≈ 30 萬）</td></tr>
+    <tr><td>單筆 log 大小</td><td>結構化 + 訊息 ~500 bytes</td><td>原始寫入 ≈ 10萬 × 500B ≈ <strong>50 MB/s</strong></td></tr>
+    <tr><td>每日原始量</td><td>50MB/s × 86400</td><td>≈ <strong>4.3 TB/日</strong>（原始）</td></tr>
+    <tr><td>索引膨脹</td><td>倒排索引 + 欄位 ≈ 原始的 1.1~1.5×</td><td>含索引 ≈ <strong>5~6 TB/日</strong></td></tr>
+    <tr><td>保留 30 天</td><td>6TB × 30</td><td>≈ <strong>180 TB</strong>（須分層降本）</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>成本由<strong>「量 × 保留期 × 索引膨脹」</strong>三者相乘決定。降本三招：①<strong>取樣/丟棄</strong>低價值 log（debug 不長存）②<strong>時間分片 + 保留分層</strong>（舊資料移到便宜冷儲存或不索引）③<strong>控制高基數欄位</strong>（別把每個 request_id 都當索引欄位）。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 批次攝取（內部，來自收集 agent / Logstash）
+POST /api/logs    Body: application/json
+  { "logs": [ { "ts":1717200000000, "level":"error",
+                "service":"auth-service", "message":"login failed uid=99" }, ... ] }
+→ 200 { "ingested": 3, "ids": [101,102,103] }
+
+# 查詢（關鍵字 + 等級 + 時間範圍）
+GET /api/search?q=login%20failed&level=error&from=1717200000000&to=1717203600000&limit=50
+→ 200 { "total": 12, "returned": 12, "usedIndex": true,
+        "hits": [ { id, ts, level, service, message }, ... ] }
+
+# 聚合（畫趨勢/分組計數，真實系統如 ES aggregations）
+GET /api/aggregate?group_by=service&level=error&from=&to=
+→ 200 { "auth-service": 120, "api-gateway": 33, ... }
+</code></pre>
+  <div class="box"><span class="label">設計重點</span>查詢是<strong>多維度交集</strong>：先用倒排索引把關鍵字命中的文件取出（縮小候選），再套 level + 時間範圍過濾。把「最便宜、最能縮小範圍」的條件先用（通常是時間分片 + 關鍵字 posting list），是查詢效能的關鍵。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>log 文件（document）= 一筆結構化日誌
+  {
+    id:      自增/雪花 ID
+    ts:      事件時間戳（毫秒）        ← 時序維度，決定落在哪個時間分片
+    level:   debug | info | warn | error   ← 低基數，適合當 filter 欄位
+    service: "auth-service"          ← 來源，分組/過濾用
+    message: "login failed uid=99"   ← 全文欄位，會被 tokenize 進倒排索引
+    （+ host, trace_id, ... 任意結構化欄位）
+  }
+
+倒排索引（inverted index）= 全文搜尋的心臟
+  "login"  -> [101, 102, 205, ...]   ← posting list：這個詞出現在哪幾筆 log
+  "failed" -> [102, 205, 318, ...]
+  查 "login failed" = 兩個 posting list 取「交集」(AND)
+
+時間分桶（time-based index）= 按時間切成多個小索引
+  logs-2026.06.01-h14   logs-2026.06.01-h15  ...
+  好處：查時間範圍只碰相關分桶；過期整桶刪除（O(1) 回收）；舊桶可降溫到冷儲存</code></pre>
+  <div class="box"><span class="label">為何 level 當 filter、message 當全文</span><code>level</code> 只有 4 種值（低基數），用 term filter（精確比對）即可；<code>message</code> 是自由文字（高基數），必須 tokenize 建倒排索引才能「含某詞就命中」。把欄位分成「<strong>過濾用（精確、低基數）</strong>」與「<strong>搜尋用（全文、高基數）</strong>」兩類，是日誌資料建模的核心判斷。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 應用伺服器(數百台) ──▶ 收集 Agent(Filebeat) ──▶ 緩衝佇列(Kafka) ──▶ 處理(Logstash)
+   寫 log 到檔案/stdout      在每台機器上 tail        削峰、解耦、可重播       解析/結構化/打標
+                                                                              │
+                                                                              ▼
+                                                          索引/儲存(Elasticsearch)
+                                                          倒排索引 + 時間分片 + 分片副本
+                                                                              │
+                                          查詢 ◀── 視覺化/查詢(Kibana) ◀───────┘
+                                          關鍵字 + 等級 + 時間範圍 + 聚合</code></pre>
+  <ol>
+    <li><strong>收集 Agent（Filebeat）</strong>：每台機器上的輕量 agent，tail 應用 log 檔，往後送；應用本身不需知道後端在哪。</li>
+    <li><strong>緩衝（Kafka）</strong>：把「產 log」與「處理/索引」<strong>解耦</strong>——Elasticsearch 慢或重啟時，log 暫存在 Kafka 不遺失，可重播；同時對突發洪峰<strong>削峰</strong>。</li>
+    <li><strong>處理（Logstash）</strong>：解析非結構化文字（grok）、抽欄位、打 tag、丟棄雜訊、敏感資料遮罩。</li>
+    <li><strong>索引（Elasticsearch）</strong>：建倒排索引 + 結構化欄位，按時間分片（index per hour/day），分片 + 副本水平擴展。</li>
+    <li><strong>查詢（Kibana）</strong>：全文 + filter + 時間範圍 + 聚合儀表板。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>結構化日誌（structured logging）</h3>
+  <ul>
+    <li>應用直接輸出 <strong>JSON log</strong>（含 level、service、trace_id 等欄位），省去下游用 regex/grok 硬解析的脆弱與成本。</li>
+    <li>「先結構化、再傳輸」是現代最佳實務；舊系統的純文字 log 才靠 Logstash grok 補救。</li>
+  </ul>
+  <h3>倒排索引（inverted index）</h3>
+  <ul>
+    <li>對 <code>message</code> 做 <strong>tokenize</strong>（切詞、轉小寫、去標點）→ 每個詞建一條 <strong>posting list</strong>（詞 → 文件 id 清單）。</li>
+    <li>關鍵字查詢 = 取各詞 posting list 的<strong>交集（AND）/聯集（OR）</strong>；posting list 已排序，交集是線性合併，遠快於逐筆掃描全部 log。</li>
+    <li>真實 Elasticsearch 底層是 Lucene；本 demo 用 PHP 實作同樣的「詞 → posting list → 取交集」邏輯。</li>
+  </ul>
+  <h3>時間分片與 index rollover</h3>
+  <ul>
+    <li>不要把所有 log 塞進一個巨大索引。按時間切成 <strong>logs-2026.06.01</strong> 這類分桶，達到大小/時間門檻就<strong>滾動（rollover）</strong>出新桶。</li>
+    <li>查時間範圍只需掃<strong>相關分桶</strong>；過期資料<strong>整桶刪除</strong>（O(1)），不必逐筆 delete（昂貴）。</li>
+  </ul>
+  <h3>過濾與聚合</h3>
+  <ul>
+    <li><strong>filter（過濾）</strong>：level/service 等低基數欄位用精確比對，可快取、不算分數，成本低。</li>
+    <li><strong>aggregation（聚合）</strong>：依欄位分組計數/求趨勢（如「各服務每分鐘 error 數」），是儀表板的基礎。</li>
+  </ul>
+  <h3>保留分層 hot / warm / cold</h3>
+  <ul>
+    <li><strong>hot</strong>：最近資料，放 SSD、多副本、可寫可查（最貴）。</li>
+    <li><strong>warm</strong>：稍舊，唯讀、降副本、放較慢磁碟。</li>
+    <li><strong>cold / frozen</strong>：很舊，移到物件儲存（S3）、按需載入，甚至只存原始不建索引；最後到期刪除。</li>
+    <li>這套 <strong>ILM（Index Lifecycle Management）</strong>是把 180TB 成本壓下來的關鍵。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸（寫入吞吐 / 高基數 / 索引爆炸）</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>攝取洪峰</td><td>突發 log 灌爆 ES，寫入拒絕</td><td><strong>Kafka 緩衝削峰</strong> + 背壓 + 批次寫入（bulk）</td></tr>
+    <tr><td>寫入吞吐</td><td>單節點索引速度上限</td><td><strong>分片（sharding）</strong>：一個時間索引切多個 shard 分散到多節點並行寫</td></tr>
+    <tr><td>高基數（cardinality）</td><td>把 request_id/user_id 當索引欄位 → 詞典爆炸、記憶體吃光</td><td>高基數欄位<strong>不索引或只存不分析</strong>（keyword doc_values / 不建倒排）</td></tr>
+    <tr><td>索引爆炸</td><td>分片過多（每小時一索引 × 多 shard × 多服務）</td><td>合理 rollover 門檻、合併小分片（force merge）、ILM 自動管理</td></tr>
+    <tr><td>查詢慢</td><td>大範圍 + 全文跨大量分片</td><td>時間分片裁剪（只查相關桶）、filter 快取、限制回傳量</td></tr>
+    <tr><td>長期成本</td><td>全量長保全索引太貴</td><td>hot/warm/cold 分層 + 取樣 + debug log 短期保留</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>全文索引 vs 成本</strong>：全部欄位都建索引查得快但儲存/記憶體爆炸；只索引必要欄位（message 全文 + 少數 filter 欄位），其餘只存不索引。<em>索引是用空間換查詢速度，要選擇性地花。</em></li>
+    <li><strong>即時 vs 批次</strong>：Kafka + 近即時索引（near real-time，refresh 間隔通常 1s）兼顧吞吐與可見性；要求嚴格即時則代價是吞吐與成本。多數場景「秒級可見」足夠。</li>
+    <li><strong>保留期</strong>：留越久越好查歷史，但成本線性上升。折衷：error 長保、info 中期、debug 短期；舊資料降溫到冷儲存而非直接刪。</li>
+    <li><strong>結構化 vs 純文字</strong>：應用直接輸出 JSON log 最省下游解析；遺留系統才靠 grok 補救（脆弱、耗 CPU）。</li>
+    <li><strong>logs vs metrics vs traces</strong>：高基數、要「看細節原文」用 logs；可聚合的數值告警用 metrics；跨服務單請求鏈路用 traces。別把高基數塞進 metrics label，也別用 logs 做高頻數值告警。</li>
+    <li><strong>常見追問</strong>：為何要 Kafka 在中間？→ 解耦 + 削峰 + 可重播。如何回收舊 log？→ 時間分桶整桶刪 + ILM。索引為何會爆？→ 高基數欄位 + 分片過多。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 用 PHP 內建伺服器把<strong>攝取管線 + 倒排索引查詢</strong>做成真實可跑：</p>
+  <ul>
+    <li><code>src/LogIndex.php</code>　<strong>ingest</strong>（結構化文件 + 自增 id）、<strong>tokenize</strong>（切詞）、<strong>倒排索引</strong>（詞 → posting list）、<strong>search</strong>（關鍵字多詞 AND 取交集 + 等級過濾 + 時間範圍 [from,to] + 時間新到舊排序），以 <code>flock</code> 持久化到 JSON。</li>
+    <li><code>public/index.php</code>　路由 <code>POST /api/logs</code>（批次攝取）、<code>GET /api/search?q=&amp;level=&amp;from=&amp;to=</code>、<code>GET /</code> 測試頁（餵 log、用關鍵字+等級+時間查、看命中與「候選 id 數」如何被索引縮小）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8045 -t public
+# 瀏覽器開 http://localhost:8045：攝取幾筆 log → 用關鍵字+等級查 → 看倒排索引內容與命中</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機 JSON 模擬</strong>；<strong>攝取管線、tokenize、倒排索引（詞→posting list）、關鍵字 AND 交集、等級 + 時間範圍過濾、排序皆為真實可執行邏輯</strong>。<strong>未做</strong>索引分片、時間分桶 rollover、保留分層（hot/warm/cold）、壓縮、相關性評分（TF-IDF/BM25）與分散式合併；tokenize 採 ASCII 規則（不依賴 <code>mb_*</code>），中文整段視為一詞。要接真 ELK，把攝取端換成 Filebeat → Logstash → Elasticsearch，倒排索引與查詢語意一致。
+  </div>
+
+  <footer>㊺ 日誌聚合系統 ELK · J 可觀測性 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

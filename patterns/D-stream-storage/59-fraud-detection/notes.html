@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>59 即時詐欺偵測 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>59 即時詐欺偵測：每筆交易毫秒級擋下盜刷</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design a Fraud Detection System</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>即時串流特徵（滑動視窗速度）+ 規則引擎加權評分 + 風險總分三分決策（放行/人工審/拒絕）+ 回饋再訓練</strong>」的串流計算題。
+    它跟 <code>㉒ 廣告點擊聚合</code>同源——都靠<em>同鍵滑動視窗計數</em>當核心特徵；差別在這題不是計費，而是<strong>對每一筆交易在毫秒內做出 allow / review / deny 的線上決策</strong>，
+    難點在<em>低延遲、低誤殺、規則可解釋與模型準度的權衡，以及特徵新鮮度</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（高 TPS）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>對<strong>每一筆交易</strong>即時評估風險，輸出三分決策：<code>allow</code>（放行）/ <code>review</code>（送人工審查）/ <code>deny</code>（拒絕）。</li>
+    <li><strong>規則引擎</strong>：可組合多條規則（速度、金額、黑名單…），每條命中加分，總分決定決策；規則門檻可即時調整。</li>
+    <li><strong>即時特徵</strong>：同卡 / 同 IP / 同裝置在滑動視窗內的交易筆數（速度 velocity）、近期金額分布等線上特徵。</li>
+    <li><strong>ML 模型評分</strong>：補規則涵蓋不到的細緻模式，與規則分數合成總分。</li>
+    <li><strong>回饋迴路</strong>：人工審查 / 拒付（chargeback）結果回標成標籤，離線再訓練模型、更新規則與名單。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：在交易授權的關鍵路徑上，p99 決策 &lt; 50~100ms（不能拖慢付款）。</li>
+    <li><strong>低誤殺（false positive）</strong>：擋錯正常交易直接傷害營收與體驗，比偶爾漏抓更敏感。</li>
+    <li><strong>高可用</strong>：詐欺服務掛掉不能讓整條支付鏈停擺 → 需 fail-open / fail-close 策略。</li>
+    <li><strong>可解釋</strong>：被拒交易要能說明「觸發了哪些規則」（合規 / 客訴）。</li>
+    <li><strong>特徵新鮮度</strong>：速度特徵必須即時（剛剛那筆要立刻反映），否則攻擊在視窗內就漏了。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「決策是<strong>同步擋交易</strong>（在授權路徑上、有延遲預算）還是<strong>事後標記</strong>？」前者要極低延遲且要定義服務不可用時 fail-open 還是 fail-close；後者可放寬延遲、做更重的批次分析。本筆記以<em>同步線上決策</em>為主軸。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>交易量</td><td>2 億筆/日</td><td>~2.3k TPS（峰值 ×4 ≈ 9k TPS）</td></tr>
+    <tr><td>延遲預算</td><td>授權路徑分配給風控</td><td>p99 &lt; 50~100ms（含特徵查詢 + 評分）</td></tr>
+    <tr><td>規則數</td><td>線上規則</td><td>數十~數百條，每筆評估全跑（O(規則數)，須夠快）</td></tr>
+    <tr><td>線上特徵</td><td>每卡/IP 維護近 N 分鐘計數</td><td>Redis keyed-state，數億鍵，設 TTL 自動淘汰</td></tr>
+    <tr><td>命中率</td><td>deny+review 佔比</td><td>通常 &lt; 1~3%，但誤殺成本高 → 門檻保守</td></tr>
+    <tr><td>標籤回饋</td><td>chargeback 延遲</td><td>數天~數十天才確認，模型只能用「成熟」標籤再訓練</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>TPS 不算誇張，真正的壓力在<strong>「每筆都要在毫秒內查到即時特徵 + 跑完所有規則 + 模型推論」</strong>。所以設計圍繞<em>線上特徵庫的低延遲讀寫</em>與<em>規則/模型評分的高效合成</em>。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 評估一筆交易（同步、關鍵路徑、超低延遲）
+POST /api/v1/evaluate
+Body: { "txn_id":"t1","card_id":"c_123","ip":"1.2.3.4","device":"d_9",
+        "amount":1280,"merchant":"m_5","ts":1717200000 }
+→ 200 { "decision":"review", "score":62,
+        "triggered":[{"rule":"velocity_card","score":40},{"rule":"model","score":22}] }
+
+# 回饋標記（人工審/拒付結果回標 → 進再訓練資料）
+POST /api/v1/feedback   Body: { "txn_id":"t1","label":"fraud|legit","source":"chargeback|analyst" }
+
+# 規則 / 門檻熱更新（不重啟服務）
+POST /api/v1/config     Body: { "velocity_card_max":3,"review_at":50,"deny_at":90 }
+
+# 名單維護
+POST /api/v1/blacklist  Body: { "value":"c_evil","type":"card|ip|device" }
+
+# 查某交易的決策軌跡（可解釋 / 申訴）
+GET  /api/v1/decisions/{txn_id} → { score, triggered:[...], features:{...} }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>transactions（交易明細，append-only 高頻寫 → 走串流/列式庫）
+  txn_id PK, card_id, ip, device, merchant, amount, ts, decision, score
+
+rules（規則定義，可熱更新）
+  rule_id PK, type(velocity_card/velocity_ip/amount/blacklist/model),
+  params JSONB(window_sec, threshold, ...), weight, enabled
+
+velocity_counters（即時線上特徵 → Redis keyed-state，設 TTL）
+  key("card:"+card_id 或 "ip:"+ip) → 近 N 分鐘交易時間戳序列 / 計數
+
+lists（黑/白名單）
+  value, type(card/ip/device), reason, expires_at
+
+decisions（決策軌跡，可解釋 + 回饋關聯）
+  txn_id, score, triggered JSONB, decision, model_version, ts
+
+labels（回饋標籤，再訓練用）
+  txn_id, label(fraud/legit), source(chargeback/analyst), labeled_at</code></pre>
+  <div class="box"><span class="label">為何分開</span>交易明細是高頻 append-only，與<strong>可變的規則/名單/設定</strong>分庫；<strong>即時計數</strong>放低延遲 KV（Redis）而非主庫，否則每筆評估都打 DB 會拖垮延遲。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>交易 ──▶ 即時特徵（串流聚合：同卡/同IP 滑動視窗速度，呼應㉒）
+              │
+              ▼
+        規則引擎 + 模型評分（每條命中加分 → 風險總分）
+              │
+              ▼
+        三分決策：score &lt; reviewAt → allow
+                  reviewAt~denyAt  → review（人工審查佇列）
+                  score ≥ denyAt   → deny（拒絕 / 退回）
+              │
+              ▼
+        回饋標記（審查/拒付結果）──▶ 離線再訓練模型 + 更新規則/名單</code></pre>
+  <ol>
+    <li><strong>即時特徵</strong>：低延遲讀寫的線上特徵庫（Redis/Flink keyed-state），維護每鍵滑動視窗速度。</li>
+    <li><strong>評分</strong>：規則引擎（可解釋、可熱更新）+ 模型推論服務，分數合成。</li>
+    <li><strong>決策</strong>：總分對兩個門檻 → 三分結果；review 進人工佇列，deny 直接擋。</li>
+    <li><strong>回饋</strong>：標籤回流形成閉環，模型與規則持續迭代。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>滑動視窗速度特徵（最強的即時訊號）</h3>
+  <ul>
+    <li>對每個鍵（card_id / ip / device）維護「最近 N 秒的交易時間戳」，新交易來時先丟掉過期的、再加入，視窗內筆數即為<strong>速度</strong>。</li>
+    <li>盜刷 = 短時間連續試卡/掃號 → 速度暴增是強訊號。這正是 <code>㉒ 廣告聚合</code>的同 IP 洪水偵測的<strong>同一套滑動視窗</strong>，差別在這裡把它當成可加權的<em>特徵</em>而非二元剔除。</li>
+    <li>真實系統放 Redis（ZSET / 計數 + TTL）或 Flink keyed-state，達 O(1)~O(log N) 的即時更新與查詢。</li>
+  </ul>
+  <h3>規則 vs ML 模型</h3>
+  <ul>
+    <li><strong>規則</strong>：可解釋、可即時調、上線快、抓得住已知模式（黑名單、明確閾值）；但無法涵蓋未知/細緻模式，且規則一多易互相打架。</li>
+    <li><strong>模型</strong>：抓細緻/非線性模式、準度高；但黑箱、需訓練資料與成熟標籤、上線/監控成本高。</li>
+    <li><strong>實務合成</strong>：規則擋明確壞模式 + 模型補細緻分數，兩者分數加總成風險總分。本 demo 把模型分以<em>可解釋的加權示意</em>呈現（誠實聲明見 §9）。</li>
+  </ul>
+  <h3>分數閾值三分（放行 / 人工審 / 拒絕）</h3>
+  <ul>
+    <li>兩個門檻 <code>review_at</code>、<code>deny_at</code> 把連續的風險分切成三段。</li>
+    <li>三分而非二分的價值：<strong>中間地帶交給人工</strong>，既不誤殺也不放過，是控制誤殺/漏抓平衡的旋鈕。</li>
+  </ul>
+  <h3>名單與回饋迴路</h3>
+  <ul>
+    <li>黑/白名單是最高優先、可解釋的硬規則；白名單可救回高價值客戶避免誤殺。</li>
+    <li>人工審結論、chargeback 結果回標成標籤 → 餵回模型再訓練、補規則、更新名單，形成閉環。標籤常<strong>延遲數天~數十天</strong>，再訓練只能用成熟標籤。</li>
+  </ul>
+  <h3>低延遲線上特徵</h3>
+  <ul>
+    <li>關鍵路徑不能打主庫；特徵預先算好放 KV，評估時一次批量讀。</li>
+    <li>特徵<strong>新鮮度</strong>是命脈：剛剛那筆必須立刻反映進速度計數，否則同視窗內的連續攻擊會漏。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸（高 TPS）</h2>
+  <table>
+    <tr><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>每筆都要查即時特徵（讀放大）</td><td>線上特徵庫用 Redis/keyed-state，依 key（card/ip）分片；批量讀、近資料就近快取</td></tr>
+    <tr><td>規則數多、每筆全跑</td><td>規則分層（先跑便宜規則早退）、編譯成決策表、無狀態服務水平擴展</td></tr>
+    <tr><td>模型推論延遲</td><td>輕量線上模型（GBDT）、特徵預算、批次/向量化推論、推論服務獨立擴展</td></tr>
+    <tr><td>特徵新鮮度 vs 一致性</td><td>同 key 路由到同分片，保證「剛剛那筆」先寫後讀；跨分片用近似</td></tr>
+    <tr><td>模型更新</td><td>影子模式（shadow）/灰度上線、版本化決策軌跡、可快速回滾</td></tr>
+    <tr><td>服務不可用</td><td>定義 fail-open（放行保營收，風險上升）或 fail-close（保守擋，傷體驗）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>誤殺 vs 漏抓</strong>：門檻調嚴 → 少漏抓但多誤殺（擋到好客戶）；調鬆反之。三分決策 + 人工審中間帶是調這個平衡的主旋鈕。</li>
+    <li><strong>規則可解釋 vs 模型準度</strong>：規則透明可申訴、上線快；模型準但黑箱。實務兩者並用、模型分也盡量做可解釋（特徵歸因）。</li>
+    <li><strong>即時 vs 批次</strong>：即時擋得住授權當下的盜刷但延遲預算緊；批次（Lambda 架構）可做更重分析、回補精確標籤，兩者互補。</li>
+    <li><strong>fail-open vs fail-close</strong>：詐欺服務超時/掛掉時放行還是拒絕？多數支付選 fail-open（不阻斷正常交易）+ 事後補抓，但高風險場景可 fail-close。</li>
+    <li><strong>常見追問</strong>：特徵新鮮度怎麼保證？→ 同 key 路由 + 寫後讀。標籤延遲怎麼辦？→ 只用成熟標籤再訓練、即時靠規則補。對抗攻擊者繞過規則？→ 規則 + 模型多層 + 持續迭代。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>線上決策核心邏輯</strong>（也是高 TPS 下真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/SlidingWindow.php</code>　每個鍵（卡/IP）維護最近交易時間戳，回傳視窗內筆數＝速度特徵（與 <code>㉒</code> 同源）。</li>
+    <li><code>src/RuleEngine.php</code>　多條規則（速度/金額/黑名單/模型示意）命中加分 → 風險總分 → 三分決策；門檻可即時調。</li>
+    <li><code>public/index.php</code>　路由：評估交易 / 看狀態 / 調設定 / 清空，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8059 -t public
+# 瀏覽器開 http://localhost:8059
+# 先送正常交易（多半 allow）→ 同卡短時間連送多筆觸發速度規則（review/deny）→ 調門檻看決策變化</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的<strong>滑動視窗速度特徵、多條規則加權評分、風險總分三分決策（allow/review/deny）、即時調門檻</strong>皆為<strong>真實可執行</strong>的邏輯；
+    其中 <code>model</code> 規則的「模型風險分」為<strong>加權示意</strong>（金額/速度越高分越高），<em>並非</em>真正訓練出的 ML 模型。Kafka / Flink / 線上模型服務 / 特徵庫等分散式基建以單機 JSON 檔示意。
+  </div>
+
+  <footer>59 即時詐欺偵測 · D 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

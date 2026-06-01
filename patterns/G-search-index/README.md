@@ -16,3 +16,5 @@
 | 16 | Typeahead 自動完成 | Trie、每前綴 Top-K 預存、查詢頻率更新與重建 |
 | 18 | 附近的人 / 地點（Yelp） | Geohash 空間索引、鄰格邊界、半徑 / 最近 K 查詢 |
 | 26 | 全文搜尋（Twitter Search） | 倒排索引、tokenize、BM25/TF-IDF 排序、AND/OR 查詢 |
+| 52 | 向量檢索 / ANN | 相似度 cosine、暴力 kNN vs IVF 分群近似、召回率 vs 速度、RAG/推薦地基 |
+| 58 | Tinder 配對 | geohash 地理候選、雙向偏好過濾、互相 like 配對偵測、已看去重（組合 18/43） |

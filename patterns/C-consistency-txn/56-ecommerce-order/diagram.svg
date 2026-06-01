@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 888 544" width="888" height="544" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah20b410" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c92a2a"/></marker>
+</defs>
+<rect x="16" y="0" width="888" height="544" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">電商下單系統 — Saga 編排（正向=藍 補償=紅 基建=黃）</tspan>
+</text>
+<rect x="40" y="110" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="130" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client 下單</tspan>
+</text>
+<rect x="260" y="110" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="350" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="350" dy="0">訂單服務</tspan>
+<tspan x="350" dy="18.75">(狀態機+冪等)</tspan>
+</text>
+<rect x="260" y="230" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="350" y="242" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="350" dy="0">Saga 編排器</tspan>
+<tspan x="350" dy="18.75">(動作+補償)</tspan>
+</text>
+<rect x="560" y="110" width="180" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="650" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="650" dy="0">庫存服務</tspan>
+<tspan x="650" dy="18.75">A 原子預扣</tspan>
+</text>
+<rect x="560" y="230" width="180" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="650" y="242" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="650" dy="0">支付服務</tspan>
+<tspan x="650" dy="18.75">B 扣款</tspan>
+</text>
+<rect x="560" y="350" width="180" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="650" y="362" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="650" dy="0">出貨服務</tspan>
+<tspan x="650" dy="18.75">C 確認 → SHIPPED</tspan>
+</text>
+<rect x="260" y="350" width="180" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="350" y="362" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="350" dy="0">訊息佇列</tspan>
+<tspan x="350" dy="18.75">(非同步事件)</tspan>
+</text>
+<text x="560" y="470" font-size="14" fill="#c92a2a" text-anchor="start" dominant-baseline="hanging">
+<tspan x="560" dy="0">任一步失敗 → 反向補償(紅)：</tspan>
+<tspan x="560" dy="17.5">退款 + 釋放庫存 → 訂單 CANCELLED</tspan>
+</text>
+<polyline points="192,142 258,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="350,176 350,228" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="442,250 558,150" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="442,262 558,262" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="442,274 558,374" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="350,296 350,348" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="650,296 650,346" fill="none" stroke="#c92a2a" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah20b410)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="700,230 700,180" fill="none" stroke="#c92a2a" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah20b410)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

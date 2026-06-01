@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>56 電商下單系統 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅲 一致性/交易</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>56 電商下單系統：狀態機 × Saga 補償 × 冪等</h1>
+  <p class="subtitle">
+    <span class="tag group">C 一致性/交易</span>
+    <span class="tag time">建議 50 分鐘</span>
+    <span class="tag">Design an E-commerce Order System</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把下單流程拆成幾道關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>一筆下單橫跨庫存、支付、出貨多個服務，要在沒有跨服務交易（2PC）的前提下，做到不超賣、不重複扣、不丟單</strong>」的綜合題。
+    平時的 CRUD 很簡單；真正考的是 <em>付款付到一半失敗</em> 時，如何讓<strong>已扣的庫存退回、已收的款退回</strong>，整筆訂單收斂到一致的終態。
+    這是<strong>本組三題的集大成</strong>：秒殺㉘的<em>庫存原子預扣</em>＋錢包⑰的<em>扣款/退款</em>＋工作流㊶的<em>Saga 編排補償</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>使用者從<strong>購物車</strong>送出下單，系統完成<strong>下單 → 預扣庫存 → 付款 → 確認/出貨</strong>的全流程。</li>
+    <li><strong>訂單狀態</strong>清楚可查：<code>CREATED → PAID → SHIPPED → DONE</code>，異常則 <code>CANCELLED</code>；狀態只能<strong>合法轉移</strong>，不可跳級或倒退。</li>
+    <li><strong>付款失敗/逾時要能回滾</strong>：已預扣的庫存釋放、已扣的款退回，不留中間態。</li>
+    <li><strong>冪等下單</strong>：使用者重複點擊、網路重送、前端重試，<strong>不可重複建單、不可重複扣庫存/扣款</strong>。</li>
+    <li><strong>防超賣</strong>：賣出總量絕不超過庫存（庫存原子預扣）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>正確性優先</strong>：錢與貨的數量在任何失敗情境下都要對得上（不超賣、不重扣、不漏單）。</li>
+    <li><strong>跨服務</strong>：庫存、支付、出貨多半是<strong>獨立服務</strong>，沒有單一資料庫交易能一次包住——這是整題的難點來源。</li>
+    <li><strong>最終一致</strong>可接受：下單瞬間各服務的更新可短暫不同步，但<strong>必須收斂</strong>到一致終態。</li>
+    <li><strong>高可用 / 可水平擴展</strong>：訂單量大、促銷有尖峰，下單服務需無狀態可擴展。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「<strong>下單牽涉幾個服務？它們共用一個資料庫嗎？</strong>」如果共庫 → 本地交易就解決；如果是<strong>獨立服務各自有庫</strong>（真實電商）→ 沒有便宜的跨庫交易，必須走 <strong>Saga（最終一致 + 補償）</strong>，這就是本題主軸。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>下單量</td><td>大型電商</td><td>~100 萬單/日 ≈ 平均 12 單/秒，促銷峰值 ×50 ≈ 600+ QPS</td></tr>
+    <tr><td>讀寫比</td><td>查單/查物流頻繁</td><td>讀 ≫ 寫（查訂單狀態、物流追蹤）→ 讀走快取/讀副本</td></tr>
+    <tr><td>每單跨服務呼叫</td><td>庫存+支付+出貨</td><td>一筆下單 ≈ 3~5 次跨服務動作，失敗就要補償</td></tr>
+    <tr><td>訂單儲存</td><td>每筆 ~2KB，3 年</td><td>100萬×365×3×2KB ≈ <strong>2 TB</strong>，需分庫分表（按 user_id / 時間）</td></tr>
+    <tr><td>熱點</td><td>爆款商品庫存</td><td><strong>單一 SKU 庫存熱 key</strong>，與秒殺同源，預扣需原子</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    下單量本身不算驚人，真正的工程重點是<strong>「正確性」而非「吞吐」</strong>：一筆橫跨多服務的寫操作，任何一步可能失敗，
+    系統要保證<strong>要嘛全部生效、要嘛全部回滾</strong>——這在沒有分散式交易的世界裡，靠 Saga 達成。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 1) 下單（核心，帶冪等鍵；觸發 saga 編排）
+POST /api/v1/orders
+Header: Idempotency-Key: &lt;uuid&gt;
+Body: { "user": "u123", "items": [{ "sku": "sku-1", "qty": 1 }] }
+→ 201 { "order_id": "ord_001", "state": "SHIPPED" }   # 全流程成功
+→ 200 (同 order_id)                                    # 冪等：重送回原訂單
+→ 409 { "state": "CANCELLED", "reason": "payment_declined" }  # 失敗已補償回滾
+
+# 2) 查訂單（含狀態與 saga 軌跡）
+GET /api/v1/orders/{id} → { "state": "PAID", "saga": [...] }
+
+# 3) 推進狀態（後台/出貨系統觸發，狀態機把關）
+POST /api/v1/orders/{id}/transition  Body: { "to": "DONE" }
+→ 200 ok  /  409 illegal_transition（非法轉移被拒）
+
+# 4) 取消訂單（觸發補償）
+POST /api/v1/orders/{id}/cancel → 退款 + 釋放庫存 → CANCELLED</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>orders（訂單主表）
+  order_id     PK
+  user_id, amount
+  state        ENUM(CREATED,PAID,SHIPPED,DONE,CANCELLED)  -- 狀態機的當前狀態
+  created_at, updated_at
+
+order_items（訂單明細）
+  order_id, sku, qty, unit_price
+
+inventory（庫存；爆款是熱 key，真實放 Redis）
+  sku -> stock INT       -- 原子條件預扣對象（UPDATE ... WHERE stock>=qty）
+
+payments（支付流水）
+  payment_id PK, order_id, amount, status(CHARGED/REFUNDED)
+
+idempotency（冪等鍵表）
+  idem_key   PK           -- 同鍵重送直接回原訂單
+  order_id, created_at
+
+saga_log（編排狀態 / 步驟軌跡，崩潰後可續跑或補償）
+  order_id, step, action(forward/compensate), result, ts</code></pre>
+  <div class="box"><span class="label">為何要 saga_log</span>
+    Saga 是<strong>長活交易</strong>：編排器可能在第 2 步後當機。把「每一步做了什麼」落地成 <code>saga_log</code>，
+    重啟後就能判斷「該往前續跑、還是該反向補償」。這是 Saga 可靠性的根基（與冪等表一起，讓重試安全）。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> Client 下單
+    │ 帶 Idempotency-Key
+    ▼
+ 訂單服務（狀態機 + 冪等）──建單 CREATED──▶ Saga 編排器
+                                              │ 依序發起 3 步正向動作
+        ┌─────────────────────────────────────┼─────────────────────┐
+        ▼ A 預扣庫存                            ▼ B 扣款(→PAID)         ▼ C 確認出貨(→SHIPPED)
+   庫存服務(原子預扣)                      支付服務(扣款)          出貨服務(確認)
+        │                                     │                       │
+        └──任一步失敗→反向補償(後進先出)：釋放庫存 ◀── 退款 ◀──────────┘
+                                              ▼
+                                     訂單 CANCELLED（最終一致）
+ （服務間用訊息佇列做非同步事件驅動，補償亦由反向事件觸發）</code></pre>
+  <ol>
+    <li><strong>訂單服務</strong>：守門員。建單給初始狀態 CREATED、檢查冪等鍵、所有狀態變更都過<strong>狀態機</strong>白名單。</li>
+    <li><strong>Saga 編排器</strong>：把「預扣庫存 → 扣款 → 確認」串成有序流程，每個正向動作都<strong>登記一個對應的補償動作</strong>。</li>
+    <li><strong>反向補償</strong>：任一步失敗 → 對<strong>已成功的步驟</strong>後進先出（LIFO）逐一補償 → 訂單轉 CANCELLED，達成最終一致。</li>
+    <li><strong>訊息佇列</strong>：服務解耦、削峰、非同步驅動；補償也透過反向事件傳遞（at-least-once + 冪等消費）。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>① 訂單狀態機（合法轉移）</h3>
+  <ul>
+    <li>把「誰能轉到誰」寫成一張<strong>白名單表</strong>：<code>CREATED→{PAID,CANCELLED}</code>、<code>PAID→{SHIPPED,CANCELLED}</code>、<code>SHIPPED→{DONE,CANCELLED}</code>，<code>DONE/CANCELLED</code> 為終態。</li>
+    <li>任何不在表內的轉移（如 <code>DONE→PAID</code>、<code>CREATED→SHIPPED</code> 跳級）一律拒絕。把無數 if/else 收斂成<strong>單一真相來源</strong>，杜絕資料錯亂。</li>
+    <li>面試價值：說得出「狀態機讓非法狀態<em>無法被表示</em>」，比逐個 if 判斷高一個層次。</li>
+  </ul>
+  <h3>② Saga 編排與補償（本題心臟）</h3>
+  <ul>
+    <li>沒有跨服務的 2PC 時，用 <strong>Saga</strong>：把大交易拆成一串<strong>本地小交易</strong>，每個都配一個<strong>補償交易</strong>（語意回滾，而非資料庫 rollback）。</li>
+    <li><strong>編排式（Orchestration）</strong>：一個中央編排器發號施令、掌握全局狀態（本 demo 採用，最好懂、好除錯）。<strong>編舞式（Choreography）</strong>：各服務聽事件自主反應，無中央點但難追蹤。</li>
+    <li><strong>補償順序＝後進先出</strong>：A→B→C 成功到 B，C 失敗 → 先補償 B（退款）再補償 A（釋放庫存）。順序錯了會留下不一致。</li>
+    <li><strong>補償要冪等且盡量不失敗</strong>：退款/釋放庫存設計成可重試；補償若也失敗，進<strong>人工介入</strong>佇列告警。</li>
+  </ul>
+  <h3>③ 庫存原子預扣 vs 防超賣</h3>
+  <ul>
+    <li><strong>錯誤做法</strong>：<code>讀 stock → if&gt;=qty → 扣 → 寫回</code>，並發下兩請求同時讀到足量 → <strong>超賣</strong>（經典 read-modify-write race）。</li>
+    <li><strong>正解</strong>：<code>UPDATE inventory SET stock=stock-qty WHERE sku=? AND stock&gt;=qty</code>，看 affected_rows；或 Redis Lua「判斷+扣」一次原子完成。</li>
+    <li><strong>預扣（reserve）而非直接扣</strong>：下單先預扣並設 TTL，付款成功才確認、逾時未付自動釋放——避免有人占著庫存不買。</li>
+  </ul>
+  <h3>④ 冪等下單</h3>
+  <p>下單入口先查冪等表：<strong>命中 → 直接回原訂單（不再跑 saga）</strong>；未命中 → 跑完 saga 後把 <code>(idem_key→order_id)</code> 寫入。
+  讓「重試/重送/前端重複點擊」天然安全，這是金流類系統的通用模式。</p>
+  <h3>⑤ 最終一致（Saga）vs 強一致（2PC）</h3>
+  <ul>
+    <li><strong>2PC</strong>：協調者鎖住所有參與者直到全體 commit，<strong>強一致但同步阻塞、可用性差、協調者單點</strong>，跨服務幾乎不用。</li>
+    <li><strong>Saga</strong>：每步本地提交、失敗用補償回滾，<strong>無全域鎖、可用性高，但有「中間可見的不一致窗口」</strong>，需業務能容忍最終一致。</li>
+    <li>電商下單普遍選 Saga：寧可短暫不一致 + 自動補償，也不要長時間鎖庫存/帳戶。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>問題</th><th>對策</th></tr>
+    <tr><td>爆款庫存熱點</td><td>單一 SKU 預扣序列化成瓶頸</td><td><strong>庫存分桶 sharding</strong>（同秒殺㉘）+ 快取扛讀；賣完跨桶借</td></tr>
+    <tr><td>訂單量 / 容量</td><td>單庫裝不下、寫壓力大</td><td>訂單<strong>分庫分表</strong>（按 user_id / 時間範圍），查單走讀副本/快取</td></tr>
+    <tr><td>跨服務一致</td><td>同步呼叫鏈長、易雪崩</td><td>Saga + <strong>訊息佇列非同步</strong>解耦；超時與重試 + 補償</td></tr>
+    <tr><td>編排器可靠性</td><td>編排到一半當機</td><td><code>saga_log</code> 落地 + 重啟後續跑/補償；步驟<strong>冪等消費</strong></td></tr>
+    <tr><td>補償也失敗</td><td>退款/釋放庫存掛了</td><td>重試 + 退避；最終進<strong>人工介入佇列</strong>告警</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>Saga 最終一致 vs 2PC 強一致</strong>：跨服務選 Saga（無全域鎖、高可用），代價是有不一致窗口與要寫補償邏輯。共庫才考慮本地交易/2PC。</li>
+    <li><strong>編排式 vs 編舞式 Saga</strong>：編排式有中央點、好追蹤好除錯（推薦面試講這個）；編舞式去中心、鬆耦合但難觀測、易形成隱性循環依賴。</li>
+    <li><strong>同步 vs 非同步</strong>：同步呼叫鏈即時但耦合、易雪崩；非同步（MQ）解耦削峰、吞吐高，但要處理亂序、重複、補償延遲。</li>
+    <li><strong>預扣 TTL 長短</strong>：太長 → 庫存被未付款訂單占住、降低可售；太短 → 慢付款的人剛付完庫存就被釋放、下單失敗。需依支付時長調。</li>
+    <li><strong>常見追問</strong>：付款成功但確認出貨失敗怎辦？（退款 + 釋放庫存 → CANCELLED，或標記人工處理）重複扣款怎防？（冪等鍵 + 支付端冪等）補償失敗怎辦？（重試 + 人工介入）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>下單的真實核心邏輯</strong>（狀態機 + Saga 補償 + 冪等 + 原子預扣），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/OrderStateMachine.php</code>　訂單狀態機：合法轉移白名單，非法轉移一律拒絕。</li>
+    <li><code>src/OrderSaga.php</code>　核心：<strong>Saga 編排</strong>（3 步正向動作 + 反向補償）、<strong>庫存原子預扣</strong>（flock 包讀-改-寫，防超賣）、<strong>冪等下單</strong>。</li>
+    <li><code>public/index.php</code>　路由：下單看狀態流轉 / 注入失敗看補償回滾 / 冪等重送，並附互動測試頁。</li>
+    <li><code>data/</code>　執行期狀態（庫存、錢包、訂單、冪等鍵），已 gitignore。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8056 -t public
+# 瀏覽器開 http://localhost:8056
+# ① 正常下單 → 看 CREATED→PAID→SHIPPED，庫存/錢包扣減
+# ② 注入付款失敗 → saga 反向補償（退款、釋放庫存）→ 訂單 CANCELLED，庫存/錢包原樣回復
+# ③ 同 idem_key 重送 → 回原訂單，不重複扣</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 在<strong>單機</strong>用 <code>flock</code> 把整段 Saga 的「讀-改-寫」包成臨界區，<strong>模擬多服務的編排與最終一致結果</strong>——
+    不是真正的多服務、多訊息佇列（這部分是示意）。但<strong>訂單狀態機合法轉移、Saga 反向補償（退款 + 釋放庫存）、冪等下單、庫存原子預扣防超賣的邏輯都是真實可執行的</strong>：
+    注入失敗後庫存與錢包<strong>回到下單前數值</strong>、訂單轉 CANCELLED；同 idem_key 重送<strong>回原訂單不重複扣</strong>；非法狀態轉移被拒。
+    要換成真正的分散式 Saga，把各步驟改成對庫存/支付服務的呼叫、補償改成反向補償事件即可，<strong>編排與狀態機邏輯不變</strong>。
+  </div>
+
+  <footer>56 電商下單系統 · C 一致性/交易 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

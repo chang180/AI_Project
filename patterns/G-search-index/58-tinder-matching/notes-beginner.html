@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>58 Tinder 配對系統 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>58 Tinder 配對系統 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「存使用者」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你打開交友 App，螢幕上出現一張張<strong>附近的人</strong>的卡片。喜歡就<strong>往右滑（Like）</strong>，沒興趣就<strong>往左滑（Pass）</strong>。
+  如果你 Like 的那個人，<strong>剛好也 Like 了你</strong>——「叮！你們配對了 💞」，這時才能開始聊天。</p>
+  <p>聽起來很簡單對吧？難的是：使用者有<strong>好幾千萬</strong>，每個人每天滑<strong>上百張</strong>卡，
+  系統要做到：① 快速找出「<strong>你附近、又符合你喜好</strong>」的人；② 每張滑卡都記下來；③ 一旦<strong>兩個人互相喜歡</strong>，立刻配對；④ <strong>滑過的人別再出現</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    交友配對 = <strong>幫你從附近的人裡挑出對的人發牌，等你和對方「互相按讚」才牽線</strong>。
+    重點不是存資料，而是「<strong>怎麼又快又準地發牌</strong>」和「<strong>怎麼判斷兩人互相喜歡</strong>」。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「存使用者」？</h2>
+  <p>很多人第一次看這題會想：「不就是存一堆使用者，然後互相喜歡就配對嗎？」——這想法漏掉了三個真正的難關。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：相親派對的發牌員</span>
+    想像一個超大相親派對，現場有<strong>幾千萬人</strong>。你不可能把每個人的資料卡都翻一遍找對象（太慢）。
+    發牌員得先<strong>只從你旁邊幾桌（地理就近）</strong>挑人，再<strong>濾掉你不會喜歡的（性別/年齡/距離不合）</strong>，
+    最後把剩下的<strong>排個順序</strong>遞給你——而且<strong>你看過的人不再遞第二次</strong>。
+  </div>
+  <p>所以難關有三個：</p>
+  <ul>
+    <li><strong>找附近的人要快</strong>：幾千萬人裡，怎麼<strong>瞬間</strong>挑出「你附近的」？（這就是<strong>地理候選</strong>，和「找附近餐廳」同一招）</li>
+    <li><strong>配對要雙向</strong>：不是你喜歡就配，要<strong>兩個人互相喜歡</strong>。怎麼判斷「他之前是不是也喜歡過我」？</li>
+    <li><strong>滑過的別再出現</strong>：你滑掉的人，明天不該又冒出來。怎麼<strong>記住「看過誰」</strong>？</li>
+  </ul>
+  <p class="pause">💭 停一下：為什麼不能「把全部幾千萬人都拿來比一遍」再挑出附近又合適的？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為人太多，每次滑卡都掃幾千萬人，計算量會爆炸、而且很慢。
+    所以要<strong>先用「地理就近」快速縮小到附近這一小撮</strong>（用 geohash，下面會講），再做細的偏好過濾——這叫「<strong>召回 → 過濾</strong>」，是推薦系統的標準套路。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>發牌：找出「你附近又合適」的人</h3>
+    <p>第一關是<strong>產生候選</strong>——把該遞給你的卡找出來。分兩步：</p>
+    <div class="analogy">
+      <span class="label">🗺️ 比喻：先看你旁邊幾桌</span>
+      發牌員不會翻全場名冊，而是<strong>先圈出你座位周圍幾桌</strong>的人。系統用一個小技巧把地圖切成一格格（叫 <strong>geohash</strong>），
+      你在哪一格，就先撈<strong>你那格 + 周圍 8 格</strong>的人（共 9 格）。這跟「找附近的餐廳」是<strong>一模一樣</strong>的招式。
+    </div>
+    <p>撈出附近的人之後，再<strong>濾掉不合的</strong>：性別不對、年齡不在你設定範圍、距離太遠的，通通拿掉。而且是<strong>雙向</strong>濾——你要喜歡他、<strong>他也要可能喜歡你</strong>（不然你滑了也是白滑）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>滑卡：喜歡往右、不喜歡往左</h3>
+    <p>卡發到你手上，你就<strong>滑</strong>：右滑 = Like、左滑 = Pass。每一滑都要<strong>記下來</strong>（誰對誰、Like 還是 Pass）。</p>
+    <div class="analogy">
+      <span class="label">📝 比喻：在名冊上打勾打叉</span>
+      你看一個人，喜歡就在他名字旁打勾（Like），不喜歡就打叉（Pass）。
+      這本「<strong>誰對誰打了勾或叉</strong>」的紀錄，是後面判斷配對的關鍵——而且<strong>量超大</strong>（每人每天上百筆）。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>配對：兩個人互相打勾才牽線</h3>
+    <p>重點來了：<strong>不是你喜歡就配</strong>。系統要看「<strong>對方之前是不是也對你打過勾</strong>」。</p>
+    <div class="analogy">
+      <span class="label">💞 比喻：兩張勾才成對</span>
+      你對 Bob 打了勾。系統翻一下名冊：「<strong>Bob 之前有對你打勾嗎？</strong>」
+      —— 沒有：先記著，還不配。<br>
+      —— 有！那就是<strong>兩張勾湊成一對</strong> → 配對成立 💞，現在你們可以聊天了。
+    </div>
+    <p>所以判斷配對，就是查「<strong>你對他</strong>」和「<strong>他對你</strong>」這<strong>兩筆紀錄</strong>是不是都打了勾。簡單又可靠。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>去重：滑過的別再發給你</h3>
+    <p>你滑掉的人，明天不該又出現在牌堆裡。系統要<strong>記住「你看過誰」</strong>，發牌時把這些人剔掉。</p>
+    <div class="analogy">
+      <span class="label">🗑️ 比喻：看過的丟進「已看箱」</span>
+      你看過的每張卡都丟進一個「<strong>已看箱</strong>」。下次發牌前，發牌員先對一下已看箱，<strong>看過的就不再遞</strong>。
+      這跟網路爬蟲「<strong>爬過的網址不再爬</strong>」是同一招——用一個集合擋掉重複。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 用 geohash <strong>找附近的人</strong>＋雙向過濾偏好（發牌）→ ② <strong>滑卡</strong>記下 Like/Pass → ③ 兩人<strong>互相 Like 才配對</strong> → ④ 看過的<strong>去重</strong>不再出現。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「發牌太慢 / 算不動」</span>
+    幾千萬人，如果每次發牌都從頭挑，使用者滑一張要等半天。
+    所以要先用 <strong>geohash 快速圈出附近的人</strong>（只看你附近 9 格），再做偏好過濾——只算必要的那一小撮。<em>先縮小範圍，再精挑。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「配錯 / 漏配」</span>
+    明明兩人互相喜歡卻沒牽線（漏配）→ 使用者失望；或單方喜歡就硬湊（配錯）→ 違反「互相喜歡才配」的規則。
+    所以配對一定要<strong>查兩筆紀錄（你對他 + 他對你）都是 Like</strong> 才成立，一筆都不能少。<em>雙向勾才算數。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「重複 / 騷擾」</span>
+    滑過的人又冒出來（重複）→ 體驗很差；沒配對的人能私訊你（騷擾）→ 隱私災難。
+    所以要用<strong>「已看箱」去重</strong>，並嚴守<strong>「沒配對不能聊天」</strong>的隱私底線。<em>看過不重發、沒配不能聊。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分兩條線看：</p>
+  <ul>
+    <li>🟢 <strong>讀（取候選）這條線</strong>：你開 App 要看卡 → <strong>候選服務</strong>先用 <strong>geohash 找附近 9 格</strong>的人 → 對照 <strong>用戶/位置/偏好</strong>做雙向過濾 → 再對 <strong>已看箱</strong>去重 → 排好序發給你。</li>
+    <li>🔵 <strong>寫（滑卡）這條線</strong>：你滑一張 → <strong>滑卡服務</strong>把 Like/Pass 記進<strong>滑卡記錄</strong> → 若是 Like，<strong>配對偵測</strong>檢查「對方是不是也 Like 過我」→ 是的話寫進<strong>配對表</strong> → 發出<strong>配對成立通知</strong>。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>geohash</td><td>把地圖切成一格格的編碼；你在哪格就先撈那格 + 周圍 8 格的人（找附近）</td></tr>
+    <tr><td>候選 / 候選堆疊</td><td>系統挑好、準備發給你滑的那疊卡</td></tr>
+    <tr><td>召回（recall）</td><td>第一步粗挑：先用 geohash 把「附近的人」一把撈出來</td></tr>
+    <tr><td>雙向偏好過濾</td><td>你要喜歡他、他也要可能喜歡你，兩邊條件都合才留下</td></tr>
+    <tr><td>滑卡（swipe）</td><td>右滑 Like（喜歡）/ 左滑 Pass（略過），每筆都記</td></tr>
+    <tr><td>配對（match）</td><td>兩個人互相 Like 才成立，配對後才能聊天</td></tr>
+    <tr><td>配對偵測</td><td>你 Like 某人時，查「他之前是否也 Like 過你」</td></tr>
+    <tr><td>去重 / 已看集合</td><td>「已看箱」：看過的人不再發給你（和爬蟲不重爬同招）</td></tr>
+    <tr><td>排序（rank）</td><td>把候選排個順序，「最可能配上的」先給你看</td></tr>
+    <tr><td>冪等</td><td>同一張卡重送也只算一次，不會重覆記錄</td></tr>
+    <tr><td>讀多寫少 / 寫多</td><td>取候選是讀、滑卡是寫；這題滑卡寫量非常大</td></tr>
+    <tr><td>bloom filter</td><td>超省記憶體的「已看箱」，容許極小誤判換空間</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。系統設計也一樣：先估數字，才知道要準備多大的「料」。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>有多少活躍使用者</td><td>每天 ~1000 萬人在滑</td><td>不可能每次都掃全部人 → 要先用 geohash 找附近</td></tr>
+    <tr><td>每人每天滑幾張</td><td>~100 張</td><td>1000萬 × 100 = <strong>每天 10 億筆滑卡</strong>，寫量超大</td></tr>
+    <tr><td>換算每秒幾筆滑卡</td><td>~11,500 筆/秒（尖峰更高）</td><td>滑卡記錄要能扛高頻寫 → 分片 + 緩衝</td></tr>
+    <tr><td>多少 Like 真的配成</td><td>大約只有 ~1%</td><td>配對事件其實很稀疏，真正的壓力在「滑卡」與「發牌」</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：壓力在「發牌」和「滑卡」，不在「配對」</span>
+    配對成立其實很少（百中取一）。真正要扛的是<strong>每秒上萬筆滑卡的寫入</strong>，和<strong>每次發牌都要又快又準地找附近+過濾</strong>。
+    所以設計重心是「<strong>geohash 快速召回 + 候選快取</strong>」和「<strong>滑卡高吞吐寫入 + 互查配對</strong>」。
+  </div>
+  <p class="pause">💭 停一下：每天才 1% 的 Like 配成，配對量不大，為什麼系統還是很忙？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為「<strong>滑卡</strong>」這個動作本身量超大（每天 10 億筆）。每一滑都要記錄，而且每滑完一疊就要<strong>再發一疊新牌</strong>（又一次找附近+過濾+去重）。
+    配對雖少，但它前面的「發牌 + 滑卡」是高頻動作——忙的是這兩件事。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼、我回你什麼。講好格式，雙方就能合作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 取候選堆疊（發牌，最常用）
+   GET /api/v1/candidates?user=我&limit=20
+   我回：[ { 對象, 距離, 他是否已喜歡我 }, ... ]（已濾掉看過的、不合偏好的）</code></pre>
+  <p class="codecaption">注意回的是<strong>距離</strong>不是精確座標（隱私）。「他是否已喜歡我」會被拿來排序——已喜歡你的排前面，因為你一滑就配上。</p>
+  <pre><code>② 滑卡（超高頻）
+   POST /api/v1/swipe   給我：{ 誰, 滑誰, like 還是 pass }
+   我回：{ 記下了, 是否配對成功, 配對對象 }</code></pre>
+  <p class="codecaption">如果是 like，系統當場查「對方是否也 like 過我」→ 是就回「配對成功！」。</p>
+  <pre><code>③ 看我的配對
+   GET /api/v1/matches?user=我  →  [ { 配對對象 }, ... ]</code></pre>
+  <pre><code>④ 改偏好 / 位置（低頻）
+   PATCH /api/v1/users/{我}  給我：{ 新位置, 想看性別, 年齡範圍, 最大距離 }
+   → 系統要重算我的 geohash 格 + 把舊的候選快取作廢</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：四本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題用四本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">👤</span>使用者簿（每個人是誰、在哪、喜歡誰）</h3>
+    <p>每人一列：<code>id、性別、年齡、位置(lat/lng)、<strong>geohash 格</strong>、想看的性別、年齡範圍、最大距離</code>。
+    多存一欄 geohash，是為了發牌時<strong>一查就知道你在哪一格</strong>，能快速找附近。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>滑卡簿（誰對誰打了勾或叉——量最大！）</h3>
+    <p>每滑一筆：<code>(誰 → 滑誰, like/pass, 時間)</code>，用 <code>(誰, 滑誰)</code> 當鑰匙——<strong>同一張只記一次</strong>（冪等）。
+    這本是高頻寫，量超大，工程上會獨立出去、分片存放，不擠在主資料庫。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">💞</span>配對簿（哪兩個人互相喜歡）</h3>
+    <p>每對一列：用<strong>排好序的「配對鑰匙」</strong>（把兩個 id 由小到大串起來，如 <code>alice|bob</code>），這樣「A 對 B」和「B 對 A」就是<strong>同一把鑰匙</strong>，不會存成兩筆。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗑️</span>已看箱（你看過誰——去重用）</h3>
+    <p>記「你滑過的所有人」。發牌前先對一下，<strong>看過的剔掉</strong>。其實它可以直接從滑卡簿推導出來（凡是「你滑的」對象都算看過）。規模大時用 <strong>bloom filter</strong> 省記憶體。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>熱門的人被滑爆（大家都滑同幾個帥哥美女）</td><td>給他們<strong>曝光配額</strong>、降權，把曝光分一些給長尾與新用戶（公平）</td></tr>
+    <tr><td>滑卡寫入量爆（每秒上萬筆）</td><td>滑卡簿<strong>按人分片</strong> + 用佇列緩衝；Pass 可批次慢慢存，Like 才即時處理</td></tr>
+    <tr><td>滑完附近就沒人了 / 新用戶沒人看到</td><td><strong>放大 geohash 範圍</strong>（格子變大）+ 混入新用戶 + 候選快取設短效期</td></tr>
+    <tr><td>「已看箱」越來越大</td><td>用 <strong>bloom filter</strong> 壓記憶體，或只留最近幾天</td></tr>
+    <tr><td>每次發牌都重算很慢</td><td>背景<strong>先算好</strong>一疊候選快取起來，滑到底再即時補</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ geohash 格子要切多細？</span>
+    切太細（格子小）→ 候選精準但人少，市區好、郊區一下就滑完；切太粗（格子大）→ 候選多但要算更多距離。
+    折衷：<strong>市區用細格、郊區自動放大格子</strong>湊夠候選。</div>
+  <div class="fear"><span class="label">⚖️ 候選即時算 vs 先算好快取</span>
+    即時算最新鮮（剛上線的新用戶馬上看得到）但慢；先算好快取最快但可能過時。
+    折衷：<strong>背景先算 + 短效期</strong>，滑到底再即時補一批。</div>
+  <div class="fear"><span class="label">⚖️ 公平曝光 vs 配對率</span>
+    只把「最容易配上的」往前推 → 熱門的人被滑爆、長尾永遠沒曝光。
+    要刻意<strong>留一些版面給新用戶和長尾</strong>，犧牲一點短期配對率，換整個生態健康。</div>
+  <details class="qa"><summary>💭 追問：怎麼判斷兩個人配對成功？為什麼用「兩筆滑卡」？</summary>
+    A 對 B 打勾時，去查滑卡簿裡有沒有「B 對 A 也打過勾」。有就配成。用兩筆滑卡互查，比另外維護一張「誰喜歡誰」的雙向關係表<strong>更簡單</strong>，而且滑卡本來就要記，順手就能查。</details>
+  <details class="qa"><summary>💭 追問：使用者改了位置或偏好，系統要做什麼？</summary>
+    兩件事：① 重算他的 <strong>geohash 格</strong>（位置變了，他屬於哪格也變了）；② 把他<strong>舊的候選快取作廢</strong>，下次重新按新位置/新偏好發牌。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「發牌 + 滑卡 + 配對」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8058 -t public
+# 然後瀏覽器打開 http://localhost:8058</code></pre>
+  <ol>
+    <li>先按<strong>「塞入示範使用者」</strong>（台北市區 8 位，性別/年齡/偏好都不同）。</li>
+    <li>選一位使用者（例如 Alice），看她的<strong>候選堆疊</strong>——只會出現附近、符合她偏好、她沒滑過的人。</li>
+    <li>讓 <strong>Alice 對 Bob 按 Like</strong>：還不會配（Bob 還沒喜歡她）。再讓 <strong>Bob 對 Alice 按 Like</strong>：<strong>💞 配對成立！</strong></li>
+    <li>再看 Alice 的候選：<strong>Bob 不見了</strong>（已經滑過，去重）。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>注意候選裡有人標著「<strong>❤ 已喜歡你</strong>」——那是對方先 Like 了你，系統把他排到最前面，因為你一 Like 就立刻配上。這就是<strong>排序提升配對率</strong>。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>幾個小檔</strong>，剛好對應前面講的關卡。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>GeoHash</strong>（把地圖切格、找附近 9 格的人）→ <strong>MatchEngine</strong>（發牌 + 判斷配對的大腦）→ <strong>Store</strong>（記滑卡/配對/已看的本子）。發牌或滑卡時，就照這個順序跑。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>找附近：撈你那格 + 周圍 8 格（GeoHash）</h3>
+    <p>把你的座標編成一格（geohash），再算出<strong>周圍 8 格</strong>，一起當作「附近」。為什麼要連周圍 8 格？因為你可能就站在格子邊緣，真正最近的人在隔壁格。</p>
+<pre><code>找附近的人(我):
+    我的格 = 把(我的緯度,經度)編成 geohash
+    9 格 = 我的格 + 周圍 8 格    // ← 連鄰格一起撈，才不會漏掉貼邊的人
+    回傳 這 9 格裡的所有人</code></pre>
+    <p class="codecaption">這跟「找附近餐廳」用的是<strong>一模一樣</strong>的招式，只是格子裡裝的是「人」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>發牌：召回 → 雙向過濾 → 去重 → 排序（MatchEngine）</h3>
+    <p>這是<strong>發牌的大腦</strong>，把上面撈到的附近的人，加工成一疊「該滑的卡」：</p>
+<pre><code>產生候選(我):
+    候選 = 找附近的人(我)               // ① 召回：先用 geohash 撈附近
+    對每個 對方 in 候選:
+        if 對方 in 我的已看箱: 跳過      // ④ 去重：滑過的不再出現
+        if 不符合「我要看的偏好」: 跳過    // ② 我要喜歡他（性別/年齡/距離）
+        if 不符合「對方的偏好」: 跳過      //    他也要可能喜歡我（雙向！）
+        對方.已喜歡我 = 查(對方是否曾 like 我)
+        留下 對方
+    把候選排序：已喜歡我的排最前，再距離近的優先   // 排序提升配對率
+    回傳 候選</code></pre>
+    <p class="codecaption">看到沒？「<strong>召回 → 過濾 → 排序</strong>」就是推薦系統的標準三步。雙向過濾（兩個 if）很關鍵：少了「對方也要喜歡我」這條，你會滑到一堆<strong>根本不會喜歡你</strong>的人，白費力氣。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>配對偵測：兩張勾才成對（MatchEngine + Store）</h3>
+    <p>這是<strong>全題的心臟</strong>。你滑一張 Like 時：</p>
+<pre><code>滑卡(我 → 對方, like):
+    if 我已經滑過對方: return         // 冪等：同一張只記一次
+    記錄 (我, 對方, like)              // 寫進滑卡簿
+    if 對方之前也 like 過我:           // ← 查「他對我」那一筆
+        配對 = 建立配對(我, 對方)       //    兩張勾湊成一對！
+        通知雙方「配對成功 💞」
+</code></pre>
+    <p class="codecaption">關鍵就是那句「<strong>對方之前也 like 過我嗎？</strong>」——它去滑卡簿查「對方 → 我, like」這筆在不在。在，就配成。「我對他」「他對我」兩筆都 like，雙向才算數。這也是面試官最愛追問的一段。</p>
+    <p class="pause">💭 停一下：建立配對時，為什麼要把兩個 id「由小到大」串成鑰匙（如 <code>alice|bob</code>）？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為配對沒有方向（A 和 B 配對 = B 和 A 配對）。如果不排序，「alice|bob」和「bob|alice」會被當成兩筆，重複了。先由小到大排再串，<strong>同一對永遠是同一把鑰匙</strong>，只會存一筆。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>已看箱：從滑卡簿推導去重（Store）</h3>
+    <p>「你看過誰」其實不用另外記——<strong>凡是你滑過的對象，就是你看過的</strong>：</p>
+<pre><code>已看箱(我):
+    集合 = { 我自己 }                  // 不會發自己給自己
+    對每筆滑卡 in 滑卡簿:
+        if 這筆是「我滑的」: 把對象加進集合
+    回傳 集合                          // 發牌時拿它剔除候選</code></pre>
+    <p class="codecaption">真實系統人多時，會把這個集合換成 <strong>Redis set</strong> 或 <strong>bloom filter</strong>（超省記憶體），但<strong>邏輯一模一樣</strong>：用一個集合擋掉「已經看過」的——和爬蟲「不重爬」同一招。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 找附近的人</td><td>GeoHash</td><td><code>neighbors()</code>（你那格 + 8 鄰格）</td></tr>
+      <tr><td>① 發牌：召回→過濾→排序</td><td>MatchEngine</td><td><code>candidates()</code></td></tr>
+      <tr><td>③ 配對：兩張勾才成對</td><td>MatchEngine/Store</td><td><code>swipe()</code> 裡的「對方也 like 過我？」</td></tr>
+      <tr><td>④ 去重</td><td>Store</td><td><code>seenSet()</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈過濾」換成「分片資料庫 + Redis GEO + 向量召回 + bloom 去重」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「相親派對發牌員」解釋，這題的核心難關是什麼？</summary>
+    幾千萬人裡，要又快又準地挑出「你附近、又符合你喜好、你還沒看過」的人發給你。不能掃全部人，要先用 geohash 撈附近，再雙向過濾、去重、排序——就是「召回 → 過濾 → 排序」。</details>
+  <details class="qa"><summary>Q2：為什麼配對要「雙向」？怎麼判斷？</summary>
+    因為交友要兩情相悅，不能你喜歡就硬湊。判斷方法：你 Like 某人時，查滑卡簿裡「對方是否也 Like 過你」，兩筆都是 Like 才配成。</details>
+  <details class="qa"><summary>Q3：geohash 是做什麼的？為什麼要連「周圍 8 格」一起撈？</summary>
+    geohash 把地圖切成一格格，你在哪格就先撈那格的人（找附近）。連周圍 8 格一起撈，是因為你可能站在格子邊緣，真正最近的人落在隔壁格——只撈中心格會漏掉。</details>
+  <details class="qa"><summary>Q4：每天才 1% 的 Like 配成，配對量不大，為什麼系統還很忙？</summary>
+    因為「滑卡」這個動作量超大（每天 10 億筆），而且每滑完一疊就要再發一疊新牌（又一次找附近+過濾+去重）。忙的是高頻的「發牌 + 滑卡」，不是稀疏的配對。</details>
+  <details class="qa"><summary>Q5（工程）：「已看箱」為什麼可以從滑卡簿推導？大規模怎麼存？</summary>
+    因為凡是你滑過的對象就是你看過的，所以「你滑的所有 to」就是已看集合。大規模時用 Redis set 或 bloom filter 省記憶體（bloom 容許極小誤判換空間）。</details>
+  <details class="qa"><summary>Q6（工程）：配對表為什麼用「排序後的 pair key」？</summary>
+    因為配對沒方向，A-B 和 B-A 是同一對。把兩個 id 由小到大串成一把鑰匙（如 alice|bob），同一對永遠是同一鑰匙，避免存成兩筆。</details>
+  <details class="qa"><summary>Q7（工程）：「雙向偏好過濾」少了「對方也要喜歡我」這條會怎樣？</summary>
+    你會滑到一堆根本不會喜歡你的人（你在他們眼裡不符偏好），白費滑卡、永遠配不成，也浪費系統算力。雙向過濾把不可能配成的提前剔除。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>交友配對 = 從附近的人裡挑出對的人發牌，互相按讚才牽線。</strong></p>
+    <p><strong>4 個關卡：</strong>① 用 geohash <strong>找附近</strong>＋雙向過濾偏好（發牌）→ ② <strong>滑卡</strong>記 Like/Pass → ③ 兩人<strong>互相 Like 才配對</strong>（查兩筆滑卡）→ ④ 看過的<strong>去重</strong>不再出現。</p>
+    <p><strong>3 個怕：</strong>怕發牌太慢（geohash 先縮小範圍）、怕配錯/漏配（雙向勾才算）、怕重複/騷擾（已看箱去重 + 沒配不能聊）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>壓力在「發牌」和「每秒上萬筆滑卡」，配對本身很稀疏 → 用「點餐單(API)」溝通、四本筆記本（使用者/滑卡/配對/已看箱）→ 召回(geohash)→雙向過濾→去重(bloom)→排序提升配對率 → 各環節分片/快取/曝光配額拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>58 Tinder 配對系統 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

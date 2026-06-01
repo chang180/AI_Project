@@ -3,7 +3,7 @@
 > 換電腦後先讀這份。所有進度都在 git，`git clone`/`git pull` 即可接續。
 
 ## 專案是什麼
-43 題系統設計學習專案（原 14 題核心 + 29 題進階補充）。每題產出：`notes.html`（9 段式筆記，**內嵌 SVG 架構圖**）+ `diagram.excalidraw`（可編輯原稿）+ `diagram.svg`（自動生成）+ `demo/`（PHP，`php -S` 可跑）。全繁體中文。
+60 題系統設計學習專案（原 14 題核心 + 46 題進階補充）。每題產出：`notes.html`（9 段式筆記，**內嵌 SVG 架構圖**）+ `diagram.excalidraw`（可編輯原稿）+ `diagram.svg`（自動生成）+ `demo/`（PHP，`php -S` 可跑）。全繁體中文。
 
 > 架構圖：`tools/excalidraw-to-svg.php` 把 `diagram.excalidraw` 轉成 `diagram.svg`（永久、離線、可內嵌），notes 用 `<img class="diagram-svg">` inline 顯示。改完圖跑 `php tools/excalidraw-to-svg.php --all` 重新生成。
 
@@ -17,17 +17,19 @@
 - B 即時連線：⑤ RoboTaxi ⑦ Messenger ⑨ Google Docs ㉚ 視訊會議 Zoom
 - C 一致性/交易：③ Polymarket ⑫ Bookings ⑰ 數位錢包/支付 ㉘ 秒殺/搶票
 - D 串流/儲存分發：① QR Code ⑥ Spotify ⑩ YouTube ⑳ Dropbox ㉑ 直播 ㉒ 廣告聚合 ㉙ 排行榜
-- E AI/LLM：⑪ ChatGPT Tasks ⑬ Agoda RAG ⑭ LLM 推論
-- F 社交/Feed：⑮ News Feed
-- G 搜尋/索引/地理空間：⑯ Typeahead ⑱ 附近的人 Yelp ㉖ 全文搜尋
-- H 基礎設施/平台元件：⑲ 分散式限流器 ㉓ Snowflake ID ㉕ Kafka 訊息佇列
+- E AI/LLM：⑪ ChatGPT Tasks ⑬ Agoda RAG ⑭ LLM 推論 ㊸ 推薦系統
+- F 社交/Feed：⑮ News Feed 55 TikTok 短影音
+- G 搜尋/索引/地理空間：⑯ Typeahead ⑱ 附近的人 Yelp ㉖ 全文搜尋 52 向量檢索 58 Tinder
+- H 基礎設施/平台元件：⑲ 分散式限流器 ㉓ Snowflake ID ㉕ Kafka ㊾ API Gateway ㊿ DNS 51 CDN
 - I 認證/安全：㉔ OAuth/SSO
-- J 可觀測性：㉗ Prometheus 指標監控
-- K 分散式系統：㉛ KV store ㉜ LSM 儲存引擎 ㉝ S3 物件儲存 ㉞ 分散式快取 ㉟ Raft 共識 ㊱ 分散式鎖（新組，地基題；原規劃 K+L 合併）
-- L 圖/大規模演算法：㊲ 網頁爬蟲 ㊳ 搜尋引擎 ㊴ 地圖路徑 ㊵ Splitwise（新組）
-- M 排程/工作流：㊶ 工作流引擎 ㊷ 分散式排程器（新組）
+- J 可觀測性：㉗ Prometheus ㊹ 分散式追蹤 ㊺ 日誌系統 ELK
+- K 分散式系統：㉛ KV store ㉜ LSM ㉝ S3 ㉞ 分散式快取 ㉟ Raft ㊱ 分散式鎖 ㊻ MySQL 分庫分表 ㊼ 分散式交易 NewSQL
+- L 圖/大規模演算法：㊲ 網頁爬蟲 ㊳ 搜尋引擎 ㊴ 地圖路徑 ㊵ Splitwise
+- M 排程/工作流：㊶ 工作流引擎 ㊷ 分散式排程器
+- D 另含：㊽ CDC 資料管線 53 MapReduce 54 OLAP 列式 59 反詐騙風控
+- B 另含：57 外送 DoorDash 60 E2EE 加密通訊；C 另含：56 電商訂單系統
 
-## 已完成 ✅ 全部 43 題
+## 已完成 ✅ 全部 60 題
 每題皆含 notes.html（9 段式）+ diagram.excalidraw + 可跑 PHP demo，並通過 `php -l` 與實跑驗證。各 demo 的核心邏輯重點：
 
 | # | 題目 | demo 核心考點（非 CRUD） | 埠 |
@@ -75,6 +77,23 @@
 | ㊶ | 工作流引擎 | DAG 排程 + 事件溯源 durable execution(重放不重跑) + 重試 + saga 補償 + 審批 | 8041 |
 | ㊷ | 分散式排程器 | 到點觸發 + claim+fencing+租約防重複執行 + misfire 補跑 + 分片 | 8042 |
 | ㊸ | 推薦系統 | 兩階段：協同過濾+ANN 召回 → 特徵排序 Top-N + 冷啟動熱門 fallback | 8043 |
+| ㊹ | 分散式追蹤 | 由扁平 span 重建呼叫樹 + 關鍵路徑找最慢(self-time) + head 取樣 | 8044 |
+| ㊺ | 日誌系統 ELK | 攝取管線 + 倒排索引 + 關鍵字/等級/時間範圍查詢 | 8045 |
+| ㊻ | MySQL 分庫分表 | 分片路由 + 跨片 scatter-gather + 分散式自增 + re-shard（vs NoSQL） | 8046 |
+| ㊼ | 分散式交易 NewSQL | 2PC prepare/commit/abort + 跨片轉帳守恆回滾（vs Saga） | 8047 |
+| ㊽ | CDC 資料管線 | 變更事件(op/before/after/LSN) + 下游有序冪等套用 + 最終一致 | 8048 |
+| ㊾ | API Gateway/LB | 路由 + LB(RR/最少連線/一致性雜湊) + 健康檢查繞過 + 熔斷半開 | 8049 |
+| ㊿ | DNS 系統 | 階層遞迴解析鏈 + 快取 TTL + CNAME 跟進 + GeoDNS 就近 | 8050 |
+| 51 | CDN 內容分發 | 邊緣 hit/miss + 回源 TTL + purge 失效 + 一致性雜湊選邊緣 + 就近 | 8051 |
+| 52 | 向量檢索 ANN | cosine + 暴力 kNN vs IVF 分群近似 + 召回率 vs 掃描數(nprobe) | 8052 |
+| 53 | MapReduce | split→map→shuffle(hash%R 分區)→reduce + combiner 預聚合 | 8053 |
+| 54 | OLAP 列式儲存 | 列式只掃需要欄(vs 行式) + 欄壓縮 + 向量化聚合 GROUP BY | 8054 |
+| 55 | TikTok 短影音 | 多路召回→排序→去重 + 興趣回饋迴路 + 預載 + 冷啟動（組合 10/43/15） | 8055 |
+| 56 | 電商訂單系統 | 訂單狀態機 + saga 反向補償 + 庫存原子預扣 + 冪等下單（組合 28/17/41） | 8056 |
+| 57 | 外送 DoorDash | 三邊市場 + geohash 找最近外送員 + CAS 指派 + 訂單狀態機 + ETA（組合 5） | 8057 |
+| 58 | Tinder 配對 | geohash 候選 + 雙向偏好過濾 + 互相 like 配對偵測 + 已看去重（組合 18/43） | 8058 |
+| 59 | 反詐騙風控 | 滑動視窗速度特徵 + 規則加權評分 + 三分決策 allow/review/deny | 8059 |
+| 60 | E2EE 加密通訊 | 玩具 DH 金鑰交換 + KDF + 雙棘輪前向保密 + 伺服器只見密文（教學示意） | 8060 |
 
 啟動任一 demo：`cd <題目>/demo && php -S localhost:<埠> -t public`
 （H/I/J 新題實際路徑：`patterns/H-infra-primitives/23-snowflake-id`、`patterns/I-auth-security/24-oauth-sso`、`patterns/H-infra-primitives/25-message-queue`、`patterns/G-search-index/26-fulltext-search`、`patterns/J-observability/27-metrics-monitoring`、`patterns/C-consistency-txn/28-flash-sale`、`patterns/D-stream-storage/29-leaderboard`、`patterns/B-realtime-sync/30-video-conferencing`）
@@ -90,10 +109,19 @@
 依 [ROADMAP.md](ROADMAP.md) 建完。新增 3 分組：🅺 分散式系統（31–36，原規劃 K 資料儲存 + L 協調/共識**合併為一組**，因屬同類地基且使用者反映較難）、🅻 圖/大規模演算法（37–40）、🅼 排程/工作流（41–42），並延伸 🅴 推薦系統（43）。皆過 `php -l`、實跑 HTTP 200、diagram 合法 JSON。
 同時導入 **SVG 內嵌**：`tools/excalidraw-to-svg.php` 生成 `diagram.svg`，全 43 題 notes 改用 `<img class="diagram-svg">` inline 顯示（不再只是連結，永久離線可看）。index.html（43/43、加 K/L/M 區塊與卡片）、各分組 README、本檔皆已更新。
 
-### 其餘可選
-- [ ] ROADMAP.md 的 **Tier 3 產品廣度**（RTB 廣告競價、通用通知服務、Email/Gmail、協作白板 CRDT、多人遊戲伺服器、Pastebin、CDN…）可再擴充。
-- [ ] 把各 demo 的「示意」元件換成真套件：QR→`endroid/qr-code`、RAG→真向量嵌入、LLM→真模型；系統邏輯不需改。
+### ✅ 擴充 17 題（44–60）已完成（2026-06-01）
+依 [ROADMAP.md](ROADMAP.md) 的 Tier 3 深化方向 + 知名綜合題建完，全部歸進現有組（不另開新組）：
+- 🅹 可觀測性補完：㊹ 分散式追蹤、㊺ 日誌系統 ELK
+- 🅺 關聯式資料庫：㊻ MySQL 分庫分表、㊼ 分散式交易 NewSQL
+- 🅷 流量入口層：㊾ API Gateway、㊿ DNS、51 CDN
+- 🅳/🅶 大數據/AI 檢索：㊽ CDC、53 MapReduce、54 OLAP、52 向量檢索
+- 🧩 綜合題：55 TikTok、56 電商訂單、57 DoorDash、58 Tinder、59 反詐騙、60 E2EE
+皆過 `php -l`、實跑 HTTP 200、diagram 合法 JSON/SVG，含完整版 + 初學版(含「核心程式」章節)。index.html(60/60)、各分組 README、本檔、ROADMAP 皆已更新。**全專案 60/60。**
+
+### 其餘可選（未來方向）
+- [ ] 把各 demo 的「示意」元件換成真套件：QR→`endroid/qr-code`、RAG→真向量嵌入、LLM→真模型、E2EE→真 libsodium；系統邏輯不需改。
 - [ ] 依 framework.html 自我計時重做每題、補充個人筆記。
+- [ ] 更多維度（如 Spanner TrueTime 深入、服務網格、ML 特徵平台…）可再開新批。
 
 ## 模擬面試進度（① QR Code，當大師教學用）
 進行到一半，暫停點如下，下次可從這裡接續：

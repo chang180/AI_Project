@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊾ API Gateway / 負載均衡器 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊾ API Gateway / 負載均衡器 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這東西在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼不能讓客戶端直接打後端？</a></li>
+      <li><a href="#steps">把工作拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你用一個手機 App，點「我的訂單」「個人資料」「付款」。其實背後是<strong>好幾十個不同的小程式（微服務）</strong>分頭在做這些事，而且每種還開了<strong>好幾台機器</strong>一起扛。</p>
+  <p>問題來了：App 怎麼知道「個人資料要找哪台機器」？某台機器掛了它會不會就壞掉？這時就需要一個<strong>大門兼接待員</strong>——這就是 <strong>API Gateway</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    API Gateway = <strong>大樓的櫃台接待員</strong>：所有訪客都先到櫃台，櫃台看你要找哪個部門（<strong>路由</strong>）、那個部門有好幾個人就<strong>挑一個現在比較閒的</strong>（<strong>負載均衡</strong>）、那個人請假了就<strong>別把人帶過去</strong>（<strong>健康檢查</strong>）、那個人最近一直出包就<strong>暫時別找他、讓他休息</strong>（<strong>熔斷</strong>）。
+  </div>
+
+  <h2 id="why">2. 為什麼不能讓客戶端直接打後端？</h2>
+  <p>很多人第一次想：「App 直接連到那台機器不就好了，幹嘛中間多一個櫃台？」——這想法在<strong>只有一台機器、永遠不會壞</strong>時成立，但真實世界不是這樣。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：沒有櫃台的大樓</span>
+    想像一棟有 50 個部門、每部門好幾個座位的大樓，<strong>沒有櫃台</strong>。訪客得自己記住「會計王小姐在 7 樓 12 號座位」。
+    結果：王小姐請假換人坐了 → 訪客撲空；公司加開兩個座位分攤 → 訪客根本不知道有新座位；某個座位的人一直擺爛 → 訪客還是一直去找他生氣。<strong>整棟樓亂成一團。</strong>
+  </div>
+  <p>有了櫃台（Gateway），訪客<strong>只要記住「我要找會計」</strong>，剩下「現在誰在、誰閒、誰能用」全部櫃台幫你搞定。後端機器愛怎麼增減、怎麼壞，<strong>客戶端完全不用知道</strong>。</p>
+  <p class="pause">💭 停一下：為什麼「讓 App 自己記住每台後端的地址」在大系統行不通？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為後端機器會<strong>一直變</strong>：自動擴容多開幾台、壞掉下線、換 IP……如果每個 App 都記死地址，機器一變所有 App 就都要更新，根本管不動。
+    讓<strong>櫃台（Gateway）統一知道現在有哪些機器、誰能用</strong>，App 只認「我要找哪個服務」，這層「中間人」把變動全吸收掉了。
+  </details>
+
+  <h2 id="steps">3. 把工作拆成 4 個關卡</h2>
+  <p>櫃台接待員其實就做 4 件事，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>路由：你要找哪個部門？</h3>
+    <p>請求進來，櫃台先看「你要找誰」。看的是<strong>網址路徑</strong>：<code>/users/...</code> 是要找會員部門、<code>/orders/...</code> 是要找訂單部門。</p>
+    <div class="analogy">
+      <span class="label">🏢 比喻：大樓樓層導覽</span>
+      櫃台牆上有張表：「會員 → 3 樓」「訂單 → 5 樓」「付款 → 7 樓」。你說要找會員，櫃台就知道帶你往 3 樓那群人去。這張表就叫<strong>路由表</strong>。
+    </div>
+    <p>👉 面試小撇步：路由可以看<strong>路徑</strong>（最常見）、也可以看<strong>網域</strong>（api.x.com vs img.x.com）或<strong>標頭</strong>。重點是「<strong>看請求的某個特徵，決定它該去哪一群後端</strong>」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>負載均衡：這部門有好幾個人，找哪個？</h3>
+    <p>「會員部門」不是只有一個人，是<strong>一群人（好幾台機器）</strong>。櫃台得挑一個把你帶過去——而且要<strong>挑得公平</strong>，別老是累死同一個。</p>
+    <div class="analogy">
+      <span class="label">🏦 比喻：銀行叫號</span>
+      銀行有好幾個櫃員窗口。怎麼分客人？<strong>① 輪流</strong>（1 號、2 號、3 號、再回 1 號）；<strong>② 看誰手上客人最少就去那</strong>；<strong>③ VIP 固定找同一個專員</strong>（他熟你的狀況、辦得快）。
+    </div>
+    <p>這三種挑法，工程上就叫三種<strong>負載均衡演算法</strong>：</p>
+    <ul>
+      <li><strong>輪流（round-robin）</strong>：最公平簡單，一台一台輪。</li>
+      <li><strong>最少連線（least-connection）</strong>：誰現在手上最閒就給誰，適合「每個請求處理時間差很多」的場景。</li>
+      <li><strong>一致性雜湊（consistent-hash）</strong>：同一個客人固定找同一台（像 VIP 找固定專員），這台機器會「記得」你、快取你的資料，辦起來更快。</li>
+    </ul>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>健康檢查：那個人今天請假了！</h3>
+    <p>挑人之前要先確認：<strong>這個人今天到底有沒有來上班？</strong>請假的（機器掛了）就<strong>別把客人帶過去</strong>，自動跳過他、帶去別的還在的人那邊。</p>
+    <div class="analogy">
+      <span class="label">📋 比喻：櫃台的出勤板</span>
+      櫃台牆上有塊出勤板，誰在誰請假一目了然。櫃台<strong>每隔一陣子去敲敲每個人的門問「還在嗎？」</strong>（這叫健康探測）。沒回應的就在板上標「請假」，之後叫號<strong>直接跳過他</strong>，等他回來再標「上班」加回去。
+    </div>
+    <p>這就是為什麼「kill 掉一台機器，系統不會壞」——櫃台發現它沒回應，<strong>自動把它從候選名單拿掉</strong>，客人全導到還活著的機器。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>熔斷：那個人最近一直出包，先讓他休息</h3>
+    <p>有種狀況比「請假」更麻煩：那個人<strong>有來上班，但最近一直辦錯、或慢到不行</strong>。每次帶客人過去都搞砸，客人白等一場還氣得要死。怎麼辦？</p>
+    <div class="analogy">
+      <span class="label">🔌 比喻：家裡的保險絲（斷路器）</span>
+      家裡電線短路時，<strong>保險絲會「啪」一聲跳掉斷電</strong>，不是壞掉，是<strong>故意切斷</strong>免得燒掉整間房子。過一陣子你去<strong>試著合上看看</strong>，沒事就恢復供電，還是有問題就再跳掉。
+    </div>
+    <p>櫃台對「一直出包的人」也這樣：<strong>連續搞砸 3 次 → 暫時別再把客人帶給他</strong>（這叫<strong>熔斷打開</strong>，客人直接帶去別人那，不用白等）。<strong>過 10 秒後</strong>，試著<strong>帶「一個」客人去探探看</strong>（這叫<strong>半開試探</strong>）——他辦好了就恢復正常，又搞砸就再讓他多休息一輪。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 看你要找哪部門（<strong>路由</strong>）→ ② 那部門挑個閒的人（<strong>負載均衡</strong>）→ ③ 請假的跳過（<strong>健康檢查</strong>）→ ④ 一直出包的先讓他休息、過陣子再試（<strong>熔斷</strong>）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「櫃台自己倒了」</span>
+    所有人都得先經過櫃台——萬一<strong>櫃台本身掛了，整棟樓癱瘓</strong>。這是 Gateway 最致命的怕。
+    所以櫃台要<strong>開好幾個</strong>（多台 Gateway），前面再放一個更簡單的分流器（L4 LB）把訪客分散到不同櫃台。任一個櫃台倒了，還有別的頂上。<em>咽喉絕不能是單點。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「把客人帶給壞掉的人」</span>
+    帶客人去找請假的人（撲空）、或一直出包的人（白等），都是災難。
+    所以才需要<strong>健康檢查</strong>（請假的跳過）+ <strong>熔斷</strong>（出包的先休息）。兩個一起，確保<strong>客人只會被帶到「現在真的能用」的人</strong>那。<em>只導到健康的。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「越救越亂」</span>
+    某台慢了，櫃台想「那我重試、換一台」——聽起來貼心，但如果<strong>大家同時一直重試</strong>，等於把流量加倍灌進本來就快撐不住的系統，<strong>越救越糟（重試風暴）</strong>。
+    所以重試要<strong>限次數、要等一下再試、只對「重做也沒關係」的請求重試</strong>（查資料可以重試，扣款可不能重試兩次！）。<em>救援也要節制。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>📱 <strong>客戶端</strong>（App）發請求 →</li>
+    <li>🚦 先到 <strong>L4 分流器</strong>，把它丟給其中一個<strong>櫃台</strong>（多開幾個櫃台，免得單點倒）→</li>
+    <li>🚪 <strong>API Gateway（櫃台）</strong>：先驗身分 → 看路徑決定<strong>找哪個部門</strong>（路由）→ 在部門裡<strong>挑一台能用又閒的</strong>（負載均衡 + 健康檢查 + 熔斷）→</li>
+    <li>🟢 把請求轉給選中的那台<strong>後端服務</strong>（會員 / 訂單 / 付款）；</li>
+    <li>🟡 旁邊的<strong>控制面</strong>（黃）負責記「路由表、有哪些機器、誰健康」，並<strong>定時去敲門問「還在嗎」</strong>更新出勤板。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>API Gateway</td><td>大樓的櫃台接待員：所有請求的統一入口</td></tr>
+    <tr><td>路由（routing）</td><td>看你要找哪個部門，帶你往對的那群機器去</td></tr>
+    <tr><td>上游服務池（upstream pool）</td><td>「同一個部門的一群人」＝同一個服務的多台機器</td></tr>
+    <tr><td>負載均衡（load balancing）</td><td>在那群機器裡挑一台，挑得公平、別累死同一個</td></tr>
+    <tr><td>round-robin（輪詢）</td><td>一台一台輪流挑</td></tr>
+    <tr><td>least-connection（最少連線）</td><td>誰手上客人最少就給誰</td></tr>
+    <tr><td>consistent-hash（一致性雜湊）</td><td>同一個客人固定找同一台（像 VIP 找固定專員）</td></tr>
+    <tr><td>健康檢查（health check）</td><td>定時敲門問「還在嗎」，請假的從名單跳過</td></tr>
+    <tr><td>熔斷（circuit breaker）</td><td>一直出包的暫時別找他，像保險絲跳掉</td></tr>
+    <tr><td>半開試探（half-open）</td><td>休息一陣後，試著帶「一個」客人去看看好了沒</td></tr>
+    <tr><td>L4 / L7</td><td>L4 只看門牌號(IP)分流；L7 看得懂「你要找哪個部門」</td></tr>
+    <tr><td>重試 / 逾時</td><td>失敗換一台再試 / 等太久就放棄別卡住</td></tr>
+    <tr><td>水平擴展</td><td>不夠用就「多開幾個櫃台/多加幾台機器」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>開幾個櫃台、租多大場地</strong>。系統設計也一樣：先估數字，才知道要準備多大的「料」。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每秒多少請求</td><td>平常 ~1200，尖峰 ~6000</td><td>一個櫃台扛不完 → 要開好幾個櫃台分攤</td></tr>
+    <tr><td>要開幾個櫃台(Gateway)</td><td>2~3 個 + 備援</td><td>前面再放一個分流器把人散到各櫃台</td></tr>
+    <tr><td>後端有多少機器</td><td>幾十個服務 × 每個 2~10 台</td><td>「路由表 + 出勤板」其實很小，記在記憶體就好</td></tr>
+    <tr><td>櫃台自己慢不慢</td><td>每個請求加 &lt; 1 毫秒</td><td>櫃台不是瓶頸，慢通常慢在後端本身</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：要存的東西很少，難的是「不能倒」</span>
+    這題跟「存很多資料」的題目不一樣——路由表、出勤板都<strong>小到能放進記憶體</strong>。
+    真正難的是：櫃台在<strong>每一個請求的必經之路上</strong>，所以它<strong>① 要夠快（別拖慢大家）② 絕不能倒（倒了全站癱瘓）</strong>。設計重點全在這兩點。
+  </div>
+  <p class="pause">💭 停一下：這題要存的資料明明很少，為什麼還是很難？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為難點不在「存多少」，在「<strong>它是全站的咽喉</strong>」。每個請求都得先過櫃台，所以櫃台<strong>慢一點 → 全站都慢；倒一個 → 全站都連不上</strong>。
+    所以要開多個櫃台（高可用）、決策要極快（低延遲）、還要即時知道後端誰能用（健康/熔斷）。是「<strong>可靠度</strong>」難，不是「容量」難。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」。這題特別的是：<strong>櫃台對客人「沒有自己的點餐單」</strong>——客人照常點餐（打業務網址），櫃台只是<strong>把單子轉交</strong>給對的廚房。
+  </div>
+  <pre><code>① 客人正常打業務網址，櫃台「透明」轉發（客人感覺不到中間有櫃台）
+   GET /users/42    → 櫃台路由到「會員部門」→ 挑一台 → 轉過去
+   GET /orders/777  → 櫃台路由到「訂單部門」→ 挑一台 → 轉過去</code></pre>
+  <p class="codecaption">客人不用知道「會員部門現在有哪幾台機器」，只要打 <code>/users/...</code>，櫃台自然帶到對的地方。這就是 Gateway 最大的價值：<strong>把後端的複雜全藏起來</strong>。</p>
+  <pre><code>② 給管理員用的「設定點餐單」（控制面，客人碰不到）
+   設定一條路由：  /users → 會員部門，用「輪流」挑機器，逾時 0.8 秒
+   設定部門有哪些機器：  會員部門 = [機器A, 機器B, 機器C]，健康檢查打 /healthz</code></pre>
+  <p class="codecaption">這些是<strong>管理員</strong>在用的，平常不太變動。把「客人用的轉發」和「管理員用的設定」分開，是 Gateway 的重要設計（叫資料面 vs 控制面）。</p>
+  <pre><code>③ 出事時，櫃台回給客人的「壞消息」
+   503 = 這個部門「沒有人能用了」（全請假或全熔斷）
+   502 = 帶過去了但那台機器吐錯/超時
+   429 = 你太頻繁了，被限流擋下（呼應第⑲題限流器）</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：櫃台桌上的三本本子</span>
+    櫃台要把資料記在「本子」（資料表）裡。這題主要三本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗺️</span>樓層導覽表（路由表）</h3>
+    <p>記「哪個路徑 → 哪個部門 + 用什麼方式挑人」：<code>/users → 會員部門、用輪流、逾時 0.8 秒</code>。
+    這本<strong>很少變動</strong>，可以一直放著。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">👥</span>部門名冊（服務池）</h3>
+    <p>記「每個部門有哪些人（機器）」：<code>會員部門 = [機器A, 機器B, 機器C]</code>。
+    機器擴容/下線時改這本。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📋</span>出勤板（每台機器的即時狀態——核心！）</h3>
+    <p>這本<strong>變動最頻繁</strong>，記每台機器的：
+    <code>現在在不在(健康)、手上幾個客人(連線數)、最近連續出包幾次、保險絲狀態(正常/跳開/試探中)</code>。</p>
+    <div class="analogy"><span class="label">為什麼這本要單獨記、還要即時？</span>
+      因為「樓層表、部門名冊」幾乎不變，但「<strong>誰現在能用</strong>」每秒都在變（有人剛掛、有人剛出包、有人剛恢復）。
+      把這本<strong>即時狀態</strong>單獨拉出來、隨時更新，櫃台每次挑人前看一眼，就能<strong>只挑現在真的能用的</strong>。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>只有一個櫃台 → 它倒了全站癱瘓</td><td>櫃台<strong>不存私人狀態</strong>(無狀態) → 就能開好幾個 + 前面放分流器</td></tr>
+    <tr><td>各櫃台對「誰請假」看法不一致</td><td>有人專門去敲門更新出勤板，再<strong>統一發給每個櫃台</strong></td></tr>
+    <tr><td>視訊/長連線一直黏在某個櫃台</td><td>讓連線黏住沒關係，<strong>新連線</strong>才重新分配；舊的慢慢排空</td></tr>
+    <tr><td>某條超熱門路徑打爆某部門</td><td>對那條路徑<strong>限流</strong> + 用「最少連線」分散 + 機器再加幾台</td></tr>
+    <tr><td>大家同時重試把系統壓垮</td><td>重試<strong>限次數 + 等一下再試</strong> + 配合熔斷快速失敗</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 一個大櫃台 vs 每個部門配一個小秘書</span>
+    「一個大櫃台」（集中式 Gateway）好管理、好統計，但中間多一站、自己要顧好別倒；
+    「每個部門門口配小秘書」（服務網格 sidecar）反應更快、部門之間互打也能管，但<strong>要養超多小秘書、很耗資源、難維護</strong>。大公司常兩者並用。</div>
+  <div class="fear"><span class="label">⚖️ 挑人方式怎麼選？</span>
+    請求都差不多快 → <strong>輪流</strong>最省事；每個請求快慢差很多 → <strong>最少連線</strong>更公平；
+    需要「同一個客人固定找同一台」(用到快取/記住狀態) → <strong>一致性雜湊</strong>。沒有萬用解，看你的請求長什麼樣。</div>
+  <div class="fear"><span class="label">⚖️ 保險絲要多敏感？</span>
+    太敏感（出包一次就跳）→ 偶爾抖一下就把好機器關掉，反而更不可用；
+    太遲鈍（出包很多次才跳）→ 壞機器拖很久才被隔離，客人白等一堆。
+    折衷：看「<strong>最近一段時間的出包比例</strong>」而不是死數次數，再加「<strong>過陣子放一個試探</strong>」避免一直關著。</div>
+  <details class="qa"><summary>💭 追問：為什麼有了「健康檢查」還要「熔斷」？不是重複嗎？</summary>
+    不重複，它們抓不同狀況：<strong>健康檢查</strong>抓「人請假了/完全沒回應」（主動敲門問）；<strong>熔斷</strong>抓「人有來但一直辦錯/變超慢」（從真實客人的成敗快速反應）。
+    一個管「在不在」，一個管「最近表現好不好」。兩個一起，才能完整避開「把客人帶給不能用的人」。</details>
+  <details class="qa"><summary>💭 追問：後端從 3 台變 4 台，為什麼「一致性雜湊」比「除以台數取餘數」好？</summary>
+    如果用「客人編號 ÷ 台數 取餘數」決定找哪台，台數從 3 變 4，<strong>幾乎每個客人對應的機器全變了</strong>——之前記住你的快取全部白費。
+    一致性雜湊則是把機器排在一個圈圈上，加一台<strong>只影響圈圈上它旁邊那一小段的客人</strong>，其他人照舊找原本那台，快取大多還在。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「路由 + 負載均衡 + 健康檢查 + 熔斷」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8049 -t public
+# 然後瀏覽器打開 http://localhost:8049</code></pre>
+  <ol>
+    <li><strong>一鍵建範例</strong>：建好「會員部門 3 台 + 訂單部門 2 台」。</li>
+    <li><strong>連送 12 次</strong>請求到 <code>/users/42</code>：看長條圖——「輪流」會三台平均；切「最少連線」「一致性雜湊」看分布怎麼變。</li>
+    <li><strong>kill 一台</strong>：把某台標成壞掉，再送請求 → 看它<strong>自動被跳過</strong>，流量只進活著的。</li>
+    <li><strong>對某台連續失敗 ×4</strong>：看它的保險絲從 <code>closed</code> 跳成 <code>open</code>（熔斷），請求自動繞過；<strong>等 10 秒</strong>看它變 <code>half_open</code>（放一個試探）。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把一台 kill 掉後，<strong>剩下兩台分到的請求是不是變多了</strong>？這就是「自動繞過」。再讓某台連續失敗觸發熔斷，看它<strong>明明還「在」(UP) 但保險絲跳了 → 一樣不導流</strong>——這就是健康檢查與熔斷的差別。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那四關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心都在<strong>一個檔 <code>Gateway.php</code></strong>裡，剛好對應前面講的四關。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 櫃台接待員的腦袋</span>
+    <code>Gateway.php</code> 就是櫃台的大腦：請求一進來，依序跑「<strong>路由 → 篩掉不能用的 → 挑一台 → 餵給保險絲</strong>」。我們一段一段看。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>路由：你要找哪個部門？（最長前綴）</h3>
+    <p>請求進來第一件事：看路徑屬於哪個部門。比對「哪條路由前綴<strong>最符合</strong>」：</p>
+<pre><code>function 找部門(請求路徑) {
+    在所有路由規則裡，找「請求路徑開頭剛好是這個前綴」的，
+    若有好幾個都符合，挑「<strong>最長那個</strong>」（最精確）
+    例：/users/vip 同時符合 /users 和 /users/vip → 選 /users/vip
+}</code></pre>
+    <p class="codecaption">用「最長前綴」是為了讓更精確的規則優先。找不到任何部門就回 404（這路徑沒人接）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>篩掉不能用的：請假的、保險絲跳開的（健康檢查 + 熔斷）</h3>
+    <p>挑人之前，先把「<strong>現在不能用的</strong>」從候選名單拿掉：</p>
+<pre><code>候選名單 = []
+for (部門裡每一台 機器) {
+    if (機器.健康 == false) continue;      // ← 請假的(被 kill)：跳過
+    if (機器.保險絲 == "跳開")   continue;   // ← 熔斷中：跳過
+    候選名單.加入(機器)                      // 只有「能用的」才進候選
+}
+if (候選名單 是空的) return 503;            // 整個部門都不能用了</code></pre>
+    <p class="codecaption">這就是「kill 一台自動繞過」「熔斷後不導流」的本質——<strong>不能用的根本不進候選</strong>，後面挑人自然不會挑到它。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>挑一台：三種挑法（負載均衡）</h3>
+    <p>從候選名單裡挑一台，看設定用哪種方式：</p>
+<pre><code>if (方式 == "最少連線")
+    挑 候選名單裡「手上連線數最小」的那台
+else if (方式 == "一致性雜湊")
+    把這個客人(key)放到圈圈上，順時針找到第一台候選機器（同 key 永遠同一台）
+else  // 預設「輪流」
+    游標往後走，停在「下一個還在候選名單裡」的機器（天然跳過請假/熔斷的）</code></pre>
+    <p class="codecaption">注意「輪流」的游標只會停在<strong>候選名單裡</strong>的機器——所以就算中間有幾台被 kill 或熔斷，它會自動跳過，不會挑到壞的。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>餵給保險絲：成功歸零、連續失敗就跳開（熔斷狀態機）</h3>
+    <p>這是<strong>全題的心臟</strong>。請求處理完（成功或失敗），更新這台機器的保險絲：</p>
+<pre><code>if (這次成功) {
+    機器.連續失敗 = 0                        // 歸零
+    if (機器.保險絲 == "試探中") 機器.保險絲 = "正常"  // 試探成功 → 恢復
+} else {  // 這次失敗
+    機器.連續失敗++
+    if (機器.連續失敗 >= 3) {                 // ← 連續失敗 3 次
+        機器.保險絲 = "跳開"                  // 熔斷打開！
+        機器.冷卻到 = 現在 + 10 秒            // 休息 10 秒
+    }
+}
+
+// 另外，每次處理前先看：跳開的保險絲冷卻夠了沒？
+if (機器.保險絲 == "跳開" 且 已過冷卻時間)
+    機器.保險絲 = "試探中"                    // ← 半開：放一個試探看看好了沒</code></pre>
+    <p class="codecaption">前面講的「正常 → 跳開 → 試探中 → 回正常」整套保險絲循環<strong>就是這段</strong>。連續失敗 3 次跳開、休息 10 秒、放一個試探、成功就恢復。這也是面試官最愛追問的一段。</p>
+    <p class="pause">💭 停一下：保險絲「跳開」後，為什麼不直接永遠關著，要設一個「試探中」狀態？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為機器可能<strong>只是暫時出問題，後來自己好了</strong>。如果永遠關著，它好了也永遠用不到，浪費一台。
+      所以休息一陣後放<strong>「一個」</strong>客人去試探——好了就恢復全部流量，還沒好就再關一輪。只放一個，是怕它還沒好就一次湧進一堆客人又全失敗。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪段程式</th></tr>
+      <tr><td>① 找哪個部門</td><td><code>找部門()</code>：最長前綴比對</td></tr>
+      <tr><td>② 請假/熔斷的跳過</td><td>組「候選名單」時的兩個 <code>continue</code></td></tr>
+      <tr><td>③ 挑一台</td><td>三種挑法（輪流 / 最少連線 / 一致性雜湊）</td></tr>
+      <tr><td>④ 出包就跳保險絲</td><td>處理後更新「連續失敗 / 保險絲狀態」那段</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 計數器」換成「真的轉發 HTTP 到機器 + 定時敲門健康探測 + 狀態放 Redis」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「大樓櫃台」比喻，API Gateway 做哪四件事？</summary>
+    ① 看你要找哪個部門（路由）② 那部門挑一個閒的人帶你過去（負載均衡）③ 請假的人跳過（健康檢查）④ 最近一直出包的人先讓他休息、過陣子再試（熔斷）。</details>
+  <details class="qa"><summary>Q2：為什麼不讓 App 直接連後端機器？</summary>
+    因為後端機器會一直變（擴容、下線、換 IP、壞掉）。讓 App 記死地址，機器一變所有 App 都要改、根本管不動。櫃台(Gateway)當中間人，把這些變動全吸收，App 只認「我要找哪個服務」。</details>
+  <details class="qa"><summary>Q3：三種「挑機器」的方式各適合什麼場景？</summary>
+    輪流(round-robin)：請求都差不多 → 最省事；最少連線：請求快慢差很多 → 給手上最閒的更公平；一致性雜湊：要「同客人固定同一台」(快取/記住狀態) → 像 VIP 找固定專員。</details>
+  <details class="qa"><summary>Q4：有了健康檢查為什麼還要熔斷？</summary>
+    健康檢查抓「完全沒回應/請假了」（主動敲門問）；熔斷抓「有在但一直出錯或變超慢」（從真實請求成敗快速反應）。一個管「在不在」，一個管「最近表現好不好」，互補。</details>
+  <details class="qa"><summary>Q5：保險絲（熔斷器）的三個狀態怎麼轉？</summary>
+    正常(closed)：累計連續失敗，成功就歸零 → 連續失敗達 3 次 → 跳開(open)：直接不導流、休息 → 冷卻 10 秒後 → 試探中(half_open)：放一個請求試 → 成功回正常、失敗退回跳開再休息一輪。</details>
+  <details class="qa"><summary>Q6：為什麼 API Gateway「絕不能是單點」？怎麼解？</summary>
+    因為它是全站咽喉，每個請求都得經過它，倒一個就全站連不上。解法：讓 Gateway「不存私人狀態」(無狀態)，就能開好幾個，前面再放一個 L4 分流器把流量散到各台，任一台倒了還有別的頂上。</details>
+  <details class="qa"><summary>Q7：後端從 3 台變 4 台，一致性雜湊好在哪？</summary>
+    若用「÷台數取餘數」，台數一變幾乎所有客人對應的機器全變、快取全失效；一致性雜湊把機器排在圈圈上，加一台只影響旁邊一小段客人，其他人照舊找原機器，快取大多保留。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>API Gateway = 大樓的櫃台接待員：所有請求的統一入口。</strong></p>
+    <p><strong>4 個關卡：</strong>① 看路徑找<strong>部門</strong>（路由）→ ② 部門裡挑個閒的（<strong>負載均衡</strong>：輪流/最少連線/一致性雜湊）→ ③ 請假的跳過（<strong>健康檢查</strong>）→ ④ 一直出包的先休息、過陣子試探（<strong>熔斷</strong>，像保險絲）。</p>
+    <p><strong>3 個怕：</strong>怕櫃台自己倒（多開櫃台 + 前置分流器）、怕把客人帶給壞掉的人（健康檢查 + 熔斷）、怕越救越亂（重試要限次數+退避+只重試安全的）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>要存的東西很少（路由表/部門名冊/出勤板都進記憶體），難的是「<strong>它是咽喉</strong>」→ 必須又快又不能倒；用「點餐單(API)」透明轉發、把「客人用的轉發」與「管理員用的設定」分開、出勤板即時更新只挑能用的、找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊾ API Gateway / Load Balancer · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

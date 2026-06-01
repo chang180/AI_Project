@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>58 Tinder 配對系統 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>58 Tinder 配對系統：地理就近交友 + 滑卡 + 雙向配對</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design Tinder / Matching</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>地理候選召回（找附近的人）+ 雙向偏好過濾 + 滑卡記錄 + 互相 like 才配對</strong>」的綜合題。
+    它把<em>附近的人（⑱ geohash）</em>與<em>推薦系統（㊸ 召回→排序）</em>兩個考點縫在一起：先用 geohash 找地理就近的人，再像推薦一樣過濾排序成一疊「該滑的卡」，
+    最後用「<strong>A 對 B、B 對 A 兩筆滑卡</strong>」判斷雙方是否互相喜歡 → 配對才能聊天。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>地理就近交友</strong>：給某使用者一疊「附近、且符合偏好」的候選人（候選堆疊）。</li>
+    <li><strong>滑卡</strong>：對候選人 <code>like</code>（喜歡）或 <code>pass</code>（略過），逐一記錄。</li>
+    <li><strong>配對才能聊</strong>：只有<strong>雙方互相 like</strong> 才成立 match，配對後才開放聊天（隱私核心：未配對不能主動私訊）。</li>
+    <li><strong>偏好設定</strong>：想看的性別、年齡範圍、最大距離。</li>
+    <li><strong>不再看到</strong>：看過 / 已滑過的人不該重複出現在候選堆疊。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：取候選 &lt; 150ms（p99）——使用者連續滑卡，要秒回下一張。</li>
+    <li><strong>高滑卡寫入量</strong>：滑卡是 append-only 的高頻寫（每人每天可滑數百張），遠多於配對事件。</li>
+    <li><strong>隱私</strong>：不可暴露對方精確座標；未配對者之間不可互通訊息。</li>
+    <li><strong>公平曝光</strong>：避免少數熱門用戶被滑爆、長尾用戶永遠沒人看到。</li>
+    <li><strong>候選新鮮度</strong>：候選堆疊要常更新（位置變、新用戶加入），但不必強一致。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「配對<strong>必須雙向</strong>嗎？」（Tinder 是）→ 決定了要用「兩筆滑卡互查」偵測 match。
+    「位置是<strong>常變（即時定位）</strong>還是<strong>登入時更新一次</strong>？」→ 影響 geo 索引的寫入頻率（本題取「偶爾更新」，所以是讀多寫少的地理查詢）。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>使用者數</td><td>全球活躍</td><td>~1 億 MAU、~1000 萬 DAU</td></tr>
+    <tr><td>每人每日滑卡</td><td>平均 ~100 張</td><td>1000萬 × 100 = <strong>10 億滑卡/日</strong> ≈ ~11.5k 寫 QPS（峰值 ×5 ≈ 58k）</td></tr>
+    <tr><td>取候選（讀）</td><td>每滑一疊（~20 張）拉一次</td><td>10億/20 = 5000 萬次/日 ≈ ~580 讀 QPS（峰值 ×5 ≈ 3k）</td></tr>
+    <tr><td>配對率</td><td>like 中約 ~1% 雙向命中</td><td>遠少於滑卡量；配對寫入相對稀疏</td></tr>
+    <tr><td>每筆滑卡</td><td>from/to/action/ts ~50 bytes</td><td>10億/日 × 50B × 90 天 ≈ <strong>4.5 TB</strong>（時序/列式儲存）</td></tr>
+    <tr><td>geohash 精度 6</td><td>格子 ≈ 1.2km × 0.6km</td><td>市區一格內可數百～數千人，適合粗篩</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>壓力來源是「<strong>滑卡的高頻寫</strong>」與「<strong>取候選的低延遲讀</strong>」，配對事件本身稀疏。
+  → 設計圍繞「<strong>geohash 召回 + 偏好過濾的快取化候選</strong>」與「<strong>滑卡寫入的高吞吐 + 互查去重</strong>」。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 取候選堆疊（讀，高頻）— geohash 召回 + 偏好過濾 + 去重 + 排序
+GET /api/v1/candidates?user=u_alice&limit=20
+→ 200 { "candidates": [ { "id":"u_henry", "distance_km":0.02, "likes_me":false }, ... ],
+        "buckets_scanned": ["wsqqqm", ...9 桶], "recalled": 6 }
+
+# 滑卡（寫，超高頻）— 記錄 like/pass；雙向 like 觸發 match
+POST /api/v1/swipe
+Body: { "from":"u_alice", "to":"u_bob", "action":"like" }
+→ 200 { "recorded":true, "matched":true, "match":{ "pair":"u_alice|u_bob" } }
+
+# 我的配對（讀）
+GET /api/v1/matches?user=u_alice → { "matches":[ { "with":"u_bob", ... } ] }
+
+# 更新偏好 / 位置（寫，低頻）— 需重算 geo 桶 + 失效候選快取
+PATCH /api/v1/users/{id}  Body: { "lat":.., "lng":.., "pref_gender":"M", "age_min":25, "age_max":35, "max_km":10 }
+</code></pre>
+  <div class="box"><span class="label">設計細節</span>取候選不回傳對方精確座標，只回 <code>distance_km</code>（隱私）。滑卡用 <code>(from,to)</code> 唯一，重送同一張視為冪等（不重覆記錄）。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>users  (主庫：讀多寫少；位置/偏好偶爾更新)
+  id           VARCHAR PRIMARY KEY
+  gender       CHAR(1)        -- M / F
+  age          INT
+  lat, lng     DOUBLE         -- 位置
+  geohash      CHAR(8)        -- 預存索引鍵（地理召回）
+  pref_gender  CHAR(1)        -- 想看：M / F / A(全部)
+  age_min, age_max  INT       -- 年齡偏好
+  max_km       DOUBLE         -- 最大距離偏好
+  INDEX (geohash)
+
+swipes  (高頻 append-only → 走分片 / 時序庫，不放主庫熱路徑)
+  from_id, to_id, action(like|pass), ts
+  PRIMARY KEY (from_id, to_id)    -- 同一對只一筆（冪等去重）
+
+matches  (互相 like 後產生；稀疏)
+  pair_key  VARCHAR PRIMARY KEY   -- min(a,b)|max(a,b) 正規化，A-B 與 B-A 同一筆
+  a, b, ts
+
+seen_set  (已看 / 已滑過 → 候選去重)
+  user_id → bloom filter / Redis set        -- 可由 swipes 推導，亦可獨立快取</code></pre>
+  <div class="box"><span class="label">為何 swipes 用 (from,to) 主鍵</span>① 冪等：重送同一張滑卡不重覆計數；② 配對偵測就退化成「查 <code>(to,from,like)</code> 是否存在」；③ 已看集合 = 凡 <code>from=我</code> 的所有 <code>to</code>。一張表同時支撐配對偵測與去重。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 讀(取候選) ─▶ 候選服務 ──┬─▶ Geo 索引(geohash 9 桶: 中心格+8鄰格) ──▶ 用戶+位置+偏好 DB
+                          │            （召回附近的人）        （雙向偏好過濾 + 排序）
+                          └─▶ 已看集合(bloom/set) ── 去重：看過/滑過的剔除
+
+ 寫(滑卡) ──▶ 滑卡服務 ──▶ 滑卡記錄(高頻寫) ──▶ 配對偵測(互相 like?) ─▶ 配對表 ─▶ 配對成立通知</code></pre>
+  <ol>
+    <li><strong>候選服務</strong>（讀，呼應推薦的召回→過濾→排序）：用查詢者 geohash 取 9 桶召回附近的人 → 雙向偏好過濾 → 去重 → 排序成候選堆疊。</li>
+    <li><strong>Geo 索引</strong>：以 geohash 前綴分桶；取中心格 + 8 鄰格共 9 桶（解決邊界），與「附近的人 ⑱」同一套索引。</li>
+    <li><strong>滑卡服務</strong>（寫，高吞吐）：把 like/pass append 進滑卡記錄；like 時觸發配對偵測。</li>
+    <li><strong>配對偵測</strong>：A like B 時查「B 是否已 like A」→ 是則寫一筆 match（pair_key 去重），發配對通知。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>① geohash 地理候選召回</h3>
+  <p>交友的第一步是「找附近的人」。把每個使用者的座標<strong>預先編成 geohash</strong>，查詢者只要算出自己的 geohash，取<strong>中心格 + 周圍 8 鄰格共 9 桶</strong>，就拿到地理就近的候選池。這與「附近的人 / Yelp」完全同一套空間索引——只是這裡桶裡裝的是「人」而非「商家」。</p>
+  <div class="box warn"><span class="label">面試金句</span>「我用 geohash 前綴分桶召回，取<strong>中心格 + 8 鄰格</strong>避免邊界遺漏；這 9 桶是<em>候選集</em>，再用 haversine 算實際距離做偏好過濾與排序。」</div>
+
+  <h3>② 偏好雙向過濾</h3>
+  <p>召回後要過濾，而且是<strong>雙向</strong>的：</p>
+  <ul>
+    <li><strong>我想看對方</strong>：對方性別 ∈ 我的 <code>pref_gender</code>、年齡 ∈ 我的 <code>[age_min,age_max]</code>、距離 ≤ 我的 <code>max_km</code>。</li>
+    <li><strong>對方也願意看我</strong>：我也要符合對方的偏好。否則就算我滑了 like，對方根本不會在他的堆疊看到我 → <strong>無效曝光</strong>，永遠配不成。</li>
+  </ul>
+  <p>雙向過濾把「不可能配成」的對提前剔除，省下滑卡與配對偵測的成本，也提升候選品質。</p>
+
+  <h3>③ 滑卡寫入量</h3>
+  <p>滑卡是這題<strong>最大的寫壓力</strong>（每人每天上百張，全站每秒上萬筆）。對策：</p>
+  <ul>
+    <li>滑卡記錄是 <strong>append-only</strong>，依 <code>from_id</code> 分片，水平擴展寫入。</li>
+    <li>pass 佔多數且資訊量低，可批次 / 非同步落盤；like 才需即時觸發配對偵測。</li>
+    <li>主庫只放 users（讀多寫少）；滑卡走獨立的高吞吐儲存（時序 / 列式 / Kafka 緩衝）。</li>
+  </ul>
+
+  <h3>④ 配對偵測（互相 like）</h3>
+  <p>核心判斷：A like B 時，查 swipes 是否已有「<strong>B → A 且 like</strong>」這筆。</p>
+  <pre><code>swipe(A → B, like):
+    記錄 (A,B,like)
+    if exists(B → A, like):        # 對方之前已 like 我
+        match = ensure_match(A, B) # pair_key = min|max 去重
+        notify both</code></pre>
+  <p>用「A 對 B」「B 對 A」<strong>兩筆滑卡</strong>判斷雙向，比維護一張「誰喜歡誰」的雙向關係表更簡單；配對表用正規化 <code>pair_key</code>（排序後串接）確保 A-B 與 B-A 只存一筆。</p>
+
+  <h3>⑤ 已看去重（bloom / set）</h3>
+  <p>使用者滑過的人<strong>不該再出現</strong>。已看集合 = 凡 <code>from=我</code> 的所有 <code>to</code>。規模大時每人存一個 <strong>Redis set</strong> 或 <strong>bloom filter</strong>（容忍極小誤判換取記憶體），候選召回後逐一比對剔除。這正是<strong>呼應爬蟲 frontier 去重</strong>的同一招：用集合擋掉「已處理過」的項目。</p>
+
+  <h3>⑥ 推薦排序提升配對率</h3>
+  <p>候選不只「附近 + 符合偏好」就好，<strong>排序</strong>決定先看到誰：</p>
+  <ul>
+    <li><strong>對方已 like 我</strong>的排最前——我一 like 就立刻配對，命中率最高。</li>
+    <li>其次距離近、活躍度高、共同興趣多者優先。</li>
+    <li>真實系統用雙塔向量召回 + 排序模型；本題用「likes_me 加權 + 距離」近似，介面不變。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>問題</th><th>對策</th></tr>
+    <tr><td>熱門用戶被滑爆</td><td>少數人收到海量 like，曝光集中</td><td>曝光配額 / 限流；排序降權已爆量者，提升長尾曝光（公平）</td></tr>
+    <tr><td>滑卡寫入量</td><td>每秒上萬筆 append</td><td>依 from_id 分片；Kafka 緩衝；pass 批次落盤，like 即時</td></tr>
+    <tr><td>候選新鮮度</td><td>滑完一區就沒人了 / 新用戶看不到</td><td>放大 geohash 範圍（降精度）+ 混入新用戶 + 候選快取設短 TTL</td></tr>
+    <tr><td>已看集合膨脹</td><td>滑很多後集合很大</td><td>bloom filter 壓記憶體；或只保留近期 N 天</td></tr>
+    <tr><td>取候選延遲</td><td>每次重算召回+過濾</td><td>預算（pre-compute）候選堆疊快取，背景刷新</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>地理精度 vs 候選量</strong>：geohash 精度高（格子小）候選精準但量少、容易滑完；精度低候選多但要算更多 haversine。市區用高精度、郊區降精度放大範圍。</li>
+    <li><strong>即時候選 vs 預算候選</strong>：即時算（召回+過濾+排序）最新鮮但延遲高；預先算好快取最快但可能過時。折衷：背景預算 + 短 TTL，滑到底再即時補。</li>
+    <li><strong>公平曝光 vs 配對率</strong>：純按配對率排序 → 熱門用戶被滑爆、長尾沒曝光；要刻意給長尾與新用戶曝光配額，犧牲一點短期配對率換生態健康。</li>
+    <li><strong>雙向關係表 vs 兩筆滑卡互查</strong>：本題用兩筆滑卡互查（簡單、與滑卡記錄共用），規模大時可改用 like 反向索引（who-liked-me）加速配對偵測。</li>
+    <li><strong>常見追問</strong>：① 怎麼防騷擾？→ 未配對不能私訊（隱私核心）。② 位置造假？→ 伺服器側驗證 + 速度合理性檢查。③ 為何不回精確座標？→ 隱私，只回距離。④ 滑卡重送？→ <code>(from,to)</code> 主鍵冪等。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>配對系統的核心邏輯</strong>（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/GeoHash.php</code>　經緯度 ↔ base32 geohash 編解碼 + <code>neighbors()</code>（中心格 + 8 鄰格）+ haversine。與「附近的人 ⑱」共用的地理召回基礎。</li>
+    <li><code>src/MatchEngine.php</code>　候選產生（geohash 召回 → 雙向偏好過濾 → 去重 → 排序）+ 配對偵測（互相 like）。</li>
+    <li><code>src/Store.php</code>　使用者 / 滑卡（高頻 append）/ 配對 / 已看集合（JSON 檔 + <code>flock</code> 模擬 DB）。</li>
+    <li><code>public/index.php</code>　路由：取候選 / 滑卡 / 看配對，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8058 -t public
+# 瀏覽器開 http://localhost:8058 → 先「塞入示範使用者」→ 選一位看候選堆疊
+# Alice like Bob → 還沒配；Bob like Alice → 立刻 match；之後 Alice 候選不再看到 Bob（去重）</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的「地理位置」與「滑卡」是<strong>模擬資料</strong>，「DB」是 JSON 檔（<code>flock</code> 原子寫）、索引每次請求重建（<strong>示意簡化</strong>）；
+    但 <strong>geohash 候選召回（中心格+8 鄰格）、雙向偏好過濾（性別/年齡/距離）、配對偵測（互相 like 兩筆互查）、已看去重</strong>等<strong>配對核心邏輯為真實可執行</strong>。
+    本機 PHP 未載入 mbstring，程式全程只用原生字串函式（id/性別皆 ASCII）。
+    要換成生產級（Redis GEO 召回 / 雙塔向量 ANN / bloom 去重 / 排序模型），只需替換 <code>MatchEngine</code> / <code>Store</code> 內部實作，介面與呼叫端不變。
+  </div>
+
+  <footer>58 Tinder 配對系統 · G 搜尋/索引/地理空間 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

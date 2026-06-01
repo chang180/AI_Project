@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊹ 分散式追蹤 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅹 可觀測性</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊹ 分散式追蹤 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">J 可觀測性</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「存紀錄」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在 App 上按「結帳」，轉了 3 秒才成功。你覺得「好慢喔」——但<strong>到底慢在哪？</strong></p>
+  <p>問題是：這一次按下去，背後其實<strong>跑過好幾個不同的小程式（服務）</strong>：先到「門口服務」、再到「訂單服務」、訂單又去找「付款服務」、付款又打電話給「銀行」、順便去查「庫存」……
+  這 3 秒是<strong>大家加起來</strong>的。沒有工具的話，你只知道「總共 3 秒」，<strong>完全不知道是哪個環節拖慢的</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    分散式追蹤 = <strong>幫一個請求裝上 GPS 行車紀錄器</strong>：它經過哪幾個服務、每一站待多久、哪一站塞車、哪一站出車禍，
+    全部畫成一張「<strong>旅程地圖</strong>」讓你一眼看懂。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「存紀錄」？</h2>
+  <p>很多人第一次看會想：「不就是每個服務各記一筆『我花了幾秒』，存起來嗎？」——這想法漏掉了最難的那一步。</p>
+  <div class="analogy">
+    <span class="label">📦 比喻：包裹的轉運紀錄</span>
+    一個包裹從台北寄到高雄，會經過<strong>好幾個轉運站</strong>。每個站都會<strong>各自</strong>蓋一個章：「我這站收到了、我這站幾點寄出」。
+    但問題來了——這些章是<strong>分開蓋在不同站的本子上</strong>。你要怎麼把它們<strong>串成同一個包裹的完整旅程</strong>，還要知道誰是誰的下一站？
+  </div>
+  <p>這就是分散式追蹤真正的難關：每個服務只知道<strong>自己這一段</strong>，而且它們是<strong>各跑各的、各自記</strong>。
+  系統要做到：(1) 讓每段紀錄都<strong>帶著同一個「包裹編號」</strong>（這樣才知道是同一次請求），
+  (2) 還要記住<strong>「我的上一站是誰」</strong>（這樣才能把零散的章<strong>重新排成一條旅程</strong>）。</p>
+  <p class="pause">💭 停一下：如果每個服務都只記「我花了幾秒」、卻沒有共同的編號，會發生什麼事？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    你會得到一<strong>大堆</strong>「某服務花了 X 秒」的零散紀錄，但<strong>完全沒辦法知道哪幾筆屬於同一次請求</strong>——
+    就像一地散落的轉運章，卻不知道哪些章蓋的是同一個包裹。所以「同一個編號 + 記住上一站」才是整題的命脈。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>發編號 + 傳下去：每段都帶著「同一個包裹號」</h3>
+    <p>請求一進門，第一個服務就<strong>發一個獨一無二的編號</strong>（叫 <strong>trace_id</strong>），代表「這一整趟旅程」。
+    接著最關鍵的動作：每次呼叫下一個服務，都要<strong>把這個編號一起帶過去</strong>。</p>
+    <div class="analogy">
+      <span class="label">🎽 比喻：接力賽的接力棒</span>
+      跑接力賽，棒子要<strong>一棒接一棒傳下去</strong>，中間掉了就失格。
+      這個編號就是接力棒——每個服務呼叫下一個時都要交棒（塞在請求的「夾帶資訊」裡）。<strong>一旦哪一棒忘了傳，旅程就在那裡斷掉</strong>。
+    </div>
+    <p>👉 工程上這叫 <strong>context propagation（情境傳播）</strong>。它是整題最容易被追問、也最容易出包的地方。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>每段記一筆：我是誰、我的上一站是誰、我花多久</h3>
+    <p>每個服務做事時，都記下一張小卡片（叫 <strong>span</strong>，一段工作）。卡片上寫：
+    <strong>我的編號、我屬於哪個包裹(trace_id)、我的上一站是誰(parent)、我做了什麼、花了多久</strong>。</p>
+    <div class="analogy">
+      <span class="label">🧾 比喻：每站的轉運單</span>
+      每個轉運站都填一張單：「<strong>包裹號 #123、我是新竹站、我上一站是桃園站、我處理花了 30 分鐘</strong>」。
+      重點是那句「<strong>我上一站是誰</strong>」——有了它，之後才能把單子<strong>排回正確順序</strong>。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>重建旅程：把零散卡片拼回一棵樹</h3>
+    <p>請求結束後，系統把這個包裹號底下<strong>所有的卡片收集起來</strong>，照「上一站是誰」<strong>一張一張接回去</strong>，
+    拼成一張<strong>旅程地圖</strong>（其實是一棵樹：門口 → 訂單 →（付款、庫存）→ 銀行……）。</p>
+    <div class="analogy">
+      <span class="label">🌳 比喻：拼家族樹</span>
+      每張卡片寫了「我爸是誰」，你就能把一堆人拼成一棵家族樹。
+      追蹤系統也一樣：每個 span 寫了「我的父 span 是誰」，就能把一堆零散 span <strong>拼回呼叫樹</strong>。
+    </div>
+    <p>拼好之後，畫成<strong>火焰圖</strong>：每段是一條橫條，<strong>越長代表越慢</strong>，一眼就看出「<strong>哪一條最寬 = 哪裡塞車</strong>」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>取樣：別把每一趟都存下來（會爆）</h3>
+    <p>大網站<strong>每秒幾百萬段</strong>卡片，全部存下來貴到吐血、也根本看不完。
+    所以系統<strong>只抽一部分</strong>來存（例如每 100 趟留 1 趟）。這叫 <strong>取樣</strong>。</p>
+    <div class="analogy">
+      <span class="label">🗳️ 比喻：民調抽樣</span>
+      要知道全國民意，不用問每個人，<strong>抽幾千人問</strong>就夠準。
+      追蹤也一樣：不用留每一趟，<strong>抽一部分</strong>就能看出系統健康狀況、又省下大把儲存。
+    </div>
+    <p>但抽樣有個重點：<strong>同一趟旅程的所有卡片，要嘛全留、要嘛全丟</strong>，不能只留半截（半截旅程沒意義）。怎麼保證一致，後面 Part 2 會講。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>發編號 + 一路傳下去</strong>（接力棒）→ ② 每段<strong>記一張卡片</strong>（含「上一站是誰」）→ ③ 把卡片<strong>拼回旅程樹</strong>、畫火焰圖找塞車 → ④ <strong>取樣</strong>只留一部分（省錢，但同趟要一致）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「接力棒掉了（斷鏈）」</span>
+    只要有一個服務<strong>忘了把編號傳下去</strong>，旅程就在那裡斷掉，後面全變成「不知道屬於誰」的孤兒卡片。
+    所以才要用<strong>標準化的傳棒方式</strong>（大家都照同一個規矩塞在請求 header 裡），最好讓工具<strong>自動傳</strong>，別靠人記得。<em>棒子絕不能掉。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「太多、存不下也看不完」</span>
+    每秒幾百萬段，全存會把錢和硬碟燒光，而且資料多到根本找不到重點。
+    所以要<strong>取樣</strong>只留一部分。但又怕「剛好把出問題那趟丟了」——所以聰明做法是<strong>對「慢的、出錯的」那幾趟特別保留</strong>。<em>該省的省，該留的留。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「拖慢正事」</span>
+    追蹤是來<strong>幫忙</strong>的，不能反而讓使用者的請求變慢。如果每記一張卡片都要等它存好才繼續，那就本末倒置了。
+    所以記卡片要<strong>超輕量</strong>，而且<strong>非同步</strong>送出去（先把卡片丟進旁邊的籃子，背景慢慢送，不耽誤正事）。<em>幫忙不添亂。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🧩 <strong>各個服務</strong>一邊做事一邊產生卡片(span)，並把編號(接力棒)一路傳下去 →</li>
+    <li>📮 <strong>收集小幫手(Agent)</strong>在每台機器旁邊，把卡片<strong>湊一批批</strong>非同步送走（不耽誤正事）→</li>
+    <li>🧹 <strong>收集器(Collector)</strong>做<strong>取樣</strong>決定哪幾趟要留 →</li>
+    <li>🗄️ 留下的卡片寫進<strong>儲存</strong>（同一趟放一起，方便整趟撈出來）→</li>
+    <li>🔍 <strong>查詢服務</strong>把同一趟的卡片<strong>拼回旅程樹</strong>，算總時間、找最慢、標關鍵路徑 →</li>
+    <li>🔥 最後在 <strong>UI 火焰圖</strong>上呈現，你一眼看出「哪一段最寬 = 卡在哪」。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>trace（一條 trace）</td><td>一整趟旅程：一個請求從頭到尾經過的所有服務</td></tr>
+    <tr><td>span</td><td>旅程中的「一段工作」＝一張卡片（哪個服務、做什麼、花多久）</td></tr>
+    <tr><td>trace_id</td><td>包裹編號／接力棒：同一趟的所有卡片共用這個號</td></tr>
+    <tr><td>span_id / parent_span_id</td><td>「我是誰」／「我的上一站(父)是誰」——靠這個拼回旅程樹</td></tr>
+    <tr><td>context propagation（情境傳播）</td><td>把接力棒一路傳給下一個服務（塞在請求 header 裡）</td></tr>
+    <tr><td>呼叫樹 / call tree</td><td>把零散卡片照父子關係拼回去的旅程地圖（樹狀）</td></tr>
+    <tr><td>火焰圖（flame graph）</td><td>把每段畫成橫條，越長越慢，一眼看出塞在哪</td></tr>
+    <tr><td>關鍵路徑（critical path）</td><td>決定「整趟何時結束」的那一串環節（優化它才有用）</td></tr>
+    <tr><td>self-time（獨佔時間）</td><td>某段「自己」花的時間（扣掉它在等子服務的時間）＝真瓶頸</td></tr>
+    <tr><td>取樣（sampling）</td><td>只留一部分旅程來存（像民調抽樣），省錢</td></tr>
+    <tr><td>head / tail 取樣</td><td>開頭就決定留不留(head) ／ 看完整趟再決定(tail，能留住慢/錯的)</td></tr>
+    <tr><td>OpenTelemetry (OTel)</td><td>業界通用的「記卡片 + 傳棒」標準工具組</td></tr>
+    <tr><td>三支柱</td><td>metrics(數字儀表) / logs(事件日記) / traces(旅程地圖)，互補</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每秒幾個請求</td><td>~10 萬個</td><td>還好，但每個會「放大」——往下看</td></tr>
+    <tr><td>一個請求跨幾個服務</td><td>平均 ~20 段(span)</td><td>10萬 × 20 = <strong>每秒 200 萬張卡片！</strong></td></tr>
+    <tr><td>全部存下來要多大</td><td>每張卡 ~500 bytes</td><td>不取樣的話一天上看好幾十 TB → 燒錢</td></tr>
+    <tr><td>取樣後（只留 1%）</td><td>每秒剩 ~2 萬張</td><td>瞬間省 100 倍 → <strong>取樣是生存必需，不是選配</strong></td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：壓力來自「放大」</span>
+    每秒 10 萬請求聽起來還好，但<strong>每個請求會炸成 20 張卡片</strong>，一下變成每秒 200 萬張。
+    所以這題的核心張力是：<strong>怎麼把這 200 萬張壓到存得起（取樣）、又別剛好丟掉出問題的那一趟</strong>。
+  </div>
+  <p class="pause">💭 停一下：請求量沒變（10 萬/秒），為什麼要存的卡片會多到 200 萬/秒？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為<strong>一個請求 = 一整趟旅程 = 跨好多服務 = 好多張卡片</strong>。一個請求平均產生 20 張 span 卡片，
+    10 萬請求就變 200 萬張。這就是「放大」——真正的成本壓力來自<strong>每請求的 span 數</strong>，不是請求數本身。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 服務上報卡片（最常用，由埋點工具自動送）
+   POST /v1/traces
+   給我：{ 一批 span 卡片 }
+   我回：202「收到了！」（非同步，盡量別拖慢你）</code></pre>
+  <p class="codecaption">注意是「<strong>一批</strong>」一起送，不是一張一張——湊批省得頻繁打擾後端，也減少對正事的干擾。</p>
+  <pre><code>② 查一整趟旅程（重建旅程樹）
+   GET /api/trace/{包裹編號}
+   我回：{ 總時間, 最慢的那段, 關鍵路徑, 旅程樹 }</code></pre>
+  <pre><code>③ 找「可疑」的旅程（慢的、出錯的）
+   GET /api/search?service=payment&min_duration_ms=500&error=true
+   我回：[ 符合條件的旅程清單 ]</code></pre>
+  <pre><code>④ 取樣決策（教學示範）
+   POST /api/sample   給我：{ 包裹編號, 取樣率N }
+   我回：{ 這趟留不留, 算出來的桶號 }</code></pre>
+  <p class="codecaption">第 ④ 張就是「每 N 趟留 1 趟」的判定——同一個編號永遠得到同一個答案，這樣同趟才會一致地全留或全丟。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：一疊轉運單</span>
+    系統主要就記一種東西：<strong>一張一張的卡片(span)</strong>。每張長這樣：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧾</span>一張卡片(span)上有什麼</h3>
+    <p><code>包裹編號(trace_id)、我的編號(span_id)、<strong>我的上一站(parent_span_id)</strong>、哪個服務、做什麼操作、幾點開始、花多久、成功還失敗</code>。</p>
+    <div class="analogy"><span class="label">為什麼「上一站」這欄最重要？</span>
+      因為它就是把零散卡片<strong>拼回旅程樹</strong>的鑰匙。每張卡片寫「我爸是誰」，系統才能照父子關係接回去。
+      少了這一欄，你就只有一堆<strong>排不出順序</strong>的卡片。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗂️</span>怎麼存才好查？「同一趟放一起」</h3>
+    <p>查的時候單位永遠是「<strong>一整趟</strong>」，所以把<strong>同一個包裹編號的卡片全放在同一個櫃子(分片)</strong>。
+    這樣查一趟時<strong>一次撈完</strong>，不用翻好幾個櫃子拼湊。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">⚠️</span>一個常見地雷：別在卡片上亂貼標籤</h3>
+    <p>卡片可以貼「標籤(tag)」描述細節。但<strong>別把「每次都不一樣」的東西當標籤</strong>（像每個使用者的 ID、完整網址），
+    否則標籤種類爆炸、索引被撐爆。這叫<strong>高基數</strong>地雷——有界的、種類少的（像 HTTP 方法、狀態碼）才適合當標籤。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>記卡片拖慢使用者的正事</td><td>記卡片超輕量 + <strong>非同步批次</strong>送（先丟旁邊籃子，背景慢慢送）</td></tr>
+    <tr><td>每秒 200 萬張卡片灌爆後端</td><td><strong>取樣</strong>只留一部分 + 收集器湊批、限流</td></tr>
+    <tr><td>標籤種類爆炸（高基數）</td><td>限制標籤只放「種類少」的；細節資料別當索引</td></tr>
+    <tr><td>全部留太貴</td><td>保留期縮短（如 7 天）+ 取樣後才落地</td></tr>
+    <tr><td>查一趟要翻好多櫃子</td><td><strong>同一趟放同一個櫃子(依編號分片)</strong>，一次撈完</td></tr>
+    <tr><td>接力棒被某服務搞丟（斷鏈）</td><td>用<strong>統一標準</strong>傳棒 + 工具<strong>自動</strong>注入，別靠人記得</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 開頭就決定留不留(head) vs 看完整趟再決定(tail)</span>
+    開頭決定(head)<strong>便宜、簡單、同趟一致</strong>，但是「<strong>盲抽</strong>」——可能剛好把出問題那趟丟了。
+    看完再決定(tail)能<strong>專門留住慢的、出錯的</strong>，但要先把整趟<strong>全暫存</strong>，貴又複雜。實務常兩個混用。</div>
+  <div class="fear"><span class="label">⚖️ 取樣率調多低？</span>
+    抽太少 → 省錢但可能看不到問題；抽太多 → 看得清楚但貴。
+    折衷：<strong>平常低取樣，但對「慢的、出錯的」那幾趟強制保留</strong>，兩全其美。</div>
+  <div class="fear"><span class="label">⚖️ 自動埋點 vs 手動埋點</span>
+    自動（工具幫你在框架上自動記卡片）<strong>覆蓋廣、省人力</strong>，但細節少；
+    手動（工程師自己加 span）<strong>精準</strong>但花人力。通常自動打底、關鍵環節再手動補。</div>
+  <details class="qa"><summary>💭 追問：最慢的那一段，就一定是該優化的瓶頸嗎？</summary>
+    不一定！如果那段慢、卻是跟別人<strong>同時並行</strong>跑、而且不是<strong>最後完成</strong>的那個，
+    優化它<strong>不會讓整趟變快</strong>。真正要看的是「<strong>關鍵路徑</strong>」（決定整趟何時結束的那一串）和「<strong>self-time</strong>」（某段自己花的時間，扣掉它在等別人的時間）。</details>
+  <details class="qa"><summary>💭 追問：接力棒(編號)要怎麼跨「訊息佇列」這種非同步的場景傳？</summary>
+    把編號塞進<strong>訊息的 header / metadata</strong> 一起送進佇列；下游從訊息裡讀回編號，繼續接力。
+    原理跟 HTTP header 一樣，只是換個地方夾帶。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「卡片被拼回旅程樹 + 找出最慢那段」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8044 -t public
+# 然後瀏覽器打開 http://localhost:8044</code></pre>
+  <ol>
+    <li>頁面已內建一趟 <code>/checkout</code> 旅程（跨 gateway / order / payment / inventory 四個服務）。</li>
+    <li>看它把<strong>扁平的卡片重建成旅程樹</strong>，每段畫成一條<strong>火焰圖橫條</strong>（越長越慢）。</li>
+    <li>觀察：哪一段被<strong>標紅框</strong>（最慢的那段，自己花最多時間）、哪些段在<strong>關鍵路徑</strong>上（黃條）。</li>
+    <li>看下面的<strong>取樣示範</strong>：幾個不同編號在「每 10 趟留 1 趟」下，誰被留、誰被丟。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>注意被標紅框的是 <code>payment:call_bank_api</code>（打給銀行）——
+  它<strong>自己</strong>就花了 150ms，是真瓶頸。而最上面的 <code>gateway</code> 雖然總時間最長(240ms)，但那是因為它<strong>在等底下所有人</strong>，不是它自己慢。這就是 <strong>self-time（獨佔時間）</strong>的妙用：找出「真正在幹活很久」的那段。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心都在<strong>一個小檔 <code>TraceStore.php</code></strong> 裡，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個動作 = 三段程式</span>
+    <strong>拼旅程樹</strong>（buildTree）→ <strong>找最慢 + 算關鍵路徑</strong>（analyze）→ <strong>取樣決定留不留</strong>（sampleDecision）。卡片進來，就照這個順序處理。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>拼旅程樹：照「上一站是誰」接回去（buildTree）</h3>
+    <p>把一堆零散卡片，照每張寫的「父是誰」<strong>掛回父親底下</strong>，沒有父親的就是<strong>起點(根)</strong>。</p>
+<pre><code>// 第一輪：每張卡片先變成一個「節點」，準備一個空的 children 籃子
+for (每張卡片 s)  節點[s.span_id] = s + { children: [] }
+
+// 第二輪：照「上一站(parent)」把自己掛到父親的籃子裡
+for (每張卡片 s) {
+    if (s 有父親 且 父親在這批裡)
+        節點[s.parent].children.push( 自己 )   // ← 接回去！
+    else
+        roots.push( 自己 )                      // 沒父親 → 它是起點
+}</code></pre>
+    <p class="codecaption">就這兩輪迴圈，一堆扁平卡片就拼回一棵樹。父親剛好被取樣丟掉的「孤兒卡片」，就當成起點接上，<strong>不讓旅程斷掉</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>找最慢 + 走關鍵路徑（analyze）</h3>
+    <p>先講一個小聰明：找瓶頸<strong>不能只看誰總時間最長</strong>（那永遠是最上面的起點，它涵蓋全部）。要看 <strong>self-time（自己花的時間）</strong>：</p>
+<pre><code>// 每段「自己」花的時間 = 自己總耗時 − 它底下子段的耗時總和
+self_time(段) = 段.耗時 − (它所有直接子段的耗時加起來)
+// → 這樣「在等銀行」的 payment 不會被誤判，真正慢的 call_bank_api 才會浮出來</code></pre>
+    <p class="codecaption">最慢 span 就挑 <strong>self-time 最大</strong>的那個——這才是「真正在幹活幹很久」的瓶頸。</p>
+    <p>再來是<strong>關鍵路徑</strong>：從起點出發，每一層都<strong>挑「結束時間最晚」的那個子段</strong>往下走，一路走到底：</p>
+<pre><code>function 走關鍵路徑(節點) {
+    路徑 = [節點]
+    while (節點還有子段) {
+        下一個 = 子段裡「結束時間最晚」的那個   // ← 它決定了這層何時結束
+        路徑.push(下一個);  節點 = 下一個
+    }
+    return 路徑    // 這一串就是「決定整趟何時完成」的環節
+}</code></pre>
+    <p class="codecaption">為什麼挑「結束最晚」？因為一層裡有好幾段<strong>並行</strong>跑，<strong>最後收工的那個</strong>才卡住整層。把每層的「最後收工者」串起來，就是整趟的關鍵路徑——<strong>要加速就從這串下手</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>取樣：同一趟永遠同一個答案（sampleDecision）</h3>
+    <p>這是<strong>降量的關鍵</strong>。重點是「<strong>同一個編號要永遠得到同樣的留/丟決定</strong>」，這樣同趟的所有卡片才會一致：</p>
+<pre><code>function 要不要留(包裹編號, 取樣率N) {
+    桶號 = crc32(包裹編號) % N        // ← 把編號變成 0..N-1 的一個固定桶號
+    return (桶號 == 0)               // 落在 0 號桶就留 → 平均每 N 趟留 1 趟
+}</code></pre>
+    <p class="codecaption">用 <code>crc32</code> 把編號<strong>雜湊</strong>成一個穩定又均勻的數字，再 <code>% N</code> 取桶號。同一個編號算出來永遠一樣，所以<strong>整趟要嘛全留、要嘛全丟</strong>——不會出現「半截旅程」。這就是「<strong>head-based 取樣</strong>」：在開頭看到編號就定生死。</p>
+    <p class="pause">💭 停一下：為什麼取樣要「依編號算」，而不是「每張卡片各自擲骰子」？</p>
+    <details class="qa"><summary>看答案</summary>
+      如果每張卡片各自擲骰子，同一趟的 20 張卡片就會<strong>有的留有的丟</strong>，拼出來是<strong>殘缺的半截旅程</strong>，毫無用處。
+      改成「依編號算」，同一趟的卡片算出來的桶號<strong>完全相同</strong>，就能保證整趟一致地全留或全丟。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪段程式</th><th>關鍵那段</th></tr>
+      <tr><td>③ 把卡片拼回旅程樹</td><td>buildTree</td><td>兩輪迴圈：建節點 → 照 parent 掛載</td></tr>
+      <tr><td>找塞車（最慢 / 關鍵路徑）</td><td>analyze</td><td>self-time + 走「每層最晚收工者」</td></tr>
+      <tr><td>④ 取樣只留一部分</td><td>sampleDecision</td><td><code>crc32(編號) % N == 0</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈」換成「分片儲存 + OpenTelemetry SDK + 收集器」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「包裹轉運」解釋，這題的核心難關是什麼？</summary>
+    每個服務（轉運站）只知道自己這一段、各自記。難在要讓每段紀錄<strong>帶著同一個包裹編號(trace_id)</strong>、還要記住<strong>「上一站是誰」(parent)</strong>，才能把零散的章<strong>重新排成一條完整旅程</strong>。沒有共同編號就拼不起來。</details>
+  <details class="qa"><summary>Q2：為什麼「接力棒掉了」這麼可怕？怎麼避免？</summary>
+    只要一個服務忘了把編號傳下去，旅程就在那裡斷掉，後面全變孤兒卡片，拼不回完整樹。避免方法：用<strong>統一標準</strong>傳棒（如 W3C traceparent header）+ 讓工具<strong>自動注入</strong>，別靠人記得。</details>
+  <details class="qa"><summary>Q3：請求才 10 萬/秒，為什麼要存的卡片會到 200 萬/秒？</summary>
+    因為一個請求會「放大」——它跨好多服務，平均產生 20 張 span 卡片，10 萬 × 20 = 200 萬。真正的成本壓力來自<strong>每請求的 span 數</strong>，所以取樣是生存必需。</details>
+  <details class="qa"><summary>Q4：取樣為什麼要「整趟一致」？怎麼做到？</summary>
+    因為半截旅程沒意義。做法是<strong>依編號雜湊</strong>決定（<code>crc32(trace_id) % N == 0</code>），同一個編號永遠算出同一個答案，所以同趟所有卡片一致地全留或全丟。</details>
+  <details class="qa"><summary>Q5（工程）：最慢的 span 一定是要優化的瓶頸嗎？怎麼正確找瓶頸？</summary>
+    不一定。要看<strong>關鍵路徑</strong>（決定整趟何時結束的那一串）和 <strong>self-time</strong>（某段自己花的時間，扣掉它在等子服務的時間）。涵蓋全部的根 span 總時間最長卻不是瓶頸；並行又非最後完成的慢段，優化它也沒用。</details>
+  <details class="qa"><summary>Q6（工程）：buildTree 怎麼把扁平卡片拼回樹？</summary>
+    兩輪掃描：第一輪把每張卡片變成帶 children 籃子的節點；第二輪照每張的 parent_span_id 把自己掛到父節點的 children 裡，沒有父親（或父親不在這批）的當成根。</details>
+  <details class="qa"><summary>Q7（工程）：head 取樣和 tail 取樣差在哪？</summary>
+    head 在旅程開頭就依編號決定留不留——便宜、同趟一致，但「盲抽」可能丟掉出問題的趟。tail 先把整趟全暫存、看完再決定——能留住慢/錯的趟，但貴且複雜。實務常混用。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>分散式追蹤 = 幫一個請求裝 GPS 行車紀錄器，畫出它跨服務的旅程地圖。</strong></p>
+    <p><strong>4 個關卡：</strong>① <strong>發編號 + 一路傳下去</strong>（接力棒）→ ② 每段<strong>記卡片</strong>（含「上一站是誰」）→ ③ 把卡片<strong>拼回旅程樹</strong>、火焰圖找塞車 → ④ <strong>取樣</strong>只留一部分（同趟要一致）。</p>
+    <p><strong>3 個怕：</strong>怕接力棒掉了（斷鏈 → 標準化 + 自動傳棒）、怕太多存不下（取樣，但慢/錯的強制留）、怕拖慢正事（輕量 + 非同步批次）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>壓力來自「一個請求放大成幾十張卡片」→ 用「點餐單(API)」批次上報、卡片含 parent 欄位 → 同趟放同櫃子(依編號分片)、別貼高基數標籤 → buildTree 兩輪拼樹、analyze 用 self-time + 關鍵路徑找真瓶頸、sampleDecision 依編號雜湊整趟一致取樣。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊹ 分散式追蹤 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

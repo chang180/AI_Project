@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 768 414" width="768" height="414" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah8c1646" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8a90c"/></marker>
+</defs>
+<rect x="16" y="0" width="768" height="414" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">分散式追蹤 — 高階架構（埋點=藍 收集=綠 儲存查詢=黃）</tspan>
+</text>
+<rect x="40" y="90" width="200" height="150" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="56" y="100" font-size="16" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="56" dy="0">應用服務 + 埋點</tspan>
+<tspan x="56" dy="20">(OTel SDK)</tspan>
+<tspan x="56" dy="20"></tspan>
+<tspan x="56" dy="20">gateway / order</tspan>
+<tspan x="56" dy="20">payment / inventory</tspan>
+<tspan x="56" dy="20"></tspan>
+<tspan x="56" dy="20">產生 span</tspan>
+<tspan x="56" dy="20">傳播 trace context</tspan>
+<tspan x="56" dy="20">(traceparent header)</tspan>
+</text>
+<rect x="300" y="100" width="150" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="375" y="112" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="375" dy="0">收集 Agent</tspan>
+<tspan x="375" dy="18.75">(每台主機</tspan>
+<tspan x="375" dy="18.75">batch + 重試)</tspan>
+</text>
+<rect x="510" y="90" width="170" height="84" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="595" y="100" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="595" dy="0">收集器 Collector</tspan>
+<tspan x="595" dy="18.75">(OTLP 接收)</tspan>
+<tspan x="595" dy="18.75">取樣決策</tspan>
+<tspan x="595" dy="18.75">head / tail</tspan>
+</text>
+<rect x="510" y="230" width="170" height="70" rx="8" fill="#ffec99" stroke="#e8a90c" stroke-width="2"/>
+<text x="595" y="242" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="595" dy="0">Trace 儲存</tspan>
+<tspan x="595" dy="18.75">(寬欄/列式</tspan>
+<tspan x="595" dy="18.75">依 trace_id 分片)</tspan>
+</text>
+<rect x="270" y="230" width="180" height="70" rx="8" fill="#ffec99" stroke="#e8a90c" stroke-width="2"/>
+<text x="360" y="242" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="360" dy="0">查詢服務</tspan>
+<tspan x="360" dy="18.75">重建呼叫樹</tspan>
+<tspan x="360" dy="18.75">總時間/最慢/關鍵路徑</tspan>
+</text>
+<rect x="40" y="230" width="180" height="70" rx="8" fill="#ffec99" stroke="#e8a90c" stroke-width="2"/>
+<text x="130" y="248" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="130" dy="0">UI / 火焰圖</tspan>
+<tspan x="130" dy="18.75">(Jaeger / Grafana)</tspan>
+</text>
+<polyline points="244,150 296,150" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="248" y="126" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="248" dy="0">OTLP</tspan>
+</text>
+<polyline points="454,132 506,132" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="595,178 595,226" fill="none" stroke="#e8a90c" stroke-width="2" marker-end="url(#ah8c1646)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="600" y="190" font-size="12" fill="#e8a90c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="600" dy="0">寫入</tspan>
+</text>
+<polyline points="506,265 454,265" fill="none" stroke="#e8a90c" stroke-width="2" marker-end="url(#ah8c1646)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="458" y="240" font-size="12" fill="#e8a90c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="458" dy="0">查 trace</tspan>
+</text>
+<polyline points="266,265 224,265" fill="none" stroke="#e8a90c" stroke-width="2" marker-end="url(#ah8c1646)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="40" y="330" font-size="14" fill="#868e96" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">核心：每個服務產 span（同一 trace_id），靠 context propagation 串起來；查詢時依 parent_span_id</tspan>
+<tspan x="40" dy="17.5">重建呼叫樹 → 算總時間、找最慢 span（self-time）、標關鍵路徑。取樣降量：head（開頭依 trace_id 雜湊定生死）vs tail（看完整條再決定，留住慢/錯）。</tspan>
+</text>
+</svg>

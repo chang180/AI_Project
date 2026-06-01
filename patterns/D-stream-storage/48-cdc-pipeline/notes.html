@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊽ CDC 資料管線（Debezium） · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊽ CDC 資料管線：讓快取/搜尋/數倉跟著主庫一起變</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design a CDC Data Pipeline (Debezium)</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把「主庫改一筆 → 下游怎麼跟著變」拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把資料庫的『變更』本身當成事件流</strong>」：讀主庫的 binlog，把每筆 insert/update/delete
+    變成有序事件，讓快取、搜尋索引、數倉等<em>衍生資料</em>自動跟著主庫變動，而不必在應用層做容易出錯的「雙寫」。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（為何需要 CDC）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API / 介面設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>問題背景</h3>
+  <p>主庫（OLTP）是真相來源，但同一份資料常常要以不同形狀出現在很多地方：搜尋要進 Elasticsearch、
+  熱門查詢要進 Redis 快取、報表要進數倉（OLAP）。問題是：<strong>主庫一改，這些衍生副本怎麼跟著改？</strong></p>
+  <div class="box warn">
+    <span class="label">最天真的做法：雙寫（dual write）</span>
+    應用程式「寫完 DB，順手也寫一份去快取/ES」。聽起來簡單，但只要其中一步失敗（DB 成功、ES 失敗，或反之），
+    兩邊就<strong>永久不一致</strong>；而且這是分散式無原子性的兩次寫，沒有交易能包住它。CDC 就是為了解掉這個。
+  </div>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>擷取來源表的每一筆變更（insert / update / delete），含<strong>變更前後</strong>（before/after）。</li>
+    <li>把變更以<strong>有序事件流</strong>發布出去，供任意多個下游消費。</li>
+    <li>下游能把變更<strong>套用</strong>到自己的衍生視圖（搜尋索引、去正規化快取、數倉）。</li>
+    <li>支援<strong>初始快照</strong>（先把現有資料全量灌一次）+ 之後的<strong>增量</strong>。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>有序</strong>：同一個鍵（主鍵）的變更必須依發生順序套用，否則新值被舊值覆蓋。</li>
+    <li><strong>不漏</strong>：寧可重送也不漏送（at-least-once）。</li>
+    <li><strong>冪等</strong>：重送的事件套第二次，結果要與套一次相同。</li>
+    <li><strong>低侵入</strong>：盡量不改應用程式碼、不拖慢主庫。</li>
+    <li><strong>最終一致</strong>：下游允許有秒級延遲（lag），但最終要追上主庫。</li>
+  </ul>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>主庫寫入</td><td>5000 萬筆變更/日</td><td>~580 變更 QPS（峰值 ×3 ≈ 1.7k）</td></tr>
+    <tr><td>每筆事件大小</td><td>before+after ~1 KB</td><td>日量 ~50 GB binlog 事件</td></tr>
+    <tr><td>下游數量</td><td>ES + 快取 + 數倉 = 3 個消費群</td><td>同一事件流被讀 3 次（fan-out 讀）</td></tr>
+    <tr><td>可接受 lag</td><td>搜尋 &lt; 5s、數倉可分鐘級</td><td>決定消費者並行度與批次大小</td></tr>
+    <tr><td>初始快照</td><td>主庫 10 億列</td><td>全量回填需數小時 → 要可斷點續傳</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>變更 QPS 本身不大，真正的工程難點是 <strong>有序 + 冪等 + 不漏</strong>，以及「<strong>初始快照如何與增量無縫接上</strong>」。</div>
+
+  <h2 id="api">3. API / 介面設計</h2>
+  <p>CDC 系統對外主要是「<strong>事件契約</strong>」與「<strong>消費介面</strong>」，而非 REST：</p>
+  <pre><code># 變更事件（Debezium 風格，精簡版）—— 這是整個系統的「契約」
+{
+  "lsn":    10231,            // log sequence number / offset，分區內單調遞增
+  "op":     "u",              // c=create  u=update  d=delete  (r=快照讀)
+  "table":  "products",
+  "pk":     42,               // 主鍵 → 決定分區，保證同鍵有序
+  "before": { "id":42, "price":100 },   // u/d 有；c 為 null
+  "after":  { "id":42, "price":80  },   // c/u 有；d 為 null
+  "ts":     "2026-06-01T06:33:49Z"
+}
+
+# 消費介面（拉模式）
+GET  /changes?after_lsn=10000     → 回 LSN>10000 的有序事件
+POST /consume                     → 下游套用一批；套完才提交 offset
+GET  /offset                      → 目前消費位移（已套用到哪）
+
+# 控制面
+POST /snapshot/{table}            → 觸發初始快照（全量讀 → 以 op=r 灌入）
+</code></pre>
+  <div class="box"><span class="label">為何用 LSN 當鍵</span>LSN（位移）既是<strong>排序依據</strong>，又是<strong>冪等去重鍵</strong>，還是<strong>斷點續傳的書籤</strong>——一個欄位身兼三職，是這題的核心。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>-- ① 來源表（主庫，真相來源；應用程式照常 CRUD）
+products
+  id     BIGINT PRIMARY KEY
+  name   TEXT
+  price  INT
+  ...                                  -- 變更會寫進 DB 自己的 WAL/binlog
+
+-- ② 變更日誌（binlog → Kafka topic；append-only、依 LSN 有序）
+change_log
+  lsn    BIGINT   -- 單調遞增位移（排序 + 去重 + 書籤）
+  op     CHAR(1)  -- c/u/d/r
+  table  TEXT
+  pk     BIGINT   -- 決定分區（同 pk 進同分區 → 同鍵有序）
+  before JSON
+  after  JSON
+  ts     TIMESTAMP
+
+-- ③ 下游衍生視圖（每個下游一份，形狀各自不同）
+derived_view (例：去正規化搜尋文件)
+  pk     BIGINT PRIMARY KEY
+  ...攤平後的欄位...
+  _lsn   BIGINT   -- 記住「這列由哪個 LSN 套出來的」→ 冪等比較用
+
+-- ④ 消費位移（每個消費群一筆：已套用到哪個 LSN）
+consumer_offset
+  consumer_group TEXT
+  applied_lsn    BIGINT</code></pre>
+  <div class="box"><span class="label">四件套</span>來源表（真相）＋變更日誌（有序事件流）＋衍生視圖（下游副本）＋消費位移（書籤）。整個 CDC 就是這四者的舞蹈。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 應用 ──CRUD──▶ 主庫(MySQL/PG) ──寫入──▶ binlog/WAL
+                                            │ 讀
+                                            ▼
+                                    Debezium(CDC connector)
+                                            │ 轉成變更事件(op/before/after/LSN)
+                                            ▼
+                                    Kafka(topic, 依 pk 分區、分區內有序)
+                          ┌─────────────────┼─────────────────┐
+                          ▼                 ▼                 ▼
+                 消費者A→ES索引       消費者B→Redis快取   消費者C→數倉
+                 (依序冪等套用)       (依序冪等套用)     (批次套用)</code></pre>
+  <ol>
+    <li><strong>主庫</strong>：應用照常寫，變更自然落進 binlog（不需改業務碼）。</li>
+    <li><strong>Debezium</strong>：讀 binlog，轉成標準化變更事件，<strong>記住讀到哪（LSN）</strong>可斷點續傳。</li>
+    <li><strong>Kafka</strong>：以主鍵分區 → <strong>同一筆資料的變更永遠落在同一分區、分區內有序</strong>。</li>
+    <li><strong>各下游消費者</strong>：獨立位移、各自把變更依序冪等套用到自己的視圖。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>讀 binlog vs 應用層雙寫</h3>
+  <ul>
+    <li><strong>雙寫</strong>：DB 與下游是兩次獨立寫，沒有共同交易 → 任一失敗即永久不一致；還有<strong>順序競態</strong>（兩個並發更新到 ES 的順序可能反過來）。</li>
+    <li><strong>讀 binlog（CDC）</strong>：binlog 是 DB 交易<strong>已提交</strong>的單一真相，且<strong>天然有序</strong>。下游只是「重放」它 → 一致性問題從「協調兩次寫」降級成「重放一條有序日誌」，簡單得多。</li>
+  </ul>
+  <h3>有序與 LSN</h3>
+  <p>同一主鍵的 <code>price:100→80→120</code> 若亂序套用，視圖可能停在 80。解法：<strong>依主鍵分區</strong>（同鍵進同分區）+ <strong>分區內依 LSN 嚴格遞增套用</strong>。跨鍵不需全域有序，所以可水平擴展分區。</p>
+  <h3>at-least-once + 冪等套用</h3>
+  <p>消費者「<strong>套用完才提交 offset</strong>」：若套到一半崩潰、offset 還沒提交，重啟會從舊 offset 重拉 → 同一批事件被<strong>重送</strong>。要讓重送無害，靠冪等：</p>
+  <ul>
+    <li><strong>offset 去重</strong>：<code>event.lsn &lt;= applied_lsn</code> 一律跳過。</li>
+    <li><strong>upsert 語意</strong>：套用用「以主鍵覆寫」（insert-or-replace），重放同一筆結果不變。</li>
+    <li><strong>視圖記 _lsn</strong>：若收到比視圖現存 _lsn 還舊的事件，可選擇忽略（防亂序/重放套舊值）。</li>
+  </ul>
+  <h3>初始快照 + 增量</h3>
+  <p>新接一個下游時，binlog 可能已被清掉舊段。流程：①<strong>記下目前 LSN</strong> →②<strong>全量讀</strong>主庫現有資料（op=r 灌入）→③從步驟①的 LSN 開始<strong>接增量</strong>。難點是快照期間主庫仍在變，需保證快照與增量的<strong>交界不漏不重</strong>（Debezium 用一致性快照 + 去重視窗處理）。</p>
+  <h3>Schema 變更</h3>
+  <p>來源表加欄位/改型別會反映在 binlog。事件需攜帶 <strong>schema 版本</strong>，下游要能容忍新欄位（向後相容），常配 Schema Registry 管理演進。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td>高變更量</td><td>單一 connector / 分區吞不下</td><td>依主鍵雜湊<strong>多分區</strong>並行；熱鍵單獨分區</td></tr>
+    <tr><td>下游落後（lag）</td><td>消費追不上、視圖過舊</td><td>多消費者並行（同 group）、<strong>批次套用</strong>、下游用更快的 upsert</td></tr>
+    <tr><td>回填 / 重建索引</td><td>下游壞了要全量重來</td><td>可<strong>重設 offset 重放</strong>整條日誌（冪等保證安全）+ 觸發快照</td></tr>
+    <tr><td>binlog 保留期</td><td>消費太慢、舊段被清</td><td>加大保留期或落 Kafka 長存；落後太多走快照重來</td></tr>
+    <tr><td>大事務 / 批次更新</td><td>一筆交易產生海量事件突刺</td><td>下游限流 + 背壓；分區攤平突刺</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>CDC vs 應用層雙寫</strong>：CDC 一致性強、低侵入，但要維運 connector + Kafka；雙寫架構簡單卻幾乎一定會不一致，面試<strong>明確不推薦</strong>。</li>
+    <li><strong>最終一致的延遲</strong>：下游永遠落後主庫一點（lag）。要接受「讀下游可能讀到舊值」；需強一致的查詢得讀主庫。</li>
+    <li><strong>exactly-once 很難</strong>：分散式下真正的「恰好一次」代價高（需端到端交易/冪等寫）。務實做法＝<strong>at-least-once + 冪等套用</strong>，效果等同 exactly-once 的<em>結果</em>。</li>
+    <li><strong>查詢 binlog vs 查詢時間戳輪詢</strong>：「每隔幾秒撈 updated_at &gt; X」的輪詢法會<strong>漏掉 delete</strong>、抓不到中間態、且拖主庫；CDC 讀 binlog 沒這些問題。</li>
+    <li><strong>常見追問</strong>：怎麼保證同鍵有序？（主鍵分區）重放會不會把資料弄壞？（冪等 upsert + LSN 去重）下游要全量重建怎麼辦？（重設 offset 重放 / 快照）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重 CDC <strong>真正的系統核心</strong>——變更擷取、有序、冪等套用，可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/SourceTable.php</code>　來源表（模擬主庫一張表）：<code>apply(c/u/d)</code> 回傳 before/after。</li>
+    <li><code>src/ChangeLog.php</code>　變更日誌（模擬 binlog→topic）：append 事件 + 原子遞增 LSN + 依序讀取。</li>
+    <li><code>src/Consumer.php</code>　下游消費者：依 LSN 依序套用 + 冪等去重 + 維護消費位移。</li>
+    <li><code>public/index.php</code>　路由：改來源表 / 看變更事件流 / 下游套用 / 一致性比對 / 重放，附測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8048 -t public
+# 瀏覽器開 http://localhost:8048
+# ① 改來源表(c/u/d) → ② 看變更事件(op/before/after/LSN)
+# → ③ 下游套用 → 兩邊一致 → ④ 重放全部 → 已套用的被 skip（冪等）</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 <strong>JSON 檔模擬 binlog</strong>（真實系統是 Debezium 讀 MySQL/Postgres 的 WAL/binlog → Kafka）；
+    但<strong>變更擷取（op/before/after）、LSN 有序、下游依序冪等套用、最終一致比對</strong>等系統邏輯<strong>為真實可執行</strong>。
+    要接真 CDC，把 <code>ChangeLog</code> 換成 Kafka consumer、<code>SourceTable</code> 換成真資料庫即可，下游套用邏輯一字不用改。
+  </div>
+
+  <footer>㊽ CDC 資料管線（Debezium） · D 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

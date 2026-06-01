@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>60 端到端加密訊息 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>60 端到端加密訊息 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「加密」本身？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你用 WhatsApp / Signal 傳訊息給朋友。中間經過電信、伺服器、一堆網路設備。
+  「<strong>端到端加密</strong>」（End-to-End Encryption，E2EE）保證的就是：<strong>只有你和你朋友兩端能讀這則訊息</strong>，
+  中間經手的<strong>所有人（包含提供服務的公司自己）都看不到內容</strong>，只看得到一團亂碼。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    端到端加密 = <strong>把信鎖進只有你和收件人各有鑰匙的保險箱再交給郵差</strong>。
+    郵差（伺服器）負責送，但<strong>打不開箱子</strong>；就算他想偷看、被搶、被法院要求交出，拿到的也只是一個打不開的箱子。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「加密」本身？</h2>
+  <p>很多人以為：「加密不就是把字變成亂碼嗎？很簡單啊。」——加密演算法本身確實是現成的。
+  真正難、面試真正考的是這兩件事：</p>
+  <div class="analogy">
+    <span class="label">📌 難關一：怎麼「不見面」就講好同一把鑰匙？</span>
+    你要鎖保險箱、朋友要能開，<strong>你們得用「同一把鑰匙」</strong>。可是你們從沒見過面，
+    中間只有一個你<strong>不信任</strong>的郵差能傳東西——你怎麼把鑰匙交給朋友，<strong>又不被郵差偷拷貝一份</strong>？
+    這就是「金鑰交換」難題。答案很神奇：有一種數學魔術（Diffie-Hellman），讓你們<strong>各自公開喊一個數字</strong>，
+    就能各自算出「同一把只有你倆知道的鑰匙」，郵差全程在聽也算不出來。
+  </div>
+  <div class="analogy">
+    <span class="label">📌 難關二：萬一鑰匙哪天被偷，<strong>以前的信</strong>也要保住</span>
+    如果你和朋友<strong>永遠只用同一把鑰匙</strong>，那只要這把鑰匙哪天外洩，<strong>過去所有訊息</strong>就全被解光了。
+    好的設計要做到：<strong>每封信用一把不一樣的鑰匙，而且用完就「燒掉」、推進到下一把，舊的再也算不回來</strong>。
+    這樣就算今天的鑰匙被偷，昨天的信還是安全的。這個「鑰匙不斷往前推、舊的銷毀」的機制叫<strong>棘輪</strong>。
+  </div>
+  <p class="pause">💭 停一下：為什麼「永遠用同一把鑰匙」很危險？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為一旦那把鑰匙外洩（手機被駭、被搶、金鑰被截），攻擊者就能把<strong>過去到未來所有訊息</strong>一次全解開。
+    把鑰匙「一封一封換、用完就銷毀」之後，洩漏一把只會影響那一封，<strong>過去的信仍解不開</strong>——這叫「前向保密」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「密碼學」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>交換鑰匙：不見面也能講好同一把鑰匙</h3>
+    <p>你和朋友從沒見面，要靠不信任的郵差協商出「同一把只有你倆知道」的鑰匙。</p>
+    <div class="analogy">
+      <span class="label">🎨 比喻：混顏料</span>
+      你和朋友各先選一個「<strong>祕密顏色</strong>」（私鑰，不告訴任何人）。大家公開一個「<strong>共同底色</strong>」。
+      你把底色＋自己的祕密色混好，<strong>公開</strong>寄給對方（這是公鑰，混過的顏色很難反推回原色）；對方也寄混色給你。
+      最後你拿「對方的混色」再加上「自己的祕密色」，朋友也對應地做一次——你倆<strong>會調出一模一樣的顏色</strong>，
+      但偷看的郵差只看到兩坨混色，<strong>調不出你們最後那個顏色</strong>。這就是 Diffie-Hellman 金鑰交換。
+    </div>
+    <p>👉 算出共同顏色後，再「磨」一下（這步叫 <strong>KDF</strong>，把共享祕密整理成正式的鑰匙）就能拿來鎖箱子了。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>加密：把信鎖進保險箱</h3>
+    <p>有了共同鑰匙，把訊息（明文）用它<strong>鎖成亂碼（密文）</strong>。</p>
+    <div class="analogy">
+      <span class="label">🔒 比喻：上鎖的箱子</span>
+      明文「晚上 7 點老地方見」用鑰匙一鎖，變成一串亂碼「9f3a7c…」。
+      只有<strong>同一把鑰匙</strong>能解回原文；沒鑰匙的人看到的永遠是那串亂碼，毫無意義。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>棘輪：每封信換一把鑰匙、用完就燒</h3>
+    <p>這是<strong>全題的心臟</strong>。不要永遠用同一把鑰匙，而是<strong>每傳一封就把鑰匙往前推一格、舊的銷毀</strong>。</p>
+    <div class="analogy">
+      <span class="label">⚙️ 比喻：棘輪（只能往前轉的齒輪）</span>
+      工具裡的棘輪只能<strong>單方向轉、轉過去就回不來</strong>。鑰匙也一樣：每封信用完，就用一個「單向函式」把它<strong>推進成下一把</strong>，
+      <strong>從新鑰匙絕對推不回舊鑰匙</strong>。所以就算今天手機被偷、拿到現在的鑰匙，也<strong>解不開昨天那封</strong>（鑰匙早被燒掉了）。
+    </div>
+    <p>這個「鑰匙一直往前推、舊的算不回來」就是<strong>前向保密</strong>。真實的 Signal 還會再疊一層（定期重新交換鑰匙），讓「萬一被偷後，未來也能恢復安全」——叫<strong>後向保密</strong>。兩層合起來叫 <strong>Double Ratchet（雙棘輪）</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>郵差只送箱子：伺服器看不到內容</h3>
+    <p>加密好的密文交給伺服器，由它存轉（對方離線就先暫存、上線再給）。但伺服器<strong>只經手箱子，沒有鑰匙</strong>。</p>
+    <div class="analogy">
+      <span class="label">📮 比喻：不識內容的郵差</span>
+      郵差負責把保險箱送到，途中可以暫放郵局（離線暫存）。但他<strong>沒有鑰匙</strong>，
+      打不開、也不知道裡面寫什麼。這跟一般聊天 App（伺服器看得到你打什麼）最大的不同。
+    </div>
+    <p>👉 這一關沿用 <strong>⑦ Messenger</strong> 的存轉與離線投遞——架構幾乎一樣，差別只在「<strong>送的是密文</strong>」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 混顏料<strong>交換出同一把鑰匙</strong>（DH）→ ② 用鑰匙<strong>把信鎖成密文</strong> → ③ <strong>棘輪</strong>（每封換鑰匙、用完就燒 = 前向保密）→ ④ <strong>郵差只送箱子</strong>（伺服器只見密文）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「郵差被換成假的」（中間人）</span>
+    最致命的怕。如果交換鑰匙時，郵差<strong>偷偷把你朋友的公鑰換成自己的</strong>，那你其實是在跟「冒牌朋友（郵差）」講好鑰匙，
+    郵差就能解開、看完、再轉給真朋友——你毫不知情。對策：見面或視訊時<strong>互相核對一串「安全碼」</strong>（公鑰指紋），對上了才確定中間沒被掉包。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「一把鑰匙被偷、全部訊息陪葬」</span>
+    如果永遠一把鑰匙，洩漏一次＝過去未來全洩。所以要用<strong>棘輪</strong>：一封一把、用完就燒，
+    讓「洩漏的損失只限那一封」。<em>把雞蛋分到很多籃子，還隨手砸掉空籃子。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「以為加密就全隱形了，其實還露餡」</span>
+    加密只藏了<strong>內容</strong>。但「<strong>你幾點跟誰聊、聊多頻繁</strong>」這些<strong>中繼資料</strong>，伺服器還是看得到。
+    很多人以為 E2EE = 完全隱形，其實不是。面試講到這點會大大加分（誠實面對極限）。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>📱 <strong>裝置 A</strong>：先去 🔑 <strong>金鑰伺服器</strong>領朋友的公鑰，用「混顏料魔術」算出共同鑰匙 →</li>
+    <li>用鑰匙把明文<strong>鎖成密文</strong>（每封還會把鑰匙往前推一格）→</li>
+    <li>🖥️ <strong>伺服器</strong>收下密文存著、轉送，但<strong>它只看得到密文</strong>（黃色＝郵差只送箱子）→</li>
+    <li>📱 <strong>裝置 B</strong>下載密文，用<strong>自己這端的鑰匙解開</strong>，看到明文。</li>
+    <li>整條路上的人（含伺服器）都只看到密文與公鑰，<strong>算不出共同鑰匙、解不開內容</strong>。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><td>端到端加密 (E2EE)</td><td>只有收發兩端能讀，中間所有人（含伺服器）只看到亂碼</td></tr>
+    <tr><td>明文 / 密文</td><td>原本看得懂的字 / 被鎖成的亂碼</td></tr>
+    <tr><td>私鑰 / 公鑰</td><td>自己的祕密色（絕不外傳）/ 混過可公開的色（給對方算共同鑰匙用）</td></tr>
+    <tr><td>Diffie-Hellman (DH)</td><td>「混顏料魔術」：不見面也能各自算出同一把鑰匙，偷聽的人算不出</td></tr>
+    <tr><td>共享祕密</td><td>雙方各自算出來、一模一樣、只有他倆知道的那個數字</td></tr>
+    <tr><td>KDF</td><td>把共享祕密「磨」成正式鑰匙的步驟（單向，磨過回不去）</td></tr>
+    <tr><td>對稱加密</td><td>同一把鑰匙又能鎖又能開（快，拿來鎖每封信）</td></tr>
+    <tr><td>棘輪 (ratchet)</td><td>只能往前轉的齒輪：每封信把鑰匙推進一格、舊的燒掉</td></tr>
+    <tr><td>前向保密</td><td>舊鑰匙被偷，<strong>以前</strong>的信仍解不開（因為早燒了）</td></tr>
+    <tr><td>後向保密 / 自我修復</td><td>鑰匙一度被偷後，<strong>以後</strong>的信還能恢復安全</td></tr>
+    <tr><td>Double Ratchet</td><td>Signal 的兩層棘輪：前向 + 後向保密都有</td></tr>
+    <tr><td>prekey（預付金鑰）</td><td>先存一批「一次性公鑰」在伺服器，讓對方離線也能先建鑰匙</td></tr>
+    <tr><td>中間人攻擊 (MITM)</td><td>郵差偷換公鑰、冒充對方來偷看的攻擊</td></tr>
+    <tr><td>安全碼 / 公鑰指紋</td><td>雙方核對的一串碼，對上了代表中間沒被掉包</td></tr>
+    <tr><td>中繼資料 (metadata)</td><td>「誰幾點跟誰聊、多頻繁」——加密藏不住的部分</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前你會先估「大概來幾人」，才決定<strong>訂幾個便當、租多大場地</strong>。系統設計也一樣：先估數字，才知道要準備多大的「料」。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>有多少裝置</td><td>2 億人 × 1.5 台 ≈ 3 億把鑰匙對</td><td>每台都要管自己的私鑰與棘輪狀態（在裝置上，不在伺服器）</td></tr>
+    <tr><td>一次性鑰匙（prekey）</td><td>每台先存 100 把 ≈ 300 億把</td><td>讓對方離線也能先建鑰匙；用完要補</td></tr>
+    <tr><td>每天多少則訊息</td><td>每人 40 則 ≈ 每秒 9 萬筆（峰值 28 萬）</td><td>跟一般 Messenger 差不多；瓶頸還是「送」而非「加密」</td></tr>
+    <tr><td>加密多花多少</td><td>每則多附一點點鑰匙資料</td><td>密文比明文稍大，可接受；計算在裝置端，不壓伺服器</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：累的是「鑰匙管理」，不是「加密運算」</span>
+    加密本身很快、又發生在<strong>使用者的手機上</strong>，不會壓垮伺服器。E2EE 真正<strong>新增</strong>的負擔是
+    <strong>金鑰管理</strong>：身分鑰匙、一次性 prekey 的發放與補充、每則訊息的棘輪狀態。送密文那部分，沿用 Messenger 即可。
+  </div>
+  <p class="pause">💭 停一下：為什麼說「加密不會壓垮伺服器」？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為加解密都在<strong>使用者裝置端</strong>做（手機算自己的就好），伺服器只負責<strong>存轉密文</strong>，
+    跟存轉明文的成本幾乎一樣。E2EE 增加的成本主要在「鑰匙的發放、領取、補充」這種金鑰管理工作。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼、我回你什麼。講好格式雙方就能合作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 上傳我的公鑰（裝置產生私鑰，只上傳公鑰）
+   POST /api/v1/keys
+   給我：{ 身分公鑰, 一批一次性公鑰(prekey) }
+   我回：201「收到！這是你的安全碼（指紋），請和朋友核對」</code></pre>
+  <p class="codecaption">重點：上傳的是<strong>公鑰</strong>，私鑰永遠留在手機裡。伺服器握有再多公鑰也解不開訊息。</p>
+  <pre><code>② 領對方的公鑰（要開始聊天前）
+   GET /api/v1/keys/{對方}
+   我回：{ 對方身分公鑰, 一把一次性公鑰 }   ← 領走那把一次性的就用掉了</code></pre>
+  <pre><code>③ 送密文（伺服器只中繼，看不到內容）
+   POST /api/v1/messages
+   給我：{ 寄給誰, 棘輪序號 n, 密文, 鑰匙材料 header }
+   我回：201（存著、對方上線就轉給他）</code></pre>
+  <pre><code>④ 收密文（自己手機解密）
+   GET /api/v1/inbox?after_id=120
+   我回：[ { 誰寄的, n, 密文, header }, ... ]   ← 手機端用棘輪鑰匙解開</code></pre>
+  <p class="codecaption">注意 ③④ 經手的都是<strong>密文</strong>。伺服器這份「點餐單」永遠收不到明文。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：東西分兩個地方放</span>
+    這題最關鍵的設計就是「<strong>東西分兩半放</strong>」：能公開的放伺服器，<strong>祕密的只放手機</strong>。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🖥️</span>伺服器只放兩本（都是公開或亂碼）</h3>
+    <p><strong>公鑰目錄</strong>：每人的公鑰束（給人來領、算共同鑰匙用）。<br>
+    <strong>密文信箱</strong>：每則只有 <code>寄給誰、棘輪序號 n、密文</code>——<strong>沒有明文、沒有鑰匙</strong>。
+    所以伺服器被駭 / 被法院要資料，交得出的只有一堆亂碼。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📱</span>手機端才放祕密（永不上傳）</h3>
+    <p><strong>身分私鑰</strong>（自己的祕密色）＋<strong>棘輪狀態</strong>（每個對話的發送鏈鑰匙、接收鏈鑰匙、推到第幾格）。
+    只要這些不離開手機，伺服器無論如何都解不開訊息。</p>
+    <div class="analogy"><span class="label">為什麼一定要分兩半？</span>
+      因為 E2EE 的整個安全保證，就建立在「<strong>私鑰只有你手機有</strong>」這一點上。
+      一旦私鑰上了伺服器，伺服器就能解密，E2EE 立刻破功。所以設計上把它<strong>物理隔離</strong>在裝置端。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>對方<strong>離線</strong>，沒辦法當場「混顏料」交換鑰匙</td><td><strong>一次性預付金鑰（prekey）</strong>：先存一批公鑰在伺服器，對方離線你也能領一把先把鑰匙建好</td></tr>
+    <tr><td>一次性鑰匙被<strong>領光了</strong></td><td>裝置上線時<strong>補一批</strong>新的上去；真的用完先退回用備援鑰匙</td></tr>
+    <tr><td><strong>群組</strong>聊天：N 個人兩兩配對鑰匙會爆炸</td><td>用「<strong>群組鑰匙</strong>（sender key）」：每人發一把給群裡所有人，群播只加密一次</td></tr>
+    <tr><td><strong>多裝置</strong>：手機、平板、電腦鑰匙要對齊</td><td>每台各有自己的鑰匙，送訊息時對每台各加密一份；新裝置要重新驗證</td></tr>
+    <tr><td>送密文的<strong>長連線/投遞</strong>量大</td><td>直接沿用 ⑦ Messenger 那套（連線註冊表 + 離線佇列），只是內容換成密文</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 隱私 vs 伺服器端功能</span>
+    加密後伺服器看不到內容 → <strong>全文搜尋、垃圾訊息過濾、內容審核、防詐騙、雲端備份</strong>全都變難或做不到。
+    這是 E2EE 最大的代價：保護了隱私，就失去了很多「伺服器幫你做事」的功能。</div>
+  <div class="fear"><span class="label">⚖️ 換手機怎麼辦？備份 vs 安全</span>
+    私鑰只在手機 → 手機丟了 / 換新機，舊訊息可能<strong>永遠解不開</strong>。要做「雲端鑰匙備份」會多一個被攻擊的入口；
+    不做則使用者體驗差。怎麼折衷（例如用一組強密碼加密備份）是個經典難題。</div>
+  <div class="fear"><span class="label">⚖️ 加密藏得了內容，藏不了「中繼資料」</span>
+    「你幾點跟誰聊、多頻繁、從哪個 IP」這些伺服器還是看得到。要再藏需要額外設計（隱藏寄件人、混淆路由），成本很高。</div>
+  <details class="qa"><summary>💭 追問：伺服器被法院要求交出某人的對話，能交出什麼？</summary>
+    只能交出<strong>密文</strong>和<strong>中繼資料</strong>（誰跟誰、何時聊），<strong>交不出明文</strong>——因為伺服器根本沒有鑰匙。
+    這正是 E2EE 的賣點，也是它常被監管討論的原因。</details>
+  <details class="qa"><summary>💭 追問：怎麼確定「對方公鑰」沒被郵差掉包（中間人）？</summary>
+    雙方核對一串<strong>安全碼（公鑰指紋）</strong>——當面掃 QR 或唸數字對一遍。
+    對得上，代表你拿到的就是真朋友的公鑰，中間沒被換掉。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「金鑰交換 + 棘輪 + 伺服器只見密文」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8060 -t public
+# 然後瀏覽器打開 http://localhost:8060</code></pre>
+  <ol>
+    <li>按「<strong>① A、B 建立加密 session</strong>」：看兩個裝置各自用 DH 算出<strong>一模一樣的共享祕密</strong>（畫面顯示 ✅ 兩邊一致）。</li>
+    <li>在 A 輸入一句話「<strong>加密送給 B</strong>」：看「伺服器視角」面板——它<strong>只收到一串密文</strong>，看不到你打的字。</li>
+    <li>在 B 按「<strong>收訊息並解密</strong>」：B 端用鑰匙解出原文。每送一則，<strong>棘輪序號就 +1</strong>（鑰匙往前推）。</li>
+    <li>按「<strong>② 示範前向保密</strong>」：試著用「已經推進過、被燒掉的舊鑰匙」去解舊訊息 → <strong>解不開</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>盯著「伺服器視角」面板：不管你打什麼，它永遠<strong>只有密文</strong>——這就是端到端加密。
+  再看「棘輪狀態」：每收發一則，<strong>send_n / recv_n 就 +1</strong>、鑰匙指紋變動——這就是「每封換一把鑰匙」。最後試前向保密，體會「<strong>舊鑰匙燒掉就救不回來</strong>」。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心邏輯很短，剛好對應前面講的關卡。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 對應前面的關卡</span>
+    <strong>① 混顏料交換鑰匙</strong>（DH）→ <strong>② KDF 磨成鑰匙</strong> → <strong>③ 棘輪推進 + 加解密</strong> → <strong>④ 伺服器只存密文</strong>。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>混顏料：算出「同一把鑰匙」（DH）</h3>
+    <p>公開一個底色 <code>g</code>、一個大數 <code>p</code>。每人選祕密色（私鑰），算出混色（公鑰）寄出去：</p>
+<pre><code>公鑰 = g 的 (私鑰) 次方，再對 p 取餘數     // 混色：很難反推回私鑰
+
+// 雙方交換公鑰後，各自算共同鑰匙：
+共享祕密 = (對方公鑰) 的 (自己私鑰) 次方，對 p 取餘數
+// 神奇：A 和 B 算出來「一模一樣」，但偷聽的郵差只看到兩個公鑰，算不出共享祕密</code></pre>
+    <p class="codecaption">這就是「混顏料魔術」。demo 用<strong>很小的數字</strong>（p=467）方便你看；真實系統用 2048 位元以上的大數或橢圓曲線，大到電腦窮舉到宇宙毀滅也算不出來。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>磨成鑰匙 + 鎖箱子（KDF + 加密）</h3>
+    <p>共享祕密不直接當鑰匙，先用一個<strong>單向函式</strong>（hash）「磨」一下，再拿來鎖訊息：</p>
+<pre><code>根鑰匙 = hash("KDF" + 共享祕密)        // 把祕密整理成正式鑰匙
+密文   = 明文 XOR 鑰匙                 // demo 用 XOR 示意「上鎖」（真實用 AES）</code></pre>
+    <p class="codecaption">為什麼用 hash？因為 hash 是<strong>單向</strong>的：給輸入算得出輸出，給輸出反推不回輸入。這個「單向」性質，正是下一步棘輪能「燒掉舊鑰匙」的關鍵。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>棘輪：每封推進一格、舊鑰匙燒掉（前向保密）</h3>
+    <p>這是<strong>全題的心臟</strong>。每發一則，就把鏈鑰匙用 hash <strong>單向推進</strong>到下一把：</p>
+<pre><code>function 取下一把發送鑰匙() {
+    這封的鑰匙 = hash("msg" + 目前鏈鑰匙)
+    目前鏈鑰匙 = hash("ratchet" + 目前鏈鑰匙)   // ← 單向推進！舊的被覆蓋
+    return 這封的鑰匙
+}</code></pre>
+    <p class="codecaption">關鍵在那行「目前鏈鑰匙 = hash(...)」：因為 hash 單向，<strong>從新鑰匙算不回舊鑰匙</strong>。所以舊鑰匙一旦被推進覆蓋，就<strong>永遠救不回來</strong>——這就是前向保密。收的一方有一條對應的「接收鏈」，同步往前推，剛好能解開每一封。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>郵差只碰密文：伺服器存的東西長這樣</h3>
+    <p>送出去時，伺服器（信箱）只記下這些，<strong>完全沒有明文、沒有鑰匙</strong>：</p>
+<pre><code>信箱存：{ 寄件人, 收件人, 棘輪序號 n, 密文 }   // 就這些，沒有明文！
+// 收件人下載後，用自己的接收鏈鑰匙(第 n 格)解開 → 還原明文</code></pre>
+    <p class="codecaption">序號 <code>n</code> 是讓收件人知道「這封要用接收鏈推到第幾格的鑰匙來解」。伺服器看得到 n，但<strong>沒有鏈鑰匙</strong>，所以照樣解不開。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 混顏料交換鑰匙</td><td>ToyCrypto</td><td><code>dhSharedSecret()</code></td></tr>
+      <tr><td>② 磨成鑰匙 + 上鎖</td><td>ToyCrypto</td><td><code>kdf()</code> / <code>encrypt()</code></td></tr>
+      <tr><td>③ 棘輪推進（前向保密）</td><td>ToyCrypto / DeviceStore</td><td><code>ratchet()</code> / <code>nextSendKey()</code></td></tr>
+      <tr><td>④ 伺服器只存密文</td><td>Mailbox</td><td><code>put()</code>（只收 from/to/n/cipher）</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「小數字 DH + XOR」換成「Curve25519 + AES-GCM + Double Ratchet」，
+  但<strong>上面這幾段邏輯的「形狀」一字不變</strong>：交換出共享祕密 → 導鑰匙 → 每封推進 → 伺服器只存密文。讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「保險箱 + 郵差」解釋什麼是端到端加密？</summary>
+    把信鎖進只有你和收件人各有鑰匙的保險箱，再交給郵差送。郵差（伺服器）負責送，但沒鑰匙、打不開，
+    所以只有收發兩端能讀內容，中間所有人（含服務商）都只看到一個打不開的箱子。</details>
+  <details class="qa"><summary>Q2：用「混顏料」解釋，兩個不見面的人怎麼講好同一把鑰匙？</summary>
+    各選一個祕密色（私鑰），混進公開底色後把混色（公鑰）寄給對方。最後各自把「對方混色 + 自己祕密色」再混一次，
+    會得到一模一樣的顏色（共享祕密），但偷看的郵差只看到兩坨混色，調不出最終色。這就是 Diffie-Hellman。</details>
+  <details class="qa"><summary>Q3：「前向保密」是什麼？為什麼要每封換一把鑰匙？</summary>
+    前向保密＝就算今天的鑰匙被偷，以前的訊息也解不開。做法是用棘輪：每封信把鑰匙用單向函式推進一格、舊的燒掉，
+    從新鑰匙算不回舊鑰匙，所以洩漏一把只影響那一封，過去的信仍安全。</details>
+  <details class="qa"><summary>Q4：為什麼說「加密不會壓垮伺服器，累的是金鑰管理」？</summary>
+    因為加解密都在使用者手機上做，伺服器只存轉密文（成本跟存明文差不多）。E2EE 新增的負擔是金鑰管理：
+    身分鑰匙、一次性 prekey 的發放與補充、每則的棘輪狀態。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼一定要把「私鑰」和「棘輪狀態」放在裝置端、不上伺服器？</summary>
+    因為 E2EE 的安全保證就建立在「私鑰只有你手機有」。一旦私鑰上了伺服器，伺服器就能解密，E2EE 立刻破功。
+    所以設計上把私鑰與棘輪狀態物理隔離在裝置端，伺服器只存公鑰與密文。</details>
+  <details class="qa"><summary>Q6（工程）：對方離線，沒辦法當場做 DH，怎麼還能先把鑰匙建好？</summary>
+    靠「一次性預付金鑰（prekey）」：每個裝置事先存一批一次性公鑰在金鑰伺服器，要跟離線的人聊天時，
+    領一把他的 prekey 就能單向把 session 建起來（這就是 X3DH 的精神）。prekey 用完上線再補。</details>
+  <details class="qa"><summary>Q7（工程）：E2EE 藏得住內容，但藏不住什麼？面試講這點為什麼加分？</summary>
+    藏不住「中繼資料」——誰幾點跟誰聊、多頻繁、從哪個 IP。講出這點代表你誠實面對 E2EE 的極限、
+    威脅模型想得清楚，而不是以為「加密＝完全隱形」。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>端到端加密 = 把信鎖進只有收發兩端有鑰匙的保險箱，郵差（伺服器）只送箱子、打不開。</strong></p>
+    <p><strong>4 個關卡：</strong>① 混顏料<strong>交換出同一把鑰匙</strong>（DH）→ ② <strong>把信鎖成密文</strong>（KDF 導鑰匙 + 對稱加密）→ ③ <strong>棘輪</strong>（每封換鑰匙、用完就燒 = 前向保密）→ ④ <strong>伺服器只存密文</strong>（沿用 Messenger 存轉）。</p>
+    <p><strong>3 個怕：</strong>怕中間人（郵差掉包公鑰 → 核對安全碼）、怕一把鑰匙陪葬全部（棘輪一封一把）、怕以為加密就全隱形（中繼資料藏不住）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>累的是金鑰管理不是加密運算；東西分兩半放（公鑰/密文在伺服器，私鑰/棘輪只在手機）；離線靠 prekey、群組靠 sender key；E2EE 換來隱私、犧牲了搜尋/審核/備份等伺服器端功能。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>60 端到端加密訊息 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

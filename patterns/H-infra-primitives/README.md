@@ -16,3 +16,6 @@
 | 19 | 分散式限流器 | 令牌桶 / 滑動視窗、Redis 原子計數、per-key、429 + Retry-After |
 | 23 | 唯一 ID 產生器（Snowflake） | 64-bit 位元佈局、同毫秒序號遞增、時鐘回撥處理、雙向解碼 |
 | 25 | 分散式訊息佇列（Kafka） | 主題分區、依 key 分區、消費者組 offset、重放、分區內有序、rebalance |
+| 49 | API Gateway / 負載均衡 | 路由、LB(RR/最少連線/一致性雜湊)、健康檢查、熔斷半開、統一入口 |
+| 50 | DNS 系統 | 階層遞迴解析、快取 TTL、A/CNAME、GeoDNS/anycast 就近導流 |
+| 51 | CDN 內容分發 | 邊緣快取 hit/miss、回源、快取失效 purge、一致性雜湊選邊緣、就近 |

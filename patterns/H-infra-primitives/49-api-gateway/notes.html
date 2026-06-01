@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊾ API Gateway / 負載均衡器 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊾ API Gateway / 負載均衡器：微服務的統一入口</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag time">建議 35 分鐘</span>
+    <span class="tag">Design an API Gateway / Load Balancer</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把一個進來的請求，依路由規則導到對的服務池，再在池內挑一台健康的後端</strong>」的問題。
+    難點不在「轉發」本身，而在 <em>當後端會壞、會慢、會變多變少時，如何穩定地挑對機器</em>：負載均衡、健康檢查、熔斷三件事缺一不可。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入（L4/L7、LB、健康、熔斷）</a></li>
+      <li><a href="#scale">擴展與瓶頸（Gateway 自身擴展）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>統一入口</strong>：所有客戶端請求先打 Gateway，由它處理橫切關注點（認證、路由、限流、熔斷），後端服務專心做業務。</li>
+    <li><strong>路由</strong>：依路徑前綴（<code>/users/*</code>、<code>/orders/*</code>）/ Host / Header 把請求導到對應的<strong>上游服務池（upstream pool）</strong>。</li>
+    <li><strong>負載均衡</strong>：在池內多台後端間分散流量（round-robin / 最少連線 / 一致性雜湊），避免某台過載。</li>
+    <li><strong>健康檢查</strong>：偵測後端死活，<strong>自動把流量繞過故障節點</strong>，恢復後再加回。</li>
+    <li><strong>熔斷</strong>：某後端連續失敗就<strong>暫時停止導流</strong>，避免把請求一直丟給已知壞掉的機器（快速失敗，保護自己與下游）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：Gateway 在每個請求的關鍵路徑上，自身只能加極少的 overhead（次毫秒級）。</li>
+    <li><strong>高可用</strong>：Gateway 是<strong>全站咽喉</strong>，絕不能是單點；本身要能水平擴展、無狀態。</li>
+    <li><strong>可擴展</strong>：後端可動態增減（自動擴縮容），路由表與健康狀態要能即時更新。</li>
+    <li><strong>可觀測</strong>：集中收集每條路由的 QPS、延遲、錯誤率、熔斷狀態，是 Gateway 的天然優勢。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「這是 <strong>L4（傳輸層，看 IP:port）</strong> 還是 <strong>L7（應用層，看 HTTP 路徑/標頭）</strong> 的 LB？」與「<strong>集中式 Gateway</strong> 還是 <strong>服務網格 sidecar</strong>？」這兩問決定整題走向。多數面試講的「API Gateway」是 L7、集中式。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>總流量</td><td>1 億請求/日</td><td>~1.2k QPS（峰值 ×5 ≈ 6k QPS）</td></tr>
+    <tr><td>Gateway 節點</td><td>每節點 ~5k QPS（L7 解析有成本）</td><td>峰值需 ~2~3 台 + 冗餘，前面再放一層 L4 LB 分流</td></tr>
+    <tr><td>後端服務</td><td>數十個微服務，每服務 2~10 個實例</td><td>路由表規模小（百量級規則），可全量快取在每台 Gateway 記憶體</td></tr>
+    <tr><td>健康狀態</td><td>每後端一個 up/down + 熔斷器狀態</td><td>幾百個 entry，KB 級；關鍵是<strong>更新要快且各 Gateway 看法一致</strong></td></tr>
+    <tr><td>延遲預算</td><td>Gateway 自身 overhead</td><td>路由+LB 決策 &lt; 1ms；瓶頸通常在後端與網路 RTT，不在 Gateway 算法</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>狀態量很小（路由表、健康狀態都 KB~MB 級），<strong>設計重點不是容量，而是「每請求都要在關鍵路徑上做決策」與「Gateway 自身的高可用/水平擴展」</strong>。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># Gateway 對「外」沒有自己的業務 API，它是反向代理（reverse proxy）。
+# 客戶端只是正常打業務路徑，Gateway 透明轉發：
+GET /users/42        → 路由到 users 池 → LB 挑 users-3 → 轉發
+GET /orders/777      → 路由到 orders 池 → LB 挑 orders-1 → 轉發
+
+# Gateway 對「內」的控制面 API（管理路由與後端）：
+PUT  /admin/routes/{prefix}        # 設定/更新一條路由
+  Body: { "prefix":"/users", "upstream":"users-pool", "lb":"round_robin",
+          "timeout_ms":800, "retries":1, "rate_limit":"1000/min" }
+
+PUT  /admin/upstreams/{pool}       # 設定服務池的後端清單
+  Body: { "backends":["10.0.1.5:8080","10.0.1.6:8080"], "health":"/healthz" }
+
+# 後端被熔斷 / 全部不可用時，Gateway 回給客戶端：
+HTTP/1.1 503 Service Unavailable   # 池內無健康後端
+HTTP/1.1 502 Bad Gateway           # 後端回錯/逾時
+HTTP/1.1 429 Too Many Requests     # 觸發 per-route 限流（呼應第⑲題）
+</code></pre>
+  <div class="box"><span class="label">為何分「資料面 / 控制面」</span><strong>資料面（data plane）</strong>是高頻轉發請求的熱路徑（要極快）；<strong>控制面（control plane）</strong>是低頻的設定下發（路由表、後端清單）。兩者分離，讓設定變更不影響轉發效能，也是服務網格的核心觀念。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># 路由表（route table）：前綴 → 服務池 + 策略
+ROUTE  prefix("/users") -> { upstream:"users-pool", lb:"round_robin",
+                             timeout_ms, retries, rate_limit }
+
+# 服務池（upstream pool）：一組後端
+POOL   "users-pool" -> [ backend, backend, ... ]
+
+# 後端（backend）的執行期狀態（健康 + 熔斷 + 負載）
+BACKEND {
+  id:"users-3", addr:"10.0.1.7:8080",
+  up: true,                         # 健康檢查結果
+  conns: 12,                        # 目前在途連線數（least-conn 用）
+  cb_state: "closed",               # closed | open | half_open（熔斷器）
+  consecutive_fails: 0,             # 連續失敗計數
+  open_until: 1717142410            # open 狀態的冷卻到期時間
+}</code></pre>
+  <div class="box"><span class="label">為何後端狀態要獨立記</span>路由表（前綴→池）變動少、可長快取；但<strong>後端的 up/down、連線數、熔斷器是高頻變動的執行期狀態</strong>。把兩者分開，路由穩定、健康狀態即時，是 Gateway 設計的關鍵分層。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>                                   ┌────────────────────┐
+                                   │ 控制面：路由表 /     │
+                                   │ 後端池 / 健康狀態(黃)│
+                                   └─────────┬──────────┘
+                                             │ 下發設定
+                                             ▼
+ 客戶端 ─請求(藍)→ L4 LB ─→ API Gateway (L7) ──路由+LB挑一台──▶ users 池 (綠)
+                  (挑GW)      │ 認證·路由·限流              ├──▶ orders 池
+                             │ ·LB·健康·熔斷               └──▶ pay 池(熔斷中→繞過)
+                             │
+              健康探測 /healthz ◀─────────────────────────────── 各後端</code></pre>
+  <ol>
+    <li><strong>L4 LB（前置）</strong>：在 Gateway 群前面，純看 IP:port 把連線分到某一台 Gateway。Gateway 自己要<strong>無狀態</strong>才能這樣水平擴展。</li>
+    <li><strong>API Gateway（L7）</strong>：解析 HTTP，做認證 → 路由（前綴比對選池）→ 限流 → <strong>池內 LB 挑後端</strong> → 轉發；後端壞了套用健康檢查與熔斷。</li>
+    <li><strong>控制面</strong>：維護路由表與後端清單，透過健康探測更新 up/down，把設定下發到所有 Gateway 實例。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>L4 vs L7 負載均衡</h3>
+  <table>
+    <tr><th></th><th>L4（傳輸層）</th><th>L7（應用層）</th></tr>
+    <tr><td>看什麼</td><td>IP / port（TCP/UDP）</td><td>HTTP 路徑 / Header / Cookie / method</td></tr>
+    <tr><td>能力</td><td>快、低 overhead，但<strong>看不懂內容</strong></td><td>能依路徑路由、改寫 Header、認證、限流、熔斷</td></tr>
+    <tr><td>定位</td><td>常放最前面分流到 Gateway 群</td><td>就是「API Gateway」本身</td></tr>
+  </table>
+  <p>典型部署是<strong>兩層疊加</strong>：L4 把連線打散到多台 L7 Gateway，L7 再依內容做精細路由與治理。</p>
+
+  <h3>負載均衡演算法（面試核心）</h3>
+  <table>
+    <tr><th>演算法</th><th>原理</th><th>取捨</th></tr>
+    <tr><td><strong>輪詢 Round-Robin</strong></td><td>依序輪流挑下一台。</td><td>最簡單、分布最均勻；但<strong>不看後端真實負載</strong>，慢機器一樣被分到等量。</td></tr>
+    <tr><td><strong>加權輪詢 Weighted RR</strong></td><td>依機器規格給權重，強的多分。</td><td>處理異質後端；權重要人工或自動調。</td></tr>
+    <tr><td><strong>最少連線 Least-Connection</strong></td><td>挑目前在途連線最少的後端。</td><td>對<strong>長連線/處理時間不一</strong>的場景更公平；要維護即時連線數。</td></tr>
+    <tr><td><strong>一致性雜湊 Consistent Hash</strong></td><td>把 key（user/session）雜湊到環上，固定落到同一台。</td><td>提供<strong>會話親和（sticky）/ 快取命中</strong>；後端增減時<strong>只重洗少量 key</strong>（vs 取模全洗）。</td></tr>
+  </table>
+  <div class="box"><span class="label">一致性雜湊為何重要</span>若用 <code>hash(key) % N</code>，後端數 N 一變（擴縮容），<strong>幾乎所有 key 都重新對應</strong>，快取全失效。一致性雜湊把後端放到雜湊環上，增減一台<strong>只影響環上相鄰的一段 key</strong> → 是有狀態親和場景（會話、分片快取）的標準解。</div>
+
+  <h3>健康檢查（health check）</h3>
+  <ul>
+    <li><strong>主動式</strong>：Gateway 定期打後端的 <code>/healthz</code>，連續失敗 → 標 down → 從候選池移除。恢復後連續成功 → 標 up 加回。</li>
+    <li><strong>被動式</strong>：直接觀察真實流量的成敗（逾時、5xx），不用額外探測。常與主動式並用。</li>
+    <li><strong>繞過</strong>：down 的後端<strong>不進入 LB 的候選清單</strong>，流量天然只導到健康節點——這就是「kill 一台自動繞過」的本質。</li>
+  </ul>
+
+  <h3>熔斷器（circuit breaker）三態</h3>
+  <pre><code>closed（正常）  ──連續失敗達門檻 N──▶  open（熔斷，快速失敗，不導流）
+   ▲                                        │ 冷卻時間到
+   │ 試探成功                                ▼
+   └──────────  half_open（半開，放「一個」試探請求）
+                      │ 試探失敗 → 退回 open（再等一輪冷卻）</code></pre>
+  <ul>
+    <li><strong>closed</strong>：正常導流，累計連續失敗；成功就歸零。</li>
+    <li><strong>open</strong>：已知這台壞了，<strong>直接不導流</strong>（快速失敗），避免把請求白白丟給壞機器、也給它喘息恢復。</li>
+    <li><strong>half_open</strong>：冷卻後放<strong>一個</strong>試探；成功 → 回 closed 恢復，失敗 → 退回 open。</li>
+  </ul>
+  <div class="box danger"><span class="label">熔斷 vs 健康檢查</span>兩者互補：<strong>健康檢查</strong>是「主動探測死活」（後端可能完全沒回應）；<strong>熔斷</strong>是「從真實請求的失敗率快速反應」（後端活著但在吐錯/變慢）。健康檢查管「能不能用」，熔斷管「最近表現好不好」。</div>
+
+  <h3>重試與逾時</h3>
+  <ul>
+    <li><strong>逾時（timeout）</strong>：每條路由設定後端最大等待時間，避免慢請求拖垮 Gateway 連線池。</li>
+    <li><strong>重試（retry）</strong>：失敗時可換另一台健康後端重試，但<strong>只對冪等請求重試</strong>（GET 安全，POST 要小心），且要<strong>限重試次數 + 退避</strong>，否則重試風暴會放大故障。</li>
+  </ul>
+
+  <h3>前置治理：認證 / 限流</h3>
+  <p>Gateway 是放認證（驗 JWT / API key）與限流（呼應 <a href="../19-rate-limiter/notes.html">第⑲題</a>）的天然位置——在轉發前統一處理，後端服務就不必各自重做。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單台 Gateway</td><td>全站咽喉，掛了全站死</td><td>Gateway <strong>無狀態</strong> + 多實例 + 前置 L4 LB 分流；任一掛掉自動繞過</td></tr>
+    <tr><td>健康狀態同步</td><td>各 Gateway 對後端死活看法不一</td><td>主動探測 + 控制面集中下發；容忍短暫不一致（被動式即時補位）</td></tr>
+    <tr><td>長連線（WebSocket/gRPC stream）</td><td>連線黏在某台 Gateway，難重均衡</td><td>連線層親和 + 優雅排空（drain）；擴容對<strong>新連線</strong>生效</td></tr>
+    <tr><td>熱路由 / 熱 key</td><td>某條路徑或某 key 爆量打爆單一後端</td><td>per-route 限流 + 加權/最少連線分散；一致性雜湊熱點再加虛擬節點/分桶</td></tr>
+    <tr><td>設定下發</td><td>路由/後端變更要即時生效又不抖動</td><td>控制面推送 + 本地快取 + 原子切換（不中斷在途請求）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>集中式 Gateway vs 服務網格 sidecar</strong>：集中式好治理、好觀測、但多一跳且自己要高可用；sidecar（每服務旁掛一個代理，如 Envoy）延遲低、east-west 流量也能治理，但<strong>運維複雜、資源開銷大</strong>。多數團隊「南北向用 Gateway、東西向用 mesh」。</li>
+    <li><strong>LB 演算法取捨</strong>：無狀態短請求 → 輪詢就夠；處理時間差異大/長連線 → 最少連線；需要會話親和或快取命中 → 一致性雜湊。沒有萬用解，看流量形狀。</li>
+    <li><strong>熔斷閾值</strong>：門檻太低（如失敗 1 次就斷）→ 偶發抖動就誤斷、可用性反而降；太高 → 壞機器拖很久才被隔離。要配合<strong>滑動窗錯誤率</strong>而非裸計數，並設半開試探避免一直斷。</li>
+    <li><strong>重試的雙面刃</strong>：重試提升成功率，但故障時<strong>重試風暴</strong>會把流量放大數倍、加速雪崩 → 必須限次數 + 退避 + 只重試冪等請求 + 配合熔斷。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>kill 一台後端怎麼自動繞過？→ 健康檢查標 down，<strong>不進 LB 候選清單</strong>。</li>
+        <li>為什麼要熔斷而不只靠健康檢查？→ 後端「活著但在吐錯/變慢」時，熔斷從真實失敗率更快反應。</li>
+        <li>後端擴縮容，一致性雜湊比取模好在哪？→ 只重洗環上相鄰一段 key，快取/會話不全失效。</li>
+        <li>Gateway 自己怎麼不成單點？→ 無狀態 + 多實例 + 前置 L4 LB。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦 Gateway 的<strong>決策鏈</strong>（也是面試真正考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Gateway.php</code>　核心引擎：<strong>路由</strong>（最長前綴比對選池）、<strong>負載均衡</strong>（round-robin / least-connection / consistent-hash 可切換）、<strong>健康檢查</strong>（kill 的後端不進候選、自動繞過）、<strong>熔斷器</strong>（連續失敗 3 次 → open，冷卻 10 秒 → half_open 試探 → 成功 closed）。狀態用 <code>flock</code> 原子讀-改-寫。</li>
+    <li><code>public/index.php</code>　路由 + 深色測試頁（註冊服務池、送請求看挑到哪台、kill 看繞過、連續失敗看熔斷、看流量分布長條圖）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8049 -t public
+# 瀏覽器開 http://localhost:8049
+# ① 一鍵建範例（/users 3 台 + /orders 2 台）
+# ② 連送 12 次 → 看 round-robin 平均輪流；切「最少連線/一致性雜湊」看分布差異
+# ③ kill 一台 → 再送，看自動繞過只導到健康的
+# ④ 對某台連續失敗 ×4 → 熔斷打開自動繞過；等 10 秒看它轉半開試探</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機模擬</strong>：後端不是真的服務，而是記在 JSON 裡的計數器，用 <code>flock(LOCK_EX)</code> 把整段「讀狀態 → 跑 LB/熔斷 → 寫回」鎖成<strong>單一原子操作</strong>，模擬真實 Gateway 對共享狀態（通常在 Redis/etcd）的原子更新。但<strong>路由（最長前綴）、三種 LB 演算法、健康檢查繞過、熔斷器 closed→open→half_open→closed 的狀態轉移皆為真實可執行的邏輯</strong>。要上線只需把「JSON 計數器」換成真正轉發 HTTP + 主動健康探測，決策邏輯完全不變。
+  </div>
+
+  <footer>㊾ API Gateway / Load Balancer · H 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

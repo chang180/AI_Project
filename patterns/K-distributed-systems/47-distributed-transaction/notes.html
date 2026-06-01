@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊼ 分散式交易 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊼ 分散式交易：兩階段提交 2PC × NewSQL</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag time">建議 55 分鐘</span>
+    <span class="tag">Design Distributed Transactions / NewSQL</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用「兩家銀行同步轉帳、先問再做、不行就全退」的比喻把 2PC 講清楚，再回來看這份工程速查。</div>
+
+  <div class="switch">
+    <a href="notes-beginner.html">🌱 初學版</a>
+    <a class="active" href="notes.html">🛠️ 完整版（你在這）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>跨多個分片 / 多個服務的『一次全做或全不做』強一致交易</strong>」——也就是把單機 DB 的 <strong>ACID 原子性</strong>延伸到分散式環境。
+    面試真正考的不是「怎麼下 SQL」，而是三件事如何咬合：
+    <em>兩階段提交（prepare/commit 怎麼保證原子）</em>、<em>阻塞與協調者單點（2PC 的致命傷與緩解）</em>、
+    <em>2PC vs Saga（強一致 vs 最終一致補償）怎麼取捨</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（強一致 ACID vs Saga）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型（交易狀態 / 參與者 / prepare 記錄）</a></li>
+      <li><a href="#arch">高階架構（協調者 + 參與者 / NewSQL）</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>跨分片 / 跨服務的原子交易</strong>：一筆業務操作橫跨多個資料節點（如「A 分片扣款、B 分片入帳」），必須<strong>全部成功或全部失敗</strong>，不能只做一半。</li>
+    <li><strong>強一致</strong>：交易提交後，所有參與者立即看到一致結果（沒有「A 扣了但 B 沒收到」的中間態被外部觀察到）。</li>
+    <li><strong>隔離性</strong>：並發交易彼此不互相污染（典型用鎖或 MVCC）。</li>
+    <li><strong>持久性</strong>：提交後即使崩潰也不丟（預寫日誌 WAL）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>正確性優先</strong>：金流類場景寧可拒絕交易，也不能讓錢憑空增減。</li>
+    <li><strong>可接受的延遲</strong>：強一致交易天生比單機慢（多一輪網路往返），要能量化代價。</li>
+    <li><strong>故障可恢復</strong>：協調者或參與者崩潰後，系統能恢復到一致狀態（不能永久卡住）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問：要強一致(2PC) 還是最終一致(Saga)？</span>
+    這決定整題走向。<strong>2PC</strong>（本題主軸）給你<strong>真正的原子性 + 隔離性</strong>，代價是<strong>提交期間鎖定、阻塞、協調者單點</strong>，且難跨組織。
+    <strong>Saga（㊶ 工作流／補償式）</strong>把長交易拆成一串本地交易，失敗時用<strong>補償動作</strong>反向回滾，可用性高、不長鎖，但只有<strong>最終一致</strong>、會有中間態被看到、要自己寫補償邏輯。
+    <em>金額帳務、庫存扣減常用 2PC / NewSQL；跨微服務的長流程（訂單→付款→出貨）常用 Saga。</em>務必先確認。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算 / 含義</th></tr>
+    <tr><td>跨分片交易佔比</td><td>多數交易落在單分片</td><td>單分片走本地交易即可；<strong>只有少數跨分片才走 2PC</strong>——設計上要盡量讓資料同分片（依使用者/帳戶 colocate）</td></tr>
+    <tr><td>一筆 2PC 往返</td><td>prepare 1 RTT + commit 1 RTT</td><td>≈ <strong>2 倍</strong>單機交易延遲（同區內 RTT ~0.5ms → 多 ~1ms；跨區則放大）</td></tr>
+    <tr><td>鎖定持有時間</td><td>從 prepare 到 commit/abort</td><td>= 兩階段全程；協調者越慢、參與者越多 → <strong>鎖越久、阻塞越嚴重</strong></td></tr>
+    <tr><td>參與者數</td><td>每筆交易 N 個分片</td><td>任一參與者掛掉都可能讓整筆阻塞；N 越大失敗機率越高 → 盡量小</td></tr>
+    <tr><td>協調者日誌寫</td><td>每筆交易 ≥1 次決議落盤</td><td>決議日誌是恢復的命脈，必須先落盤再通知 → 多一次 fsync 成本</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    分散式交易的成本不在「算」，在「<strong>協調的往返 + 提交期間的鎖定</strong>」。所以第一原則是
+    <strong>能不跨分片就不跨</strong>（資料 colocation）；真的要跨，才用 2PC，並盡力縮短「prepare→commit」這段鎖定窗口。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 對外：一筆跨分片業務交易（協調者內部展開成 2PC）
+POST /api/transfer
+Body: { "from": "A:alice", "to": "B:bob", "amount": 200 }
+→ 200 { "txId": "tx_ab12", "decision": "COMMIT",
+        "phase1": [{"shard":"A","vote":"YES"},{"shard":"B","vote":"YES"}] }
+→ 200 { "txId": "tx_cd34", "decision": "ABORT", ... }    # 任一投 NO → 全回滾
+
+# 協調者 ↔ 參與者（內部 RPC，2PC 兩階段）
+prepare(txId, ops)  → vote: YES | NO     # 第一階段：能不能提交?（預寫+鎖定）
+commit(txId)        → ok                  # 第二階段：真的提交
+abort(txId)         → ok                  # 第二階段：丟棄預寫、回滾
+
+# 查交易狀態 / 恢復用
+GET /api/state      → 各參與者餘額、鎖定、總額、協調者決議日誌
+</code></pre>
+  <div class="box"><span class="label">為何要有獨立的 prepare 動作</span>
+    prepare 是 2PC 的精髓：它讓參與者<strong>承諾「我能提交，且把資源預留好了」</strong>但<strong>還沒真的提交</strong>。
+    協調者收齊所有承諾後，才有資格做出「全 commit」的最終決定——這就是原子性的來源。
+  </div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>協調者（Transaction Manager）
+  transactions
+    tx_id        PK
+    state        ENUM(PREPARING, COMMITTED, ABORTED)   -- 決議日誌（WAL，恢復命脈）
+    participants JSON   -- 這筆牽涉哪些分片
+    decided_at   TIMESTAMP
+
+參與者（每個分片 / Resource Manager）
+  accounts
+    account      PK
+    balance      BIGINT          -- 正式餘額（commit 後才變）
+  prepared (WAL：已 prepare、未 commit/abort 的預寫記錄)
+    tx_id        PK
+    ops          JSON            -- 這筆要套用的變更（如 alice -200）
+    locked       JSON            -- 被鎖定的資源（提交前不讓別人動）</code></pre>
+  <div class="box"><span class="label">為何 prepared 要獨立記錄</span>
+    prepare 階段把變更寫進 <code>prepared</code>（WAL）並鎖定資源，但<strong>不動正式餘額</strong>。
+    這樣：①commit 就是把 prepared 套用到 balance；②abort 就是丟棄 prepared；③<strong>崩潰恢復</strong>時，參與者讀 prepared 就知道「我有一筆懸而未決的交易」，去問協調者最終結果。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>                    ┌──────────────────────────┐
+  client ──轉帳──▶  │  Coordinator (TM)          │
+                    │  決議日誌(WAL): COMMIT/ABORT│
+                    └──────────┬───────┬─────────┘
+       ① prepare(能提交?)      │       │   ① prepare(能提交?)
+                               ▼       ▼
+                  ┌──────────────┐  ┌──────────────┐
+                  │ 參與者 A(分片)│  │ 參與者 B(分片)│
+                  │ alice -200    │  │ bob +200      │
+                  │ WAL預寫+鎖定  │  │ WAL預寫+鎖定  │
+                  └──────────────┘  └──────────────┘
+       ② 全 YES → commit（套用）／任一 NO → abort（回滾）  ← 原子性：要嘛都做、要嘛都不做</code></pre>
+  <ol>
+    <li><strong>協調者(TM)</strong>：發起交易、跑兩階段、把<strong>最終決議先落盤</strong>再通知各參與者，並負責恢復。</li>
+    <li><strong>參與者(分片 RM)</strong>：各自持有一部分資料，回應 prepare（投票 + 預寫鎖定）/ commit / abort。</li>
+    <li><strong>NewSQL（如 Google Spanner / CockroachDB / TiDB）</strong>：把這套<strong>內建</strong>——以 <strong>2PC</strong> 跨分片、用 <strong>Paxos/Raft</strong> 複製每個分片保證單片高可用、用 <strong>TrueTime / HLC</strong> 給全域時間戳達成外部一致性，讓你「像用單機 SQL 一樣寫分散式交易」。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>① 兩階段提交 2PC：prepare / commit</h3>
+  <ul>
+    <li><strong>第一階段 prepare（投票）</strong>：協調者問所有參與者「能不能提交?」。每個參與者各自<strong>檢查可行性（如餘額夠不夠）、預寫 WAL、鎖定資源</strong>，回 YES（vote-commit）或 NO（vote-abort）。</li>
+    <li><strong>第二階段 commit / abort（決議）</strong>：<strong>全部 YES</strong> → 協調者把決議寫 COMMIT 落盤，叫大家真的 commit；<strong>任一 NO 或逾時</strong> → 寫 ABORT，叫大家 abort 回滾。</li>
+    <li><strong>原子性從哪來</strong>：因為「真的提交」延後到第二階段、且<strong>所有人都承諾過能提交</strong>，協調者才下令，所以不會出現「A 提交了、B 卻失敗」的撕裂。</li>
+    <li><strong>一旦決議不能反悔</strong>：協調者寫下 COMMIT 後，即使某參與者 commit 時暫時失敗，也<strong>不能改成 abort</strong>——只能不斷重試 / 等該參與者恢復後依 WAL 重放，直到全部 commit。</li>
+  </ul>
+
+  <h3>② 阻塞問題與協調者單點（2PC 的致命傷）</h3>
+  <ul>
+    <li><strong>同步阻塞</strong>：參與者一旦投了 YES 進入 prepared 狀態，<strong>必須鎖住資源等協調者下令</strong>，期間不能釋放。協調者越慢，鎖越久，並發吞吐越差。</li>
+    <li><strong>協調者單點 → 無限阻塞</strong>：若協調者在「收齊投票後、下令前」崩潰，所有投 YES 的參與者會<strong>卡在 prepared 永遠等不到決議</strong>（資源一直鎖著）。這是 2PC 最被詬病的問題。</li>
+    <li><strong>緩解</strong>：協調者<strong>決議先落盤</strong>（恢復後可重發決議）＋<strong>協調者高可用</strong>（用 Raft 把協調者本身做成多副本，如 Spanner 的做法）＋參與者設<strong>逾時</strong>並可互相詢問。</li>
+  </ul>
+
+  <h3>③ 3PC（三階段提交）：想解阻塞，但代價大</h3>
+  <p>3PC 在 prepare 與 commit 之間插入一個 <strong>pre-commit</strong> 階段，讓參與者在協調者掛掉時能<strong>用逾時自行做出較安全的決定</strong>，理論上<strong>非阻塞</strong>。代價是<strong>多一輪往返（更慢）</strong>，且在<strong>網路分區</strong>下仍可能不一致。實務上少用——大家寧可用「2PC + 把協調者做成 Raft 高可用」來解單點，而不是 3PC。</p>
+
+  <h3>④ Percolator：用主鍵當鎖、無中央協調者的 2PC</h3>
+  <p>Google <strong>Percolator</strong>（TiDB 採用其模型）把 2PC 建在 BigTable 之上：選一個 <strong>primary lock（主鎖）</strong>，prepare 時把鎖寫到各筆資料；<strong>commit 點就是「主鎖被清掉並寫上 commit 時間戳」這一個原子操作</strong>。其他筆是 secondary，順著主鎖判斷狀態。好處是<strong>不需要常駐協調者</strong>，崩潰後任何客戶端都能依主鎖把交易推進到結論（自我清理），大幅緩解阻塞。</p>
+
+  <h3>⑤ Spanner TrueTime 與外部一致性</h3>
+  <ul>
+    <li><strong>TrueTime</strong>：Spanner 用 GPS + 原子鐘給每台機器一個<strong>有界誤差的時間區間</strong> <code>[earliest, latest]</code>（誤差 ε，通常幾毫秒）。</li>
+    <li><strong>commit wait</strong>：交易提交時，Spanner 取一個 commit 時間戳，然後<strong>故意等待 ε</strong>，確保「這個時間戳一定已成為過去」。</li>
+    <li><strong>外部一致性（線性一致）</strong>：如此保證「<strong>交易 T1 在 T2 開始前提交，則 T1 的時間戳一定小於 T2</strong>」——全球任何地方看到的交易順序都與真實時間一致。這是比一般序列化更強的保證，也是 Spanner 的招牌。</li>
+    <li>底層仍是 <strong>2PC 跨分片 + Paxos 複製每分片</strong>，TrueTime 解的是「<strong>全域時間戳排序</strong>」這個分散式特有的難題。</li>
+  </ul>
+
+  <h3>⑥ 2PC vs Saga：何時用哪個</h3>
+  <ul>
+    <li><strong>2PC</strong>：真原子 + 隔離（提交前鎖定，外部看不到中間態）；但<strong>同步阻塞、長鎖、協調者單點、難跨組織</strong>。適合<strong>短交易、同一資料庫/NewSQL 內、強一致剛需</strong>（轉帳、扣庫存）。</li>
+    <li><strong>Saga（㊶）</strong>：每步是<strong>本地已提交</strong>的交易，失敗用<strong>補償</strong>反向修正；<strong>不長鎖、高可用</strong>，但只有<strong>最終一致、有中間態、要寫補償、補償也可能失敗</strong>。適合<strong>長流程、跨微服務、可容忍短暫不一致</strong>（訂單→付款→出貨）。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td>提交期間鎖定阻塞</td><td>prepare→commit 全程鎖資源，並發吞吐下降</td><td>盡量單分片（colocation）避開 2PC；縮短窗口；參與者數量壓小</td></tr>
+    <tr><td>協調者單點故障</td><td>協調者掛 → 參與者卡 prepared 永遠等不到決議</td><td>決議先落盤可重發；協調者用 Raft 做高可用；Percolator 式自我清理</td></tr>
+    <tr><td>跨區延遲放大</td><td>每階段一個 RTT，跨洲 RTT 大 → 2PC 很慢</td><td>資料就近分片；跨區交易改用非同步/Saga；Spanner 用 commit wait 換一致性</td></tr>
+    <tr><td>熱點資源死鎖</td><td>多筆 2PC 互鎖同一帳戶</td><td>固定加鎖順序、逾時偵測死鎖、降低交易粒度</td></tr>
+    <tr><td>參與者越多越脆弱</td><td>N 個參與者任一掛都可能阻塞</td><td>減少參與者數；可恢復的 WAL；冪等 commit/abort 便於重試</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>強一致 2PC vs 最終一致 Saga</strong>：2PC 給原子+隔離但阻塞長鎖；Saga 高可用不長鎖但最終一致、要補償。<strong>能講出依「是否容忍中間態 / 是否跨組織 / 交易長短」來選</strong>是得分點。</li>
+    <li><strong>可用性代價</strong>：2PC 在 CAP 下偏 C——分區或協調者故障時寧可<strong>阻塞（犧牲可用性）</strong>也不破壞一致性。要清楚這正是它「慢、會卡」的根因。</li>
+    <li><strong>延遲代價</strong>：每筆跨分片交易至少多<strong>兩個 RTT + 一次決議落盤</strong>；所以<strong>第一優先是讓資料同分片</strong>，把 2PC 留給少數真跨分片的交易。</li>
+    <li><strong>協調者單點怎麼解</strong>：能答出「決議落盤 + 協調者 Raft 高可用 / Percolator 主鎖自我清理」就比只會背「2PC 會阻塞」高一個層次。</li>
+    <li><strong>NewSQL 怎麼把這些藏起來</strong>：Spanner/CockroachDB/TiDB = <strong>2PC（跨分片原子）+ Paxos/Raft（每分片高可用）+ TrueTime/HLC（全域排序）</strong>，讓你用單機 SQL 體驗寫分散式強一致交易。</li>
+    <li><strong>常見追問</strong>：協調者在下 commit 前掛了怎辦？（參與者卡 prepared，靠決議日誌恢復後重發）2PC 為何不用 3PC 解阻塞？（3PC 更慢、分區仍不一致，不如把協調者做高可用）為何說 2PC 不適合跨公司？（要對方長時間鎖資源並信任你的協調者，現實不可行 → 改 Saga）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 在<strong>單一 PHP process 內模擬一個協調者 + 兩個參與者（分片）</strong>，把 2PC 的核心考點跑起來：</p>
+  <ul>
+    <li><code>src/Coordinator.php</code>　協調者(TM)：<code>transfer()</code> 跑完整 2PC——prepare 收集投票、<strong>全 YES → commit / 任一 NO → abort</strong>、決議寫入日誌（恢復命脈）。</li>
+    <li><code>src/Participant.php</code>　參與者(分片 RM)：<code>prepare()</code>（檢查餘額、預寫 WAL、鎖定，投 YES/NO）、<code>commit()</code>（套用變更、解鎖）、<code>abort()</code>（丟棄預寫、回滾）；各分片狀態存 <code>data/shard_*.json</code>，以 <code>flock</code> 原子化。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁：跑跨分片轉帳看 prepare/commit 兩階段、<strong>注入某參與者失敗看 abort 回滾</strong>、查餘額與總額守恆。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8047 -t public
+# 瀏覽器開 http://localhost:8047
+# 試：① 正常轉帳（看兩邊 prepare→YES、決議 COMMIT、總額不變）
+#     ② 注入分片 B prepare 投 NO → 再轉一次（A 投 YES、B 投 NO → 決議 ABORT → A 回滾，錢不會少）</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 是<strong>單一 process 模擬協調者 + 參與者</strong>：<strong>沒有</strong>真實網路 RPC、<strong>沒有</strong>多機、<strong>沒有</strong> Paxos/Raft 複製與 TrueTime。
+    但 <strong>2PC 的 prepare/commit/abort 兩階段、預寫日誌(WAL)+鎖定、投票決議、原子回滾皆為真實可執行</strong>——這正是本題核心考點。
+    注入失敗時，協調者確實收到 NO → 決議 ABORT → 參與者丟棄預寫回滾，<strong>總額永遠守恆</strong>。
+    要變成真叢集，把「各參與者一個 JSON 檔」換成「各參與者一支 RPC 服務」即可，2PC 演算法不變。僅用 <code>json + flock</code>，每檔 <code>declare(strict_types=1);</code>。
+  </div>
+
+  <footer>㊼ 分散式交易 · K 組（分散式系統）· 系統設計學習專案</footer>
+</div>
+</body>
+</html>

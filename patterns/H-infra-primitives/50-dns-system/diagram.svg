@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 6 808 468" width="808" height="468" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ahe79fea" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8a317"/></marker>
+</defs>
+<rect x="16" y="6" width="808" height="468" fill="#ffffff"/>
+<text x="40" y="30" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">DNS 系統 — 階層遞迴解析（查詢=藍 回授權=綠 快取/基建=黃）</tspan>
+</text>
+<rect x="40" y="130" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="150" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client (stub)</tspan>
+</text>
+<rect x="280" y="130" width="200" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="380" y="142" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="380" dy="0">Recursive Resolver</tspan>
+<tspan x="380" dy="18.75">(含快取 + TTL)</tspan>
+</text>
+<rect x="280" y="250" width="200" height="56" rx="8" fill="#ffec99" stroke="#e8a317" stroke-width="2"/>
+<text x="380" y="262" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="380" dy="0">解析快取</tspan>
+<tspan x="380" dy="17.5">命中即省遞迴</tspan>
+</text>
+<rect x="600" y="70" width="200" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="700" y="82" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="700" dy="0">Root (.) 伺服器</tspan>
+<tspan x="700" dy="18.75">→ 指向 .com 權威</tspan>
+</text>
+<rect x="600" y="170" width="200" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="700" y="182" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="700" dy="0">TLD (.com) 伺服器</tspan>
+<tspan x="700" dy="18.75">→ 回 NS 授權</tspan>
+</text>
+<rect x="600" y="270" width="200" height="56" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="700" y="282" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="700" dy="0">Authoritative 權威</tspan>
+<tspan x="700" dy="18.75">→ 回 A / CNAME</tspan>
+</text>
+<rect x="600" y="380" width="200" height="56" rx="8" fill="#ffec99" stroke="#e8a317" stroke-width="2"/>
+<text x="700" y="392" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="700" dy="0">GeoDNS / anycast</tspan>
+<tspan x="700" dy="17.5">依區域回最近 IP</tspan>
+</text>
+<polyline points="192,162 276,162" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="195" y="138" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="195" dy="0">查 www.example.com</tspan>
+</text>
+<polyline points="380,196 380,248" fill="none" stroke="#e8a317" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ahe79fea)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="482,150 598,102" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="490" y="96" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="490" dy="0">① 問 root</tspan>
+</text>
+<polyline points="482,175 598,198" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="490" y="182" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="490" dy="0">② 問 TLD</tspan>
+</text>
+<polyline points="482,188 598,290" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="488" y="240" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="488" dy="0">③ 問權威</tspan>
+</text>
+<polyline points="700,326 700,380" fill="none" stroke="#e8a317" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ahe79fea)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="40" y="360" font-size="13" fill="#868e96" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">流程：client 把 www.example.com 交給 recursive resolver；</tspan>
+<tspan x="40" dy="16.25">先查快取（黃，命中即回，省去整段遞迴）。未命中則</tspan>
+<tspan x="40" dy="16.25">① root → ② TLD(.com) → ③ 權威，逐層問下去。</tspan>
+<tspan x="40" dy="16.25">權威回 A（可 GeoDNS 依區域回不同 IP）或 CNAME（再跟一次）。</tspan>
+<tspan x="40" dy="16.25">結果依 TTL 寫回快取，下次同名查詢直接命中。</tspan>
+</text>
+</svg>

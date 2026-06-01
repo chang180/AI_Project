@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>57 外送平台 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>57 外送平台：三邊地理媒合、訂單狀態機與即時追蹤</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag time">建議 55 分鐘</span>
+    <span class="tag">Design Food Delivery (DoorDash / Uber Eats)</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>三邊市場（食客 / 餐廳 / 外送員）的即時撮合 + 訂單生命週期追蹤</strong>」。
+    它是 <a href="../05-robotaxi/notes.html">⑤ RoboTaxi</a> 的<strong>綜合延伸</strong>：一樣靠<em>地理空間索引找附近、原子指派防重複、即時位置串流 + ETA</em>，
+    但<strong>比叫車多了「餐廳備餐」這一環</strong>——派單時機、ETA 與狀態機都因此變複雜（外送員→餐廳→食客的<strong>兩段路</strong>）。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>食客下單</strong>：選餐廳與餐點、填送達地址 → 建立訂單，後續可即時追蹤進度與 ETA。</li>
+    <li><strong>餐廳接單與備餐</strong>：餐廳接受訂單、進入備餐，備餐完成是「可取餐」的關鍵時間點。</li>
+    <li><strong>派單（地理媒合）</strong>：系統在<strong>餐廳附近</strong>找可用外送員，挑最近的指派；同一張單只能派給一位外送員。</li>
+    <li><strong>訂單生命週期追蹤</strong>：下單 → 餐廳接受 → 備餐 → 外送員取餐 → 送達，狀態機推進，三方都看得到。</li>
+    <li><strong>外送員即時位置 + 動態 ETA</strong>：外送員持續上報 GPS，食客即時看到「外送員到哪了、還要多久」。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲媒合</strong>：派單需毫秒級查附近 + 秒級完成指派，否則餐放涼、外送員空等。</li>
+    <li><strong>高寫入量</strong>：每位外送員每數秒上報位置 → 位置寫入是系統最大寫負載。</li>
+    <li><strong>不可重複指派</strong>：同一張單絕不能派給兩位外送員、同一位外送員不能同時被派兩單（並發競態核心考點）。</li>
+    <li><strong>狀態強一致</strong>：訂單狀態與指派必須強一致；位置追蹤可最終一致（晚 1 秒看到沒關係）。</li>
+    <li><strong>區域化 + 高可用</strong>：以城市 / 區域為單位分區，跨區流量隔離。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「派單是<em>即時請求型</em>（一張單馬上找一位外送員）還是<em>批次撮合型</em>（每隔數秒一批集中優化，可順路 / 一車多單）？」
+    即時型考<strong>地理索引 + 原子鎖</strong>；批次型考<strong>全域最佳指派（最小成本流 / 匈牙利演算法）+ 順路打包</strong>。
+    另一個關鍵差異：「派單時機綁<strong>備餐完成</strong>嗎？」——太早派外送員到了乾等，太晚派食客等更久，這是外送題獨有的取捨。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>線上外送員</td><td>尖峰同時 50 萬位</td><td>需維持數十萬條 WebSocket 長連線</td></tr>
+    <tr><td>位置上報（寫）</td><td>每位每 4 秒一次</td><td>50萬÷4 ≈ <strong>12.5 萬寫 QPS</strong>（峰值更高）</td></tr>
+    <tr><td>下單（讀+派單）</td><td>尖峰 6000 筆/分</td><td>~100 派單 QPS，每筆要查附近 + 原子指派 + 算兩段 ETA</td></tr>
+    <tr><td>外送員位置狀態</td><td>每筆 id+lat+lng+ts ≈ 50 bytes</td><td>50萬×50B ≈ 25 MB（全放記憶體，如 Redis GEO）</td></tr>
+    <tr><td>訂單（熱）</td><td>進行中訂單同時數十萬筆</td><td>狀態頻繁更新 → 走支援原子更新的主庫；完成後歸檔</td></tr>
+    <tr><td>歷史軌跡（冷）</td><td>每位每日約 2 萬點 × 50B</td><td>數百 GB/日 → 走串流落地時序庫，不進熱路徑</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>外送員位置「<strong>當前值</strong>」高頻覆寫且只需最新 → 放<strong>記憶體型地理索引</strong>；「<strong>訂單狀態</strong>」需強一致與審計 → 走主庫；「<strong>歷史軌跡</strong>」是 append-only 冷資料 → 串流落地。三類分流是擴展關鍵（與 ⑤ RoboTaxi 同理）。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 食客下單（建立訂單，狀態 placed）
+POST /api/v1/orders
+Body: { "eater_id":"u1", "restaurant_id":"r88", "items":[...],
+        "rest":{"lat":25.0418,"lng":121.5654}, "dest":{"lat":25.048,"lng":121.570} }
+→ 201 { "order_id":"o123", "status":"placed" }
+
+# 餐廳推進狀態（接受 / 備餐完成）——狀態機轉移
+POST /api/v1/orders/{id}/transition   Body:{ "to":"accepted" | "preparing" }
+
+# 派單（地理媒合 + 原子指派；通常在備餐完成附近觸發）
+POST /api/v1/orders/{id}/dispatch
+→ 200 { "courier":{"id":"c2","name":"Ben"}, "to_rest_km":0.02, "eta_min":14.1 }
+
+# 外送員上報位置（高頻寫，走 WebSocket / 輕量 HTTP）
+WS  → { "type":"loc", "courier_id":"c2", "lat":25.043, "lng":121.566, "ts":... }
+
+# 外送員推進狀態（取餐 / 送達）
+POST /api/v1/orders/{id}/transition   Body:{ "to":"picked_up" | "delivered" }
+
+# 訂單追蹤（食客 / 餐廳 / 外送員三方訂閱，含即時 ETA）
+WS  subscribe order:o123   → 推送狀態變化、外送員座標、動態 ETA</code></pre>
+  <div class="box"><span class="label">設計重點</span>所有狀態變更走<strong>同一個 transition 端點</strong>並由<strong>狀態機驗證合法轉移</strong>（亂序 / 重複會被拒），比每個動作各開一支 API 更不易出錯，也天然形成可審計的事件序列。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>couriers (外送員當前狀態，熱資料 → 記憶體 / Redis GEO)
+  courier_id  STRING PRIMARY KEY
+  lat, lng    DOUBLE              -- 最新座標（高頻覆寫）
+  geohash     STRING              -- 由 lat/lng 算出，索引用
+  status      ENUM(available, assigned, offline)
+  order_id    STRING NULL         -- 目前承接的訂單（assigned 時綁定）
+  updated_at  TIMESTAMP
+
+# 地理空間索引（非一張表，而是索引結構）
+geo_index : geohash 前綴 → {courier_id...}   -- Redis GEO / QuadTree / S2 cell
+
+orders (訂單與生命週期，主庫，需強一致)
+  order_id, eater_id, restaurant_id, courier_id
+  rest_lat/lng, dest_lat/lng
+  status      ENUM(placed, accepted, preparing, picked_up, delivered, cancelled)
+  distance_km (餐廳→食客), eta_min
+  created_at, updated_at
+  history     [] -- 每次狀態轉移的時間戳（審計 / 客服 / 對帳）
+
+location_history (冷，append-only → Kafka → 時序庫)
+  courier_id, lat, lng, ts</code></pre>
+  <div class="box"><span class="label">為何分開</span>「外送員當前位置」每秒被覆寫且只查最新 → 記憶體地理索引；「訂單」需持久化、強一致與審計（誰幾點接單、誰幾點取餐）→ 主庫且帶 history；「歷史軌跡」是高頻 append → 串流到時序庫。三類資料讀寫特性完全不同，混在一起會互相拖垮（與 ⑤ 同樣的分流原則）。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 食客 App ──下單──▶ API GW ──▶ 派單引擎 ──查附近──▶ 地理空間索引(GeoIndex)
+                                  │ 原子指派(CAS)        ▲
+                                  ▼                      │ 位置更新
+                              訂單狀態機 DB ◀──接單/備餐── 餐廳 App
+                                  │                      ▲
+                                  ▼                      │
+                            Pub/Sub 追蹤推播 ──▶ 三方 App │
+                                                          │
+ 外送員 App ──高頻 GPS──▶ 位置串流閘道(WebSocket) ─────────┘</code></pre>
+  <ol>
+    <li><strong>位置串流閘道（WS Gateway）</strong>：維持數十萬外送員長連線，接收高頻 GPS，更新地理索引；無狀態、可水平擴展（連線狀態外置）。</li>
+    <li><strong>地理空間索引（GeoIndex）</strong>：以 geohash / S2 / QuadTree 組織外送員位置，支援「半徑內 / 最近 K 個可用外送員」查詢，毫秒級。</li>
+    <li><strong>派單引擎</strong>：下單 / 備餐完成 → 在<strong>餐廳</strong>附近查候選 → 依距離 / ETA 排序 → <strong>原子指派</strong>（CAS / 鎖，防重複）→ 綁訂單 → 發 Pub/Sub。</li>
+    <li><strong>訂單狀態機</strong>：placed → accepted → preparing → picked_up → delivered，每步原子轉移，送達後釋放外送員回 available。</li>
+    <li><strong>Pub/Sub 追蹤推播</strong>：訂單狀態與外送員位置，透過 Pub/Sub 跨機轉發到食客 / 餐廳 / 外送員三方連線。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>地理空間索引：如何毫秒查「餐廳附近的可用外送員」？（沿用 ⑤）</h3>
+  <ul>
+    <li><strong>Geohash</strong>：把經緯度交錯編碼成字串，<em>共同前綴越長 = 地理越接近</em>。查附近 = 查同前綴的桶 + 周圍 8 個鄰桶（邊界問題）。Redis GEO 底層即此類做法。</li>
+    <li><strong>QuadTree / S2 / H3</strong>：QuadTree 適合分佈不均（市中心外送員多、郊區少）；S2 / H3 為生產級球面格網，解決 geohash 在邊界 / 極區的形變。</li>
+    <li>查詢策略：先用索引<strong>粗篩</strong>縮小候選集，再用 <strong>haversine</strong> 精算實際球面距離排序（細排）。</li>
+  </ul>
+  <h3>最近指派 + CAS 原子防重複指派（核心考點，呼應 ⑤）</h3>
+  <p>兩張單幾乎同時要派，附近候選都包含外送員 <code>c2</code>。若兩個請求都讀到 c2=available 並各自指派 → <strong>重複指派</strong>（c2 同時背兩單）。解法：</p>
+  <ul>
+    <li><strong>條件更新 / CAS</strong>：指派時做「<code>UPDATE courier SET status='assigned', order_id=:o WHERE id='c2' AND status='available'</code>」，受影響列數 = 1 才算搶到；= 0 表示已被別張單搶走 → 換下一位候選。</li>
+    <li><strong>分散式鎖</strong>：對 <code>lock:courier:c2</code> 用 Redis <code>SET NX</code> 取鎖，搶到才指派，否則跳過。</li>
+    <li>失敗即<strong>重試下一候選</strong>（候選已按距離排序，退而求其次仍是近的外送員），而非報錯給食客。</li>
+  </ul>
+  <h3>批量 / 順路指派（外送題的進階）</h3>
+  <p>即時「一單一派」最簡單，但實務常做<strong>批次撮合</strong>：每數秒收一批單，用<strong>最小成本流 / 匈牙利演算法</strong>求全域最短總路程；甚至<strong>一位外送員順路帶多單</strong>（同方向、時間窗相容才打包）。批次延遲較高但派得更省、外送員收入更高。</p>
+  <h3>訂單狀態機（外送獨有的「備餐」環節）</h3>
+  <p>placed → accepted → preparing → picked_up → delivered，每步用 CAS 從合法前態轉移，<strong>亂序 / 重複會被擋下</strong>。
+  關鍵在<strong>派單時機</strong>：太早（剛 placed 就派）外送員到餐廳乾等備餐；太晚（餐做好才派）食客多等外送員過來。生產會用<strong>備餐時間預估模型</strong>反推「提前多久派」，讓外送員到達 ≈ 出餐完成。</p>
+  <h3>位置串流與動態 ETA</h3>
+  <p>派單後建立 <code>order:{id}</code> 頻道，外送員 GPS 上報除了更新索引，也<strong>發佈到該頻道</strong>，三方即時看到外送員移動。ETA 分兩段：取餐前 = 備餐剩餘 +（外送員→餐廳）；取餐後 =（外送員→食客）。生產走路網路由（OSRM / Valhalla）+ 即時路況，demo 用直線距離 ÷ 平均車速近似，外送員一動 ETA 就重算。</p>
+  <h3>供需熱區與動態定價（概念）</h3>
+  <p>把城市切格，統計每格「下單數 / 可用外送員數」。比值高 = 供不應求 → 對該格<strong>外送費上調 / 給外送員加給</strong>，既調節需求也吸引外送員過去，使供需自平衡（與 ⑤ 的 surge 同理）。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單機</td><td>連線數 / 位置寫入 CPU</td><td>WS 閘道無狀態化 + 水平擴展，連線狀態與位置外置 Redis</td></tr>
+    <tr><td>位置寫爆</td><td>12 萬+ 寫 QPS 打 DB</td><td>當前位置只寫記憶體地理索引（覆寫），歷史走 Kafka 落地</td></tr>
+    <tr><td>派單競態</td><td>同外送員被搶 / 鎖爭用</td><td>CAS 條件更新 + 失敗重試下一候選；鎖粒度到單一外送員</td></tr>
+    <tr><td>熱區供需失衡</td><td>用餐尖峰某商圈單多人少</td><td>QuadTree 自適應細分 + 動態定價 / 加給引導外送員 + 排隊派發</td></tr>
+    <tr><td>媒合延遲</td><td>批次撮合算太久 / 即時挑太貪婪</td><td>分區並行求解、限時回退到貪婪最近、提前依備餐預估派發</td></tr>
+    <tr><td>跨區 / 全球</td><td>跨城查詢無意義且拖慢</td><td>以城市 / 區域為單位分區隔離；就近部署降 RTT</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>最近貪婪 vs 順路批量</strong>：即時挑最近延遲低、實作直觀；批次（每數秒撮合 + 一車多單）可<strong>全域最佳化</strong>（總路程最短、外送員效率高），但延遲較高、實作複雜。面試說得出兩者適用場景即可。</li>
+    <li><strong>派單時機</strong>：綁<strong>備餐完成</strong>派（外送員少等，但要可靠的備餐預估）vs 一下單就派（即時但外送員可能乾等）。這是外送題相對叫車獨有的核心取捨。</li>
+    <li><strong>即時位置精度 vs 成本</strong>：上報越密（1 秒）追蹤越準但寫量爆、耗電；越疏（10 秒）省成本但 ETA 抖。常用<strong>自適應頻率</strong>（接近交付點時加密）。</li>
+    <li><strong>強一致 vs 最終一致</strong>：訂單狀態與指派必須<strong>強一致</strong>（防重複指派 / 亂序，用原子操作）；位置追蹤可<strong>最終一致</strong>。</li>
+    <li><strong>推 vs 拉</strong>：進行中訂單追蹤用 <em>推</em>（WebSocket）才即時省輪詢；附近外送員數量這類可用 <em>拉</em>。</li>
+    <li><strong>常見追問</strong>：外送員接單後拒單 / 失聯？→ 釋放單回待派、重新媒合，設拒單懲罰；心跳 + TTL 淘汰殭屍位置。餐廳遲遲不出餐？→ 升級提醒 / 改派 / 退款。一車多單如何保證不延誤先單？→ 時間窗約束 + 只打包同向相容的單。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>三邊市場 + 地理派單 + CAS 原子指派 + 訂單狀態機 + 即時 ETA</strong>，而非 CRUD，可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/GeoIndex.php</code>　以 geohash 分桶 + haversine 精算，在<strong>餐廳附近</strong>找「半徑內 / 最近 K 個可用外送員」，並可更新位置（模擬 GPS 串流）。</li>
+    <li><code>src/Dispatcher.php</code>　派單（候選逐一 <strong>CAS 原子指派</strong> available→assigned，防同一外送員被派兩單）+ 訂單<strong>狀態機</strong>推進（placed→accepted→preparing→picked_up→delivered）+ 兩段 / 即時 ETA。</li>
+    <li><code>src/Store.php</code>　訂單 / 外送員狀態 JSON「DB」+ <code>flock</code> 互斥區內的條件更新（CAS）與狀態原子推進。</li>
+    <li><code>public/index.php</code>　路由：下單 / 外送員上線報位置 / 派最近外送員 / 推進訂單狀態 / 追蹤+ETA，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8057 -t public
+# 瀏覽器開 http://localhost:8057：
+#   1) 讓幾位外送員在不同座標上線報位置
+#   2) 食客下單（填餐廳+送達座標）→ 推進 placed→accepted→preparing
+#   3) 派單看媒合到哪位（最近）、距餐廳/ETA → 再派一張同餐廳的單驗證「不重複指派同一位」
+#   4) 推進 picked_up→delivered（送達釋放外送員）；移動外送員位置看即時 ETA 變化</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的地理位置與訂單狀態為<strong>模擬</strong>，ETA 為<strong>備餐時間 + 兩段直線距離 ÷ 平均車速的教學近似</strong>（非真實路網路由）；地理索引採<strong>單機 geohash + haversine</strong>（非分散式 Redis GEO）；位置以 HTTP 手動觸發（非 WebSocket 高頻串流）。
+    但<strong>geohash 查附近、最近 K 個、CAS 原子指派防並發重複指派、訂單狀態機、隨外送員位置變化的即時 ETA 等系統核心邏輯為真實可執行</strong>，要換成生產級僅需把 GeoIndex 後端換成 Redis GEO、把鎖換成 Redis <code>SET NX</code>，介面不變。
+  </div>
+
+  <footer>57 外送平台（DoorDash / Uber Eats）· B 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

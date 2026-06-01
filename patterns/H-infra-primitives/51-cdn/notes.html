@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>51 內容傳遞網路 CDN · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>51 內容傳遞網路 CDN：把內容放到離使用者最近的地方</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag time">建議 40 分鐘</span>
+    <span class="tag">Design a CDN</span>
+  </p>
+
+  <div class="box tip"><span class="label">🌱 第一次接觸這題？</span> 覺得這份太硬，先看 <a href="notes-beginner.html"><strong>初學者友善版（看故事就懂）</strong></a>，用生活比喻把系統拆成幾個關卡、邊讀邊自我測驗。</div>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把靜態內容複製到分散全球的邊緣節點，讓使用者就近取得、降低延遲、減少回源</strong>」的問題。
+    抓一份檔案放伺服器很簡單；面試真正考的是 <em>快取一致性</em>（怎麼失效）、<em>就近路由</em>（怎麼導到最近邊緣）、與 <em>回源洪峰</em>（怎麼不被打爆）。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算（命中率 / 回源比 / 頻寬節省）</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸（回源洪峰 / 熱資產 / 失效傳播）</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>把<strong>靜態資產</strong>（圖片、JS、CSS、影片片段、檔案下載）放到離使用者近的<strong>邊緣節點（PoP）</strong>提供，降低延遲。</li>
+    <li>邊緣<strong>命中（hit）</strong>直接回；<strong>未命中（miss）</strong>則<strong>回源（origin fetch）</strong>抓取，並依 <code>Cache-Control</code> 的 TTL 存進邊緣快取。</li>
+    <li>支援<strong>快取失效（purge）</strong>：內容更新時主動清除各邊緣的舊版本。</li>
+    <li>依使用者<strong>就近</strong>選擇邊緣（GeoDNS / anycast）。</li>
+    <li>提供<strong>命中率、回源比</strong>等運營統計。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：邊緣就近，命中時 RTT 應遠小於回源（跨洲）。</li>
+    <li><strong>高命中率</strong>：命中率直接決定省了多少回源頻寬與延遲，是 CDN 的核心 KPI。</li>
+    <li><strong>高可用</strong>：單一邊緣或 origin 故障時要能容錯（其他邊緣 / 多 origin）。</li>
+    <li><strong>可擴展</strong>：邊緣節點數十到數千個，分布全球。</li>
+    <li><strong>一致性可協商</strong>：多數靜態內容容忍「短時間舊版」，靠 TTL + purge + 版本化 URL 控制。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「快取的是<strong>靜態</strong>還是<strong>動態</strong>內容？」與「能容忍多久的<strong>陳舊（staleness）</strong>？」這兩問決定走 TTL 強快取還是即時失效、push 還是 pull。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>總請求</td><td>100 億次/日</td><td>~115k QPS（峰值 ×3 ≈ 350k）</td></tr>
+    <tr><td>命中率</td><td>熱門內容集中</td><td>目標 <strong>95%+</strong> → 只有 5% 請求需回源</td></tr>
+    <tr><td>回源比</td><td>= miss / 總請求</td><td>5% → ~5.75k 回源 QPS（其餘由邊緣吸收）</td></tr>
+    <tr><td>頻寬節省</td><td>每次回應平均 200KB</td><td>95% 命中即 origin 出口頻寬<strong>降到 1/20</strong>，這就是 CDN 最大的省</td></tr>
+    <tr><td>邊緣容量</td><td>熱資產 fit 進邊緣 SSD</td><td>長尾冷內容靠 TTL 淘汰 / LRU，不必全存</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>CDN 的價值幾乎全在<strong>命中率</strong>：命中率每提升一點，<strong>省下的回源頻寬與延遲都是放大效應</strong>。設計圍繞「<strong>把熱內容留在邊緣、把失效做對</strong>」。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 取得資產（讀，超高頻，關鍵路徑）——對使用者其實就是一般 HTTP GET
+GET https://cdn.example.com/assets/app.js
+→ 200 + 內容
+  Cache-Control: public, max-age=3600        # origin 告訴邊緣可快取多久
+  X-Cache: HIT | MISS                         # 命中標頭（觀測用）
+  Age: 142                                    # 此回應在邊緣已存在幾秒
+
+# 失效（管理面）
+POST /admin/purge   Body: { "asset": "/assets/app.js" }     # 單一資產
+POST /admin/purge   Body: { "tag": "release-2024" }         # 依標籤批次
+
+# 運營統計
+GET /admin/stats → { "hit_rate": 0.96, "origin_ratio": 0.04, "by_region": {...} }
+</code></pre>
+  <div class="box"><span class="label">為何 Cache-Control 在 origin</span>快取多久由<strong>內容擁有者</strong>（origin）決定最合理：圖片可 <code>max-age=86400</code>，常變的 JSON 設短 TTL，邊緣只是<strong>遵守</strong>這個指示。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># origin 的資產（真實來源）
+asset
+  path              VARCHAR  PRIMARY KEY   -- /assets/app.js
+  body              BLOB
+  cache_control_ttl INT                    -- max-age 秒
+
+# 邊緣快取項（每個 PoP 一份，記憶體/SSD）
+edge_cache_entry  (key = cache_key)
+  cache_key   STRING        -- 通常 = method + host + path + 關鍵 query/標頭
+  body        BLOB
+  expires_at  EPOCH         -- = 存入時間 + TTL；過期即視為 miss
+
+# 統計（每區累計）
+stats  region -> { hit, miss }</code></pre>
+  <div class="box"><span class="label">cache key 是關鍵</span>同一資產若 query string / 語系 / 裝置不同要不要當不同快取？<strong>cache key 設計</strong>決定命中率：把無關參數（如追蹤碼）正規化掉，避免快取碎裂（cache fragmentation）。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>                         ┌─────────────────────┐
+                         │ DNS / anycast (黃)   │  依使用者位置導向最近邊緣
+                         └──────────┬──────────┘
+                                    ▼
+ Client ──請求(綠)──▶ 就近邊緣 PoP ──(hit)──▶ 直接回 Client
+                          │
+                          └──(miss)──回源(藍)──▶ Origin 來源 ──▶ 依 Cache-Control TTL 存回邊緣
+
+ Purge 控制器(黃) ──失效──▶ 所有邊緣 PoP（清掉舊版本，下次必 miss 回源拿新版）</code></pre>
+  <ol>
+    <li><strong>DNS / anycast</strong>：把使用者導到<strong>最近</strong>的邊緣 PoP（GeoDNS 看解析來源、anycast 看網路拓樸）。</li>
+    <li><strong>邊緣 PoP</strong>：查本地快取 → 命中直接回；未命中回源抓，依 TTL 存下後再回。</li>
+    <li><strong>Origin</strong>：真實內容源（物件儲存 / 應用伺服器），只在 miss 時被打到。</li>
+    <li><strong>Purge 控制器</strong>：內容更新時，把失效指令<strong>傳播到所有邊緣</strong>清掉舊版本。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>邊緣快取與 TTL</h3>
+  <ul>
+    <li>邊緣存資產時記下 <code>expires_at = now + TTL</code>。請求進來：<strong>存在且未過期 → hit</strong>；否則 <strong>miss → 回源</strong>。</li>
+    <li>過期不必立刻刪：可用 <strong>stale-while-revalidate</strong>（先回舊的、背景去更新），兼顧低延遲與新鮮度。</li>
+  </ul>
+  <h3>回源（origin fetch）</h3>
+  <p>miss 時邊緣向 origin 抓取。回源是<strong>昂貴</strong>的（跨洲 RTT + origin 負載），因此整個設計都在「<strong>盡量別回源</strong>」：高命中率、合理 TTL、回源請求合併。</p>
+  <h3>快取失效：purge vs 版本化 URL</h3>
+  <table>
+    <tr><th>做法</th><th>原理</th><th>取捨</th></tr>
+    <tr><td><strong>purge（主動失效）</strong></td><td>內容變了 → 發指令清掉各邊緣的該 key。</td><td>即時生效；但要把指令<strong>傳播到全球所有邊緣</strong>，有延遲與一致性挑戰。</td></tr>
+    <tr><td><strong>版本化 URL</strong><br>（cache busting）</td><td>檔名帶版本/雜湊，如 <code>app.abc123.js</code>；換內容＝換 URL。</td><td>新 URL 天然就是 miss，<strong>不必失效舊的</strong>（讓它自然過期）；最乾淨，靜態資產首選。</td></tr>
+    <tr><td><strong>短 TTL</strong></td><td>設很短的 max-age，靠頻繁過期換新。</td><td>實作簡單；但回源變多、命中率下降，只適合本來就常變的內容。</td></tr>
+  </table>
+  <h3>cache key 設計</h3>
+  <p>決定「什麼算同一份快取」。把<strong>無關 query 正規化</strong>（如丟掉 <code>utm_*</code>）、依需要才把語系/裝置納入 key，避免同一內容因參數差異被存成多份（快取碎裂、命中率掉）。</p>
+  <h3>push CDN vs pull CDN</h3>
+  <ul>
+    <li><strong>pull（lazy / on-demand）</strong>：邊緣第一次被請求才回源抓（本 demo 即此模型）。簡單、自動只快取被用到的內容；代價是<strong>第一個使用者</strong>承受 miss 延遲（冷啟動）。</li>
+    <li><strong>push（pre-warm）</strong>：發布時主動把內容推到各邊緣。第一個使用者就 hit；代價是要管理推送、可能推了沒人用的內容。<strong>大型發布 / 影片首播</strong>常用 push 預熱。</li>
+  </ul>
+  <h3>anycast 就近</h3>
+  <p>同一個 IP 在全球多處宣告（BGP anycast），使用者封包<strong>自動走到網路上最近的 PoP</strong>；搭配 GeoDNS 做粗粒度地理導向。這是「就近」的底層機制。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>成因</th><th>對策</th></tr>
+    <tr><td><strong>冷啟動回源洪峰</strong><br>cache stampede</td><td>熱資產過期/被 purge 的瞬間，大量並發請求同時 miss，<strong>一起回源</strong>打爆 origin。</td><td><strong>回源請求合併（request coalescing / single-flight）</strong>：同一 key 只放一個請求回源，其餘等它；加 <strong>stale-while-revalidate</strong> 先回舊的。</td></tr>
+    <tr><td><strong>熱資產（hot object）</strong></td><td>單一爆紅資產把單一邊緣打爆。</td><td>邊緣內多副本 / 一致性雜湊把資產分散到多台邊緣機；<strong>分層快取</strong>（邊緣 → 區域中間層 → origin）。</td></tr>
+    <tr><td><strong>失效傳播</strong></td><td>purge 要送到全球所有邊緣，慢且可能漏。</td><td>用<strong>版本化 URL</strong> 盡量免 purge；purge 走可靠的 pub/sub 廣播 + 對帳。</td></tr>
+    <tr><td><strong>節點增減擾動</strong></td><td>邊緣機加減時，若用 <code>hash % N</code> 會讓快取大規模失效。</td><td><strong>一致性雜湊</strong>：只搬相鄰一段資產，擾動最小。</td></tr>
+    <tr><td><strong>命中率偏低</strong></td><td>cache key 碎裂、TTL 太短、長尾內容多。</td><td>正規化 cache key、合理 TTL、分層快取吸收長尾。</td></tr>
+  </table>
+  <div class="box danger"><span class="label">常見陷阱</span>熱資產一過期，成千上萬請求同時 miss 同時回源（<strong>cache stampede</strong>），origin 瞬間被打爆。務必用<strong>回源合併</strong>讓同一 key 只回源一次。</div>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>TTL 長 vs 短</strong>：長 → 命中率高、回源少，但內容更新後陳舊久；短 → 新鮮但回源多、命中率掉。靜態資產配長 TTL + 版本化 URL，常變內容配短 TTL。</li>
+    <li><strong>強快取 vs 即時失效</strong>：強快取（長 TTL）省最多但難即時更新；要即時就靠 purge 或版本化 URL。多數選「<strong>長 TTL + 版本化 URL</strong>」——既強快取又能瞬間換版。</li>
+    <li><strong>push vs pull</strong>：pull 簡單自動、但有冷啟動 miss；push 預熱免冷啟動、但要管理推送。日常用 pull，大型發布用 push 預熱。</li>
+    <li><strong>一致性</strong>：CDN 是<strong>最終一致</strong>——容忍各邊緣短時間版本不同。要強一致就別快取（或極短 TTL），但那就失去 CDN 的意義。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>怎麼讓內容更新立刻生效？→ 版本化 URL（最乾淨）或 purge。</li>
+        <li>熱資產過期瞬間怎麼不打爆 origin？→ 回源合併 + stale-while-revalidate。</li>
+        <li>加減邊緣節點為何不能用 hash % N？→ 會大規模失效，改用一致性雜湊。</li>
+        <li>怎麼導到最近邊緣？→ anycast + GeoDNS。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦 CDN 的<strong>邊緣快取核心路徑</strong>（也是面試真正考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/HashRing.php</code>　一致性雜湊環（含虛擬節點）：把資產穩定對應到邊緣節點，加減節點時擾動最小。</li>
+    <li><code>src/Origin.php</code>　來源伺服器：回源抓資產，每資產帶 <code>Cache-Control</code> TTL，並統計實際回源次數。</li>
+    <li><code>src/Cdn.php</code>　核心：<strong>就近選邊緣 → 邊緣 hit/miss → miss 回源依 TTL 存 → purge 失效 → 命中率統計</strong>，全程 <code>flock</code> 原子讀-改-寫。</li>
+    <li><code>public/index.php</code>　路由：<code>GET /</code>（測試頁）、<code>GET /api/fetch</code>、<code>POST /api/purge</code>、<code>GET /api/stats</code>，並附深色測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8051 -t public
+# 瀏覽器開 http://localhost:8051
+# 從某區域請求資產 → 第一次 MISS（回源 origin、依 TTL 存邊緣）
+# 同區再請求 → HIT（邊緣命中）
+# purge 該資產 → 再請求變 MISS（回源拿新版）
+# 看 GET /api/stats：各邊緣命中率、總命中率、回源比、回源次數</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用<strong>記憶體模擬邊緣節點</strong>（JSON 檔 + <code>flock</code> 原子讀-改-寫），單機示意、非真正全球分散。但 <strong>hit/miss 判定、回源、TTL 過期、purge 失效、就近路由、一致性雜湊對應、命中率統計皆為真實可執行邏輯</strong>。要上線只需把 JSON 換成各 PoP 的本地快取（Varnish / nginx）、origin 換成物件儲存、就近改用 anycast/GeoDNS，演算法邏輯不變。
+  </div>
+
+  <footer>51 CDN · H 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

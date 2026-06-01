@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊺ 日誌聚合系統 ELK · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅹 可觀測性</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊺ 日誌聚合系統 ELK · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">J 可觀測性</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「把 log 存起來」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>半夜兩點，網站掛了。你想知道「<strong>到底哪裡出錯</strong>」。錯誤的線索藏在 log（日誌）裡——但你有<strong>幾百台機器</strong>，每台都在不停吐 log。
+  你總不能一台一台 SSH 進去用肉眼翻吧？</p>
+  <p><strong>日誌聚合</strong>就是解這個的：把所有機器的 log <strong>集中到一個地方</strong>，讓你能像用 Google 一樣，
+  打個關鍵字「<strong>login failed</strong>」、勾「<strong>只看 error</strong>」、選「<strong>最近 15 分鐘</strong>」，<strong>一秒</strong>就撈出所有相關的 log。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    日誌聚合 = <strong>幾百台機器 log 的「Google 搜尋引擎」</strong>：全部集中、建好索引，讓你用「關鍵字 + 等級 + 時間」一查就到，不用再一台台翻。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「把 log 存起來」？</h2>
+  <p>很多人第一次看會想：「不就把每台的 log 抄到一個大檔案嗎？」——這想法漏掉了兩個會把系統壓垮的真正難關。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：一座沒有目錄的圖書館</span>
+    想像把全世界的書都堆進一個倉庫，但<strong>沒有目錄、沒有書架編號</strong>。你要找「某本提到『恐龍』的書」，只能<strong>一本一本翻</strong>——一億本書翻到天荒地老。
+    log 也一樣：堆成一個大檔案容易，但「<strong>找出含某個字的那幾筆</strong>」如果要整個檔案掃一遍，幾 TB 的 log 你會等到當機。
+  </div>
+  <p>第一個難關就是這個：要能<strong>飛快地全文搜尋</strong>。解法是先幫每個字建一張「<strong>哪幾筆 log 提到這個字</strong>」的目錄——這叫<strong>倒排索引</strong>（就是圖書館的目錄卡）。</p>
+  <p>第二個難關更隱形：log <strong>來得超快又超多</strong>（每秒幾十萬筆）。如果接收的人來不及處理，要嘛把產 log 的應用拖慢（很糟），要嘛 log 直接掉了（查不到）。
+  怎麼<strong>穩穩地接住這股洪流</strong>，是第二個難關。</p>
+  <p class="pause">💭 停一下：為什麼「把 log 全堆進一個大檔案，要找就整個掃一遍」在這題行不通？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為 log 量是幾 TB 等級，整個掃一遍要很久、很耗資源，根本做不到「秒級回應」。
+    我們需要先建「<strong>目錄</strong>」：每個字對應「哪幾筆 log 有它」。要查的時候<strong>翻目錄</strong>就好，只碰真正相關的那幾筆——這就是倒排索引。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>收集：把每台機器的 log 撈出來</h3>
+    <p>幾百台機器各自在吐 log。我們在<strong>每台機器上放一個小幫手</strong>（叫 <strong>Filebeat</strong>），它專門盯著 log 檔，一有新的就往外送。</p>
+    <div class="analogy">
+      <span class="label">📮 比喻：每棟樓的收信員</span>
+      每棟大樓門口都站一個收信員（Filebeat），住戶（應用）只要把信丟進信箱（寫 log 檔），收信員就自動收走、往總部送。<strong>住戶完全不用管信怎麼送、送去哪</strong>。
+    </div>
+    <p>👉 好處：應用程式<strong>不用知道後端在哪</strong>，只管乖乖寫 log；要換後端、後端掛了，應用都不受影響。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>緩衝：先排隊，別把後台衝垮</h3>
+    <p>收信員把信源源不絕送來，但總部（建索引的地方）<strong>處理速度有限</strong>。尖峰時信來得比處理得快怎麼辦？先丟進一個<strong>超大的排隊區</strong>（叫 <strong>Kafka</strong>）。</p>
+    <div class="analogy">
+      <span class="label">🏪 比喻：郵局的暫存倉</span>
+      雙十一包裹爆量，郵局不會叫快遞員停在門口乾等，而是先全部收進<strong>暫存倉</strong>，後面的人慢慢分。
+      就算分信的機器<strong>當機重啟</strong>，包裹還好好待在倉裡，<strong>一件都不會掉</strong>，修好了接著分。
+    </div>
+    <p>這個排隊區做兩件大事：<strong>削峰</strong>（洪峰先存著慢慢消化）+ <strong>解耦</strong>（產 log 跟處理 log 互不拖累，後台掛了 log 也不會掉）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>處理 + 建索引：整理乾淨、做目錄</h3>
+    <p>從排隊區拿出 log，先<strong>整理乾淨</strong>（拆出時間、等級、服務、訊息等欄位），再幫每個字<strong>建目錄</strong>（倒排索引）。</p>
+    <div class="analogy">
+      <span class="label">📇 比喻：圖書館編目員</span>
+      新書進館，編目員先登記基本資料（書名、作者、分類＝結構化欄位），再做<strong>關鍵字索引卡</strong>：「提到『恐龍』的書 → 第 3、17、102 本」。
+      以後讀者查「恐龍」，<strong>翻索引卡</strong>就知道去拿哪幾本，不用翻遍整館。
+    </div>
+    <p>這就是 <strong>Elasticsearch</strong> 在做的事：把 log 變成「可以一秒查到」的形狀。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>查詢：像 Google 一樣搜 log</h3>
+    <p>最後給你一個搜尋框（叫 <strong>Kibana</strong>）：打關鍵字、勾等級、選時間範圍，一秒看到結果，還能畫成趨勢圖。</p>
+    <div class="analogy">
+      <span class="label">🔍 比喻：圖書館的查詢電腦</span>
+      你不用進書庫，站在查詢電腦前打「恐龍 + 兒童區 + 2024 年後出版」，螢幕馬上列出符合的書與位置。
+      查 log 也一樣：「<strong>login failed</strong> + <strong>只看 error</strong> + <strong>最近 15 分鐘</strong>」 → 秒出結果。
+    </div>
+    <p>注意這裡有<strong>三個條件疊在一起</strong>：關鍵字（翻目錄）、等級（只要 error）、時間（只要這段）。三個一交集，就精準命中你要的那幾筆。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 每台機器放<strong>收信員收集</strong> → ② 丟進<strong>排隊區緩衝</strong>（削峰、不掉信）→ ③ <strong>整理 + 建目錄</strong>（倒排索引）→ ④ 像 Google 一樣<strong>關鍵字+等級+時間查</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「查不動 / 太慢」</span>
+    幾 TB 的 log，如果每次查都整個掃一遍，等到天荒地老。
+    所以一定要先建<strong>倒排索引（目錄）</strong>，查的時候只翻目錄、只碰相關的那幾筆。<em>先做目錄，別硬翻。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「掉 log / 拖垮應用」</span>
+    log 來得又快又多，接收端一忙不過來，要嘛把產 log 的應用拖慢，要嘛 log 直接掉了（出事卻查不到）。
+    所以中間放一個<strong>排隊區（Kafka）削峰、解耦</strong>，洪峰先存著、後台掛了也不掉信。<em>先接住，再慢慢消化。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「太貴 / 存爆」</span>
+    log 量大到 30 天就幾百 TB，全部長期保留 + 全部建索引，錢直接燒光。
+    所以要<strong>分層保留</strong>（新的放快又貴的、舊的搬去慢又便宜的、太舊就刪）+ <strong>不重要的 log 少留</strong>。<em>該省的地方要狠心省。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🖥️ <strong>應用伺服器</strong>（數百台）不停吐 log →</li>
+    <li>📮 每台的<strong>收集 Agent（Filebeat）</strong>把 log 撈出來往外送 →</li>
+    <li>🏪 全部先丟進<strong>緩衝佇列（Kafka）</strong>排隊（削峰、後台掛了也不掉）→</li>
+    <li>📇 <strong>處理（Logstash）</strong>把 log 整理乾淨、拆出欄位 →</li>
+    <li>📚 <strong>索引/儲存（Elasticsearch）</strong>建好倒排索引（目錄）+ 按時間分箱 →</li>
+    <li>🔍 你用 <strong>Kibana</strong> 打「關鍵字 + 等級 + 時間」一秒查到、還能畫圖。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><td>日誌 / log</td><td>程式留下的「事件紀錄」：誰、何時、發生什麼（含等級與訊息）</td></tr>
+    <tr><td>倒排索引</td><td>「字 → 哪幾筆 log 有它」的目錄卡，讓全文搜尋一翻就到</td></tr>
+    <tr><td>tokenize（切詞）</td><td>把一句訊息切成一個個字詞，才能逐字建目錄</td></tr>
+    <tr><td>posting list</td><td>某個字的目錄卡內容：列出「它出現在哪幾筆 log」</td></tr>
+    <tr><td>結構化日誌</td><td>log 不只一坨文字，而是分好欄位（時間/等級/服務/訊息）</td></tr>
+    <tr><td>等級 level</td><td>log 的嚴重度：debug &lt; info &lt; warn &lt; error</td></tr>
+    <tr><td>收集 Agent（Filebeat）</td><td>每台機器上的收信員，自動撈 log 往外送</td></tr>
+    <tr><td>緩衝佇列（Kafka）</td><td>超大排隊區：削峰、解耦、後台掛了也不掉信</td></tr>
+    <tr><td>Logstash</td><td>整理工：把雜亂 log 拆乾淨、打標、丟雜訊</td></tr>
+    <tr><td>Elasticsearch</td><td>建目錄 + 存放 + 查詢的引擎（圖書館本體）</td></tr>
+    <tr><td>Kibana</td><td>搜尋框 + 儀表板（圖書館的查詢電腦）</td></tr>
+    <tr><td>時間分桶 / rollover</td><td>按時間把索引切成小箱子；過期整箱丟、舊箱搬冷庫</td></tr>
+    <tr><td>保留分層 hot/warm/cold</td><td>新的放快又貴、舊的放慢又便宜、太舊就刪</td></tr>
+    <tr><td>高基數</td><td>某欄位的值「種類超多」（像每筆都不一樣的 request_id），亂建索引會爆</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每秒進來多少 log</td><td>500 台 × 200 行/秒 ≈ 10 萬/秒</td><td>洪流很大 → 一定要排隊區（Kafka）削峰</td></tr>
+    <tr><td>每天多大</td><td>每筆 ~500 bytes → 約 4 TB/日</td><td>量驚人 → 必須建目錄才查得動、要分層省成本</td></tr>
+    <tr><td>建了索引後多大</td><td>原始的 1.1~1.5 倍 ≈ 5~6 TB/日</td><td>目錄本身也佔空間 → 別什麼欄位都建索引</td></tr>
+    <tr><td>留 30 天要多少</td><td>≈ 180 TB</td><td>不分層會燒爆預算 → hot/warm/cold + 該刪就刪</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：成本 = 量 × 保留期 × 索引膨脹</span>
+    這三個相乘決定你要花多少錢。降本就從這三項下手：<strong>少留沒用的 log（debug 不長存）、舊的搬冷庫或不建索引、別把每筆都不一樣的欄位拿去建目錄</strong>。
+  </div>
+  <p class="pause">💭 停一下：每天才 4 TB 聽起來還好，為什麼成本會失控？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為要<strong>乘上保留天數</strong>，還要<strong>加上索引膨脹</strong>。4TB × 30 天 × 1.3 倍索引 ≈ 180TB，而且這還是「放在快又貴的 SSD 上」的話。
+    所以才需要分層（新的放貴的、舊的搬便宜的）和「不重要的 log 短期保留」，把這個乘積壓下來。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你給我哪些欄位、我回你什麼。講好格式雙方就能合作。
+  </div>
+  <p>這題只要記住兩張「點餐單」：</p>
+  <pre><code>① 攝取 log（內部，收集 agent 在用）
+   POST /api/logs
+   給我：{ logs: [ { 時間, 等級, 服務, 訊息 }, ... ] }   ← 可一次送一批
+   我回：200「收了 3 筆，編號 101~103」</code></pre>
+  <p class="codecaption">一次送「一批」而不是一筆一筆，是因為 log 量太大，<strong>批次（bulk）</strong>才有效率（少了很多次來回的開銷）。</p>
+  <pre><code>② 查 log（你在搜尋框打的）
+   GET /api/search?q=login failed&level=error&from=...&to=...
+   給我：關鍵字 + 等級 + 時間範圍
+   我回：{ 命中幾筆, [ {時間,等級,服務,訊息}, ... ] }</code></pre>
+  <p class="codecaption">注意這張單同時帶<strong>三種條件</strong>：關鍵字（翻目錄）、等級（精確過濾）、時間範圍。系統會先用最能「縮小範圍」的條件，再套其他過濾。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩本筆記本</span>
+    系統把資料記在「筆記本」裡。這題主要兩本：一本記<strong>每筆 log 長什麼樣</strong>，一本是那本<strong>目錄</strong>（倒排索引）。
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>log 簿（每筆 log 的結構化內容）</h3>
+    <p>每筆 log 一列：<code>編號、時間、等級(debug/info/warn/error)、來源服務、訊息</code>。
+    把欄位拆好（結構化）的好處是：等級和時間可以<strong>精準過濾</strong>，訊息可以<strong>全文搜尋</strong>。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📇</span>目錄簿（倒排索引——核心！）</h3>
+    <p>給定一個字，要能<strong>瞬間說出「它出現在哪幾筆 log」</strong>。長這樣：</p>
+<pre><code>"login"  → [101, 102, 205]
+"failed" → [102, 205, 318]</code></pre>
+    <div class="analogy"><span class="label">為什麼要這本？</span>
+      因為查「login failed」時，只要把這兩個字的清單<strong>取交集</strong>（兩邊都有的：102、205）就是答案，
+      完全<strong>不用翻過每一筆 log</strong>。這就是把「整館翻書」變成「翻目錄卡」的精髓。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗂️</span>時間分箱（讓查時間範圍變快、過期好清）</h3>
+    <p>不要把所有 log 塞進一個大箱子。<strong>按時間切成一個個小箱子</strong>（如「6/1 14 點這箱」）。
+    查「最近 15 分鐘」只要開相關的那幾箱；某天過期了，<strong>整箱丟掉</strong>就好（不用一筆一筆刪，超快）。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>洪峰：log 一下湧太多，建索引的來不及</td><td><strong>排隊區（Kafka）削峰</strong>：先全收進來慢慢消化；批次寫入</td></tr>
+    <tr><td>寫太慢：單一台建索引有上限</td><td><strong>分片</strong>：把一個索引切成好幾塊，分給多台一起建</td></tr>
+    <tr><td>目錄爆炸：拿「每筆都不一樣」的欄位建索引</td><td>那種<strong>高基數欄位別建索引</strong>（只存、不做目錄）</td></tr>
+    <tr><td>箱子太多：每小時×每服務都開新箱</td><td>合理設定多久開一箱、把小箱<strong>合併</strong>，用自動管理（ILM）</td></tr>
+    <tr><td>查太慢：一次查超大時間範圍</td><td>只開<strong>相關時間箱</strong>、過濾條件做快取、限制回傳筆數</td></tr>
+    <tr><td>太貴：全部長期保留 + 全建索引</td><td><strong>分層</strong>（新貴舊便宜）+ 不重要的 log 短期保留 + 到期刪</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 全部欄位都建索引 vs 只建必要的</span>
+    全建查得快但<strong>存爆、記憶體吃光</strong>；只建必要的（訊息全文 + 少數過濾欄位），其餘只存不建目錄。索引是「用空間換速度」，要<strong>選擇性地花</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 即時看到 vs 高吞吐</span>
+    要 log 一進來「立刻」查得到，代價是吞吐和成本變高。多數場景「<strong>秒級可見</strong>」就夠了，用排隊區 + 近即時索引兼顧兩者。</div>
+  <div class="fear"><span class="label">⚖️ 保留期要多長？</span>
+    留越久越好查歷史，但成本線性上升。折衷：<strong>error 長保、info 中期、debug 短期</strong>；舊的搬冷庫而不是直接刪。</div>
+  <details class="qa"><summary>💭 追問：為什麼中間一定要放 Kafka 這個排隊區？</summary>
+    三個理由：① <strong>削峰</strong>——洪峰先存著，後台慢慢消化不會被衝垮；② <strong>解耦</strong>——產 log 跟建索引互不拖累；③ <strong>不掉信</strong>——後台當機重啟期間，log 還在 Kafka 裡，修好接著處理（甚至能重播）。</details>
+  <details class="qa"><summary>💭 追問：為什麼 level（等級）用「精確過濾」，message（訊息）卻要「建目錄」？</summary>
+    因為 level 只有 4 種值（種類少），直接精確比對「是不是 error」又快又省；message 是自由文字（種類無限多），必須切詞建倒排索引，才能做到「含某個字就命中」。<strong>欄位種類少的拿來過濾、自由文字的拿來全文搜尋</strong>，是建模的關鍵判斷。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「攝取 + 倒排索引查詢」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8045 -t public
+# 然後瀏覽器打開 http://localhost:8045</code></pre>
+  <ol>
+    <li>先<strong>攝取幾筆 log</strong>：選等級、填服務與訊息（或用批次 JSON 一次餵一批）。</li>
+    <li>看下面「<strong>倒排索引內容</strong>」：每個字出現在幾筆 log，目錄就是這樣長出來的。</li>
+    <li><strong>查詢</strong>：打關鍵字（試試兩個字，例如 <code>login failed</code>）、勾等級 <code>error</code>，看命中哪幾筆。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>查兩個字 <code>login failed</code> 時，注意結果是「<strong>兩個字都有</strong>」的那幾筆（取交集）。再加上等級過濾 <code>error</code>，看候選怎麼被進一步縮小——這就是「翻目錄 → 再過濾」的全過程。</div>
+
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心邏輯都在<strong>一個小檔</strong> <code>LogIndex.php</code> 裡，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 三個小幫手</span>
+    <strong>tokenize</strong>（切詞員）→ <strong>ingest</strong>（建目錄的編目員）→ <strong>search</strong>（翻目錄 + 過濾的查詢員）。log 進來就照這個順序跑。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>切詞：把訊息剁成一個個字（tokenize）</h3>
+    <p>要建目錄，得先把訊息<strong>切成一個個字</strong>，順便轉小寫（這樣 Login 和 login 算同一個字）。</p>
+<pre><code>function tokenize(訊息) {
+    小寫 = 把訊息全轉小寫
+    詞陣列 = 用「非字母數字」當刀，把它切開    // "GET /api 500" → [get, api, 500]
+    回傳 去掉重複後的詞陣列                    // 同一字在一筆只記一次
+}</code></pre>
+    <p class="codecaption">就這幾行，把一句話變成「可以逐字建目錄」的零件。轉小寫和去重是兩個小但重要的細節。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>建目錄：記下「這個字在哪筆」（ingest）</h3>
+    <p>每攝取一筆 log，先存好它本身，再把它的每個字<strong>登記進目錄</strong>：</p>
+<pre><code>function ingest(等級, 服務, 訊息, 時間) {
+    編號 = 下一個流水號
+    log簿[編號] = { 編號, 時間, 等級, 服務, 訊息 }   // ← 先把整筆存好
+
+    for (每個字 in tokenize(訊息 + " " + 服務)) {     // 服務名也可被搜到
+        目錄[字].加入(編號)                          // ← 「這個字 → 加一筆它出現的 log」
+    }
+    回傳 編號
+}</code></pre>
+    <p class="codecaption">關鍵就是那行 <code>目錄[字].加入(編號)</code>：每個字底下掛一串「它出現在哪幾筆」的清單（posting list）。目錄就是這樣一筆一筆長出來的。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查詢：翻目錄取交集，再套過濾（search）</h3>
+    <p>這是<strong>全題的心臟</strong>。分三步：先翻目錄縮小範圍，再套等級和時間過濾，最後排序。</p>
+<pre><code>function search(關鍵字, 等級, 起始時間, 結束時間) {
+    // 第 1 步：翻目錄，多個字「取交集」(AND)
+    候選 = 全部 log
+    if (有關鍵字) {
+        for (每個字 in tokenize(關鍵字))
+            清單們.加入( 目錄[字] )        // 每個字一張目錄卡
+        候選 = 取所有清單的交集            // ← 每個字都出現的才留（login∩failed）
+    }
+
+    // 第 2 步：對候選套「等級 + 時間範圍」過濾
+    命中 = []
+    for (編號 in 候選) {
+        log = log簿[編號]
+        if (有指定等級 且 log.等級 != 等級) 跳過       // 等級不符 → 丟
+        if (log.時間 &lt; 起始時間 或 &gt; 結束時間) 跳過    // 不在時間範圍 → 丟
+        命中.加入(log)
+    }
+
+    // 第 3 步：時間新到舊排序
+    命中.依時間由新到舊排序()
+    回傳 命中
+}</code></pre>
+    <p class="codecaption">看出順序了嗎？<strong>先用目錄（最能縮小範圍）取出候選，再套等級和時間過濾</strong>——而不是反過來把全部 log 拿來逐筆比。這個順序就是查詢能「秒級回應」的關鍵。</p>
+    <p class="pause">💭 停一下：為什麼要「先翻目錄取候選，再過濾等級/時間」，而不是先過濾等級/時間？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為翻目錄（倒排索引）能<strong>一步把範圍從幾百萬筆縮到幾十筆</strong>，後面只要在這幾十筆裡比等級和時間，很快。
+      如果先逐筆檢查等級/時間，等於還是把<strong>每一筆都碰一遍</strong>，就失去建目錄的意義了。<strong>先用最強的篩子。</strong></details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>交集怎麼算：兩張清單都有才算數</h3>
+    <p>「取交集」是多關鍵字 AND 的核心。做法很直覺：<strong>數每個編號被幾張清單提到</strong>，被全部清單都提到的才留。</p>
+<pre><code>function 取交集(清單們) {
+    需要 = 清單的張數                  // 例如查 2 個字 → 需要 = 2
+    for (清單 in 清單們)
+        for (編號 in 清單)
+            計數[編號]++              // 這個編號又被一張清單提到
+    回傳 所有「計數 == 需要」的編號     // ← 每張清單都有它 = 兩個字都出現
+}</code></pre>
+    <p class="codecaption">查 <code>login failed</code>：login 的清單 [101,102,205]、failed 的清單 [102,205,318]，數一數只有 <strong>102、205</strong> 被兩張都提到 → 它們就是答案。簡單但這正是搜尋引擎的底層做法。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個函式</th><th>關鍵那段</th></tr>
+      <tr><td>切詞</td><td><code>tokenize()</code></td><td>轉小寫 + 用非字母數字切開</td></tr>
+      <tr><td>③ 建目錄</td><td><code>ingest()</code></td><td><code>目錄[字].加入(編號)</code></td></tr>
+      <tr><td>④ 查詢（翻目錄取交集）</td><td><code>search()</code></td><td>取交集 → 套等級/時間過濾 → 排序</td></tr>
+      <tr><td>多關鍵字 AND</td><td><code>取交集()</code></td><td>數「被幾張清單提到」</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈取交集」換成「Elasticsearch（Lucene）+ 分片 + Kafka 緩衝」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「圖書館」解釋，這題在解什麼問題？</summary>
+    幾百台機器的 log 像堆滿一倉庫卻沒目錄的書，肉眼一台台翻找不可能。日誌聚合就是把書全部集中、做好「字 → 哪幾本書有它」的目錄（倒排索引），讓你打關鍵字一查就到。</details>
+  <details class="qa"><summary>Q2：為什麼不能把 log 堆成一個大檔案、要找就整個掃？</summary>
+    因為量是幾 TB，整個掃要很久、做不到秒級回應。要先建倒排索引（目錄），查時只翻目錄、只碰相關那幾筆。</details>
+  <details class="qa"><summary>Q3：中間那個「排隊區（Kafka）」是幹嘛的？</summary>
+    削峰（洪峰先存著慢慢消化，不衝垮後台）、解耦（產 log 跟建索引互不拖累）、不掉信（後台當機重啟期間 log 還在，修好接著處理）。</details>
+  <details class="qa"><summary>Q4：每天才 4TB 不算多，為什麼成本會失控？</summary>
+    因為成本 = 量 × 保留天數 × 索引膨脹。乘上 30 天和索引膨脹就變約 180TB，還可能全放在貴的 SSD。所以要分層（新貴舊便宜）+ 不重要的 log 短期保留。</details>
+  <details class="qa"><summary>Q5（工程）：查「login failed」時，倒排索引怎麼算出答案？</summary>
+    取 login 的清單和 failed 的清單，做「交集」——兩張清單都出現的編號才留。做法是數每個編號被幾張清單提到，被全部清單都提到的就是命中。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼要「先翻目錄取候選，再套等級/時間過濾」？</summary>
+    因為倒排索引一步就能把範圍從幾百萬縮到幾十筆，後面只在這幾十筆比等級和時間很快。先逐筆過濾等於每筆都碰一遍，失去建目錄的意義。先用最強的篩子。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼 level 用精確過濾、message 用全文索引？</summary>
+    level 只有 4 種值（種類少），直接精確比對又快又省；message 是自由文字（種類無限），必須切詞建倒排索引才能「含某字就命中」。種類少的拿來過濾、自由文字的拿來搜尋。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>日誌聚合 = 幾百台機器 log 的 Google 搜尋引擎。</strong></p>
+    <p><strong>4 個關卡：</strong>① 每台<strong>收集</strong>（收信員 Filebeat）→ ② <strong>緩衝排隊</strong>（Kafka 削峰、不掉信）→ ③ <strong>整理 + 建目錄</strong>（倒排索引）→ ④ <strong>關鍵字+等級+時間查</strong>（Kibana）。</p>
+    <p><strong>3 個怕：</strong>怕查不動（先建倒排索引別硬掃）、怕掉 log/拖垮應用（Kafka 削峰解耦）、怕太貴存爆（分層保留 + 該刪就刪）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>成本 = 量 × 保留期 × 索引膨脹 → 用「點餐單(API)」批次攝取、查詢帶三條件 → 兩本筆記本（log 簿 + 目錄）+ 時間分箱 → 倒排索引先取候選再過濾等級/時間 → 找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊺ 日誌聚合系統 ELK · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>
