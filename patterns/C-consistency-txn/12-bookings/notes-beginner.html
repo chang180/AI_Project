@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -341,7 +342,93 @@ php -S localhost:8012 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>兩個視窗搶同一格，為什麼一定有一個會收到 409？因為系統把「檢查＋佔位」綁成了一個不可被打斷的動作（交易＋鎖），輸的那個一進來就發現「已經不是空的了」。這就是<strong>關卡 2＋關卡 4</strong> 在運作。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「防超賣那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>兩個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>InventoryStore</strong>（庫存日曆簿的保管員，負責「鎖門 → 讓你改 → 鎖回去」＝一筆交易）→ <strong>BookingService</strong>（搶位裁判，負責「這幾晚全空才一次佔起來、給 10 分鐘保留、逾時放回」）。一筆下單，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>把「檢查＋佔位」綁成不可被打斷的一筆交易（InventoryStore）</h3>
+    <p>這是<strong>防超賣的地基</strong>。前面說超賣的根源是「查還空不空」和「標記成已訂」中間有空隙。解法就是：<strong>先把日曆簿的門鎖起來</strong>，鎖著的這段時間只有你能改，改完才把門鎖回去放下一個人進來。</p>
+<pre><code>function 交易(你要做的事) {
+    鎖住日曆簿;                  // ← 先鎖門！其他人在門口排隊等（等同 BEGIN）
+    資料 = 讀出整本日曆;
+    [結果, 要不要存] = 你要做的事(資料);   // ← 鎖內：你慢慢查、慢慢改，沒人能插隊
+    if (要不要存) 把資料寫回日曆簿;          // ← 等同 COMMIT
+    把門鎖回去（放下一個人進來）;            // finally 一定執行
+    return 結果;
+}</code></pre>
+    <p class="codecaption">就這個「<strong>鎖門 → 改 → 鎖回去</strong>」的框，讓「檢查＋佔位」變成一個不可被打斷的動作。兩個人同時搶，第二個一定要等第一個鎖回去才進得來，進來時那格已經不是空的了——這就是<strong>先鎖房門、慢慢填</strong>的悲觀鎖。</p>
+    <p class="pause">💭 停一下：為什麼「讀出整本日曆」這一步一定要放在鎖門<strong>之後</strong>？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為你要根據「現在的房況」做決定。如果在鎖門前就先讀，讀完到鎖門中間別人可能已經改過了，你手上的房況是舊的——那等於白鎖。一定要<strong>鎖門後再讀</strong>，看到的才是沒人能再動的真實狀態。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>區間原子扣減：這幾晚<strong>全部</strong>空著才佔，少一晚就整筆退（BookingService 的 hold）</h3>
+    <p>進到鎖裡面之後，搶位裁判做的事很單純：把你要的<strong>每一晚</strong>都檢查一遍，<strong>只要有一晚不是空的，整筆拒絕、一格都不佔</strong>（回 409）。全空才一次全部標成「保留中」。</p>
+<pre><code>// 已經在鎖裡面了（上一關保證沒人插隊）
+有問題的晚 = [];
+for (每一晚 in 你要的區間)
+    if (這晚不存在 或 這晚 != 空著)
+        有問題的晚.加入(這晚);
+
+if (有問題的晚 不是空的)
+    return 拒絕(409, 有問題的晚);   // ← 任一晚被佔 → 整筆退，一格都不動
+
+// 走到這裡代表「每一晚都空」→ 一次把整個區間佔起來
+保留單號 = 產生新單號();
+for (每一晚 in 你要的區間) {
+    這晚 = 保留中;  這晚.保留單號 = 保留單號;  這晚.版本++;
+}
+return 成功(201, 保留單號, 到期時間);</code></pre>
+    <p class="codecaption">關鍵是「<strong>要嘛全拿、要嘛全退</strong>」——這叫<strong>原子扣減</strong>。不能訂 3 晚卻只佔到 2 晚（中間那晚被別人搶走），那會變成一筆殘缺的訂單。<code>版本++</code> 是<strong>樂觀鎖</strong>用的：另一種寫法不鎖門，大家都直接改，最後比對「我改到的格數 == 我要的晚數嗎？」不符就回滾重試——demo 兩種策略都寫了，<strong>邏輯一樣，只差要不要先鎖門</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>hold / TTL：給 10 分鐘保留，逾時自動放回（BookingService）</h3>
+    <p>佔位不是永久的。下單時就<strong>蓋一個到期時間戳</strong>（像演唱會選位「已為您保留，請 10 分鐘內付款」）。付款在鎖外面慢慢做，成功才用第二步轉正；逾時沒付，那幾晚<strong>自動放回</strong>變回空著。</p>
+<pre><code>// 佔位時就寫好到期時間
+保留單.到期時間 = 現在 + 600 秒;     // ← 這就是 TTL（保留時效）
+
+// 之後每次有人要訂、或背景掃描器跑時，先做這個「惰性清掃」：
+function 清掉逾期保留(資料) {
+    for (每一張保留單)
+        if (這張還是「保留中」 且 到期時間 &lt; 現在) {
+            把它佔的那幾晚 退回「空著」;   // ← 自動放回，別人又能訂
+            這張保留單 = 已釋放;
+        }
+}
+
+// 付款成功才呼叫：保留中 → 正式訂房
+function 確認(保留單號) {
+    if (保留單 已逾時釋放) return 拒絕(410, "請重新下單");
+    if (保留單 已確認過)   return 成功(冪等, 同一張訂單);  // ← 重複按也只算一次
+    把那幾晚 標成 已訂(BOOKED);
+    return 成功(產生訂房編號);
+}</code></pre>
+    <p class="codecaption">為什麼要拆「保留」和「確認」兩步？因為<strong>付款是慢的外部呼叫</strong>（要連銀行好幾秒）。若把付款塞進佔位的鎖裡，整間房會被卡好幾秒誰都不能動。拆成兩步：佔位只持鎖一瞬間，付款在鎖外慢慢做，成功再轉正。逾時就靠上面的「清掃」把房放回，不讓慢吞吞的付款卡死資料庫。確認還做了<strong>冪等</strong>：同一張保留單重複確認也只算一次。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>把「查＋佔」綁成不可打斷</td><td>InventoryStore</td><td><code>交易()</code> 的鎖門框</td></tr>
+      <tr><td>② 區間原子佔位（防超賣）</td><td>BookingService</td><td><code>hold()</code> 的「全空才佔」迴圈</td></tr>
+      <tr><td>悲觀鎖 / 樂觀鎖</td><td>BookingService</td><td>鎖內檢查 vs <code>版本++</code> 比對格數</td></tr>
+      <tr><td>③ 保留 10 分鐘、逾時放回</td><td>BookingService</td><td><code>到期時間</code> + <code>清掉逾期保留()</code></td></tr>
+      <tr><td>付款成功才轉正（兩步式）</td><td>BookingService</td><td><code>確認()</code>：HELD → BOOKED</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：demo 為了好懂，用「一個 JSON 檔 + 檔案鎖（flock）」來模擬資料庫。真實系統會換成
+  <strong>資料庫交易 + <code>SELECT ... FOR UPDATE</code></strong>（悲觀鎖）或 <code>UPDATE ... WHERE 狀態='空著'</code>（樂觀鎖），
+  房況攤成「一房一晚一列」、把（房號＋日期）設成不准重複的主鍵當最後防線。
+  但<strong>上面那幾段「全空才原子佔、給 hold 帶 TTL、逾時放回」的判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「電影院搶座位」解釋，為什麼會發生超賣？</summary>
     因為「查還空不空」和「標記成已訂」中間有空隙。兩個人幾乎同時看到 H8 是空的（查），又幾乎同時按下訂（標記），如果系統只要看到空就放行，兩個人都會以為訂到了。要把「查＋標記」綁成一個不可被打斷的動作才能避免。</details>
@@ -358,7 +445,7 @@ php -S localhost:8012 -t public
   <details class="qa"><summary>Q7（工程）：這題下單每秒才幾百筆，為什麼還會「塞車」？怎麼處理熱點？</summary>
     塞車不是塞總量，是塞在「同一間熱門房的同一格」——上千人搶同一晚，這格的勝負沒辦法平行處理，必須一個一個來。處理：縮短鎖的時間、用樂觀鎖重試，極熱門就排隊發號碼牌、限流。冷門房完全不會塞。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>訂房平台 = 把「房間 × 日期」當成一格一格的座位，每格只能賣一次的搶位系統。</strong></p>
     <p><strong>4 個關卡：</strong>① 搜尋那幾晚全空的房 → ② 下單把區間一次原子佔起來 → ③ 給 10 分鐘保留去付款（沒付就放回，hold/TTL）→ ④ 用悲觀鎖（先鎖門慢慢填）或樂觀鎖（大家都填、誰先誰贏）確保同一格只有一人搶到。</p>

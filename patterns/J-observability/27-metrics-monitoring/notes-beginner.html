@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -367,7 +368,129 @@ php -S localhost:8027 -t public
     多按幾次 Scrape 後再算 rate，是不是「時速」就出來了？這就是<strong>關卡 3</strong>。
     把 counter 的值故意調小（模擬機器重開、里程表歸零），看 rate 會不會變負——不會，因為它<strong>補償了重啟</strong>，這就是 Part 2 的那個追問。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：整個 TSDB 的核心其實就是<strong>一個小檔（<code>Tsdb.php</code>）</strong>裡的<strong>五個小動作</strong>，剛好對應前面講的關卡。
+  <strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 五個小動作 = 五個小幫手</span>
+    <strong>① 取曲線身分</strong>（把名稱＋標籤捏成唯一鑰匙）→ <strong>② 抄看板</strong>（scrape 把一行行數字寫進曲線）→
+    <strong>③ 算時速</strong>（rate 把里程表換成每秒增加多少，含重啟補償）→ <strong>④ 分組加總</strong>（sum by 把同類曲線疊起來）→
+    <strong>⑤ 監測儀大腦</strong>（告警狀態機：超標持續夠久才嗶嗶叫）。一筆數字進來，大致就照這順序跑。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>取曲線身分：名稱＋排序標籤捏成鑰匙（seriesKey）</h3>
+    <p>一切的起點：怎麼判斷「這個數字屬於<strong>哪一條曲線</strong>」？答案是把<strong>名稱＋一組標籤</strong>捏成一把唯一鑰匙。
+    關鍵是標籤要<strong>先照字母排好</strong>，否則同一條曲線會被當成兩條。</p>
+<pre><code>function 取鑰匙(名稱, 標籤) {
+    把標籤照 key 字母排序;              // ← 關鍵！{b,a} 與 {a,b} 要對到同一條
+    每個標籤組成 key="value" 字串;
+    return 名稱 + "{" + 用逗號接起來 + "}"
+    // 例：http_requests_total{code="200",method="GET"}
+}</code></pre>
+    <p class="codecaption">少了那行<strong>排序</strong>，<code>{method="GET",code="200"}</code> 和 <code>{code="200",method="GET"}</code> 會生出兩條重複曲線，數字就對不起來了。這就是 Part 2 那本「身分證」的實作。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>抄看板：把一行行數字寫成樣本（scrape ＋ append）</h3>
+    <p>護士巡房抄回一張「現在數值看板」（純文字），要<strong>逐行</strong>拆成 (名稱, 標籤, 數值)，
+    再把每個樣本<strong>接到對應曲線的尾巴</strong>。注意：時間戳是<strong>抄看板的當下</strong>打上的（這就是 pull 模型的精髓）。</p>
+<pre><code>function 抄看板(看板文字, 現在時間) {
+    foreach (看板的每一行) {
+        if (是 "# TYPE xxx counter/gauge")   記下這條是里程表還是油量表;
+        else if (是 "名稱{標籤} 數值")        append(名稱, 標籤, 數值, 現在時間, 型別);
+    }
+}
+function append(名稱, 標籤, 數值, 時間, 型別) {
+    鑰匙 = 取鑰匙(名稱, 標籤)
+    if (這條曲線還不存在) 建一條空曲線(記住型別)
+    曲線[鑰匙].樣本[] = { t:時間, v:數值 }     // ← 接到尾巴
+}</code></pre>
+    <p class="codecaption">每抄一次就多一個樣本 <code>(時間, 數值)</code>，曲線越接越長。型別只在「第一次見到這條曲線」時決定——之後查詢端才知道<strong>能不能對它算 rate()</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>算時速：rate() 把里程表換成「每秒增加多少」（含重啟補償）</h3>
+    <p>這是<strong>最容易出錯也最精華</strong>的一段。里程表（counter）只增不減，你真正想知道的是「現在跑多快」。
+    白話講就是：<strong>（現在值 − 之前值）÷（時間差）</strong>。但里程表會在機器重開時<strong>歸零</strong>，天真地相減會變負數，所以要補償。</p>
+<pre><code>function 算時速(名稱, 窗幾秒, 現在) {
+    取出這條曲線在「最近 窗幾秒」內的樣本;
+    增量 = 0
+    foreach (相鄰兩個樣本 前、後) {
+        差 = 後值 - 前值
+        if (差 &gt;= 0) 增量 += 差          // 正常往上加
+        else         增量 += 後值         // ← 變小了！代表中途歸零過 → 把後值當作從 0 重新累計來補回
+    }
+    時間差秒 = (最後樣本時間 - 第一樣本時間) / 1000
+    return 增量 / 時間差秒              // 每秒平均增加多少
+}</code></pre>
+    <p class="codecaption">白話記法：<strong>「（現在值 − 之前值）÷ 時間差；如果發現值<em>變小了</em>，代表里程表歸零過，就把『掉下去那段』補回來。」</strong>
+    有了這行 <code>else</code>，機器重開機 rate() 也<strong>永遠不會算出負的時速</strong>。這正是前面那個「重開機 counter 歸零」追問的答案。</p>
+    <p class="pause">💭 停一下：里程表從 10060 突然掉回 30，為什麼補償時是「加 30（後值）」而不是「加 10060−30」？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為一旦發現後值比前值小，就判定「中間歸零重來了」。歸零後它從 0 一路爬到 30，所以這一段<strong>真實的增量就是 30</strong>（後值本身）。
+      天真地算 <code>30 − 10060</code> 會得到大負數，完全錯；把後值當增量補回，才貼近實際發生的事。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>分組加總：sum by 把同類曲線疊起來（sumBy）</h3>
+    <p>很多曲線分開看沒意義，要<strong>疊起來看全貌</strong>：「所有 method 的請求加總是多少？」或「<strong>依 method 分組</strong>各自加總」。
+    做法就是取每條曲線的<strong>最新值</strong>，丟進對應的「籃子」相加。</p>
+<pre><code>function 分組加總(名稱, 依哪個標籤 by) {
+    籃子 = {}
+    foreach (名稱相同的每條曲線) {
+        最新值 = 這條曲線最後一個樣本的 v
+        組名 = (by 是空的) ? "(全部)" : 這條曲線的 by 標籤值   // 例 by=method → "GET" / "POST"
+        籃子[組名] += 最新值                                  // ← 同組疊加
+    }
+    return 籃子
+}</code></pre>
+    <p class="codecaption">不給 <code>by</code> 就把全部疊成一個總和；給 <code>by(method)</code> 就分成 GET、POST… 各一籃。
+    這就是儀表板上「總請求量」與「分方法拆解」背後做的事。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">5</span>監測儀大腦：超標「持續夠久」才嗶嗶叫（告警狀態機）</h3>
+    <p>這是<strong>全題的心臟</strong>，也就是 Part 1 那台監測儀「<strong>量到一次高溫先別急、連續偏高才當真</strong>」的實作。
+    每次評估規則，就推進一台<strong>三檔狀態機</strong>：</p>
+<pre><code>每次評估(規則) {
+    (成立嗎, 當前值) = 算出 expr 的值再跟閾值比   // 例：rate 總請求數[60] &gt; 5
+    if (成立) {
+        if (狀態 == 沒事 inactive) {
+            狀態 = 觀察中 pending; 記下「從現在開始超標」   // ← 還不響！先觀察
+        } else if (狀態 == 觀察中 pending) {
+            if (已持續超標 &gt;= for 設定的秒數)
+                狀態 = 響了 firing                       // ← 撐夠久才真的嗶嗶叫
+        }
+        // 已經 firing 就維持 firing
+    } else {
+        狀態 = 沒事 inactive; 清掉「超標起算時間」          // 條件不成立 → 恢復(resolved)
+    }
+}</code></pre>
+    <p class="codecaption">整套「沒事(inactive) → 觀察中(pending) → 響了(firing) → 恢復(resolved)」<strong>就是這段 if</strong>。
+    那個 <code>for</code>（持續夠久才升級成 firing）就是用來<strong>吸收一瞬間的抖動</strong>，避免半夜被每個小尖刺吵醒——這是面試官最愛追問的一段。</p>
+    <p class="pause">💭 停一下：為什麼超標時要先進 <code>pending</code>「觀察一下」，而不是立刻 <code>firing</code> 響？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為很多超標只是<strong>一瞬間的尖刺</strong>（剛運動完那次 37.8°C）。先進 pending、記下起算時間，等它<strong>連續撐過 <code>for</code> 設定的時間</strong>還沒退，才升級成 firing。
+      一退回正常就立刻回 inactive，剛才的觀察直接作廢——這樣才不會「狼來了」。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個動作</th><th>關鍵那段</th></tr>
+      <tr><td>曲線身分（名稱＋標籤）</td><td><code>seriesKey()</code></td><td>標籤先排序再組鑰匙</td></tr>
+      <tr><td>① 巡房量數據（scrape）</td><td><code>scrapeText()</code>＋<code>append()</code></td><td>逐行解析、樣本接到尾巴</td></tr>
+      <tr><td>③ 看變化速度（rate）</td><td><code>rate()</code></td><td>(後−前)÷時間差＋重啟補償的 <code>else</code></td></tr>
+      <tr><td>分組看全貌（sum by）</td><td><code>sumBy()</code></td><td>取最新值丟進對應籃子相加</td></tr>
+      <tr><td>④ 嗶嗶叫（告警）</td><td><code>evalRules()</code></td><td>inactive→pending→firing 的狀態機</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統是 <strong>Prometheus 的 TSDB</strong>（用 block＋WAL＋倒排索引存樣本、PromQL 引擎查詢、還要對付高基數），
+  會把這個 demo 的「JSON 檔＋迴圈」換成那套高效引擎。但上面這五段——<strong>series 身分、rate 補償、sum by、告警狀態機</strong>——
+  的<strong>判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「醫院監測儀」的比喻，一句話說 Prometheus 在幹嘛？</summary>
     幫成千上萬台機器裝生理監測儀：定時去每台「量數據」、記成會走動的曲線、異常持續一段時間就「嗶嗶叫」通知工程師。</details>
@@ -384,7 +507,7 @@ php -S localhost:8027 -t public
   <details class="qa"><summary>Q7（工程）：機器重開機、counter 歸零，rate() 為什麼不會算出負數？</summary>
     rate() 偵測到「後值比前值小」就判定為重啟，把掉下去的那段補回（視為從 0 重新累計），所以結果永遠非負，不會因重啟而算出負速率或嚴重低估。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>指標監控（Prometheus）= 幫成千上萬台機器裝生理監測儀。</strong></p>
     <p><strong>4 個關卡：</strong>① 護士定時<strong>巡房量數據</strong>（scrape）→ ② 每個數字<strong>掛吊牌記成曲線</strong>（name+label）→

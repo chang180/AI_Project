@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -319,7 +320,85 @@ php -S localhost:8015 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把某個人的粉絲調到超過名人門檻，看他發文的策略是不是從「推」變成「拉」？這就是 <strong>Hybrid 的分流</strong>在運作。再看讀 feed 時，名人的貼文是不是<strong>讀的當下才被拉進來</strong>、和事先推好的混在一起依時間排好——那就是 <strong>k 路合併</strong>。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「推 / 拉 / Hybrid 到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>SocialGraph</strong>（追蹤簿：我追了誰、我有哪些粉絲，順便判斷誰是名人）→ <strong>FeedStore</strong>（貼文庫＋每個人的信箱，推就是往這裡塞）→ <strong>FeedService</strong>（指揮官：發文時決定推還是拉、讀牆時把兩堆合併）。發文和讀牆，就照這幾個小幫手跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>判斷名人：粉絲數過門檻就是名人（SocialGraph）</h3>
+    <p>一切的分流，都從這一句開始：<strong>這個人的粉絲數，有沒有超過門檻？</strong>超過就當名人。</p>
+<pre><code>名人門檻 = 3            // demo 為了好玩設很小；真實系統可能是「幾萬」
+
+function 是名人(某人) {
+    return 某人的粉絲數 &gt;= 名人門檻
+}</code></pre>
+    <p class="codecaption">就這一句比大小，把所有人分成「一般人」和「名人」兩條路。後面發文時，全靠它決定要「印好投遞」還是「擺報攤」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>發文：一般人就推、名人不推（FeedService）</h3>
+    <p>有人發文，先把貼文寫進<strong>貼文庫</strong>（唯一真相來源）。然後看作者是不是名人，決定要不要挨家投遞：</p>
+<pre><code>function 發文(作者, 內文) {
+    貼文 = 貼文庫.寫入(作者, 內文)        // ① 一律先存內文（單一真相）
+
+    if (不是名人(作者)) {
+        // 一般人 → 「印好挨家投遞」(推 / fan-out on write)
+        for (每個粉絲 in 作者的粉絲) {
+            信箱.塞進(粉絲, 貼文.編號)      // ② 只塞「編號」，不塞內文
+        }
+    }
+    // 名人 → 什麼都不做！貼文只躺在貼文庫，等人來「現買」(拉)
+
+    return { 貼文, 策略: 是名人(作者) ? "拉" : "推" }
+}</code></pre>
+    <p class="codecaption">看那個 <code>if</code>：一般人走進迴圈、把編號塞進<strong>每個</strong>粉絲信箱；名人直接跳過。這正是「名人頭版印不完，乾脆不送、擺報攤」。注意信箱只塞<strong>編號</strong>——避免一段話被複製千萬份。</p>
+    <p class="pause">💭 停一下：名人發文時「什麼都不做」，那他的粉絲怎麼看得到他的新文？</p>
+    <details class="qa"><summary>看答案</summary>
+      靠下一步「讀牆」時<strong>現場去拉</strong>。粉絲一打開 App，系統會看「他追的名人有誰」，當場跑去名人的貼文庫撈最新幾篇——這就是「報攤現買」。發文時不送，讀時才湊，名人才不會把寫端塞爆。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>讀牆 Hybrid：推來的＋現場拉名人，合併排序（FeedService）</h3>
+    <p>這是<strong>全題的心臟</strong>。你來刷牆，系統做三件事：拿信箱裡推好的、現場拉名人的、把兩堆合起來排時間。</p>
+<pre><code>function 讀牆(我, 要幾筆) {
+    // ① 推來的：直接拿我自己的信箱（超快，東西早就在了）
+    推來的 = 信箱.拿(我) 的編號 → 去貼文庫回填內文(hydrate)
+
+    // ② 現場拉：找出「我追的名人」，當場去撈他們的最新貼文
+    名人們 = 我追的人 裡面「是名人」的
+    拉到的 = []
+    for (名人 in 名人們) {
+        拉到的 += 貼文庫.某作者最新N篇(名人)
+    }
+
+    // ③ 合併：兩堆併在一起、依時間(seq)由新到舊排、去重、截最新 N 筆
+    全部 = 推來的(標記:"推來的") + 拉到的(標記:"即時拉的")
+    全部.依時間排序(新→舊)            // ← 這就是「k 路合併」
+    return 全部.取前(要幾筆)
+}</code></pre>
+    <p class="codecaption">「推來的」直接從信箱拿、零等待；「拉到的」是讀的當下才跑去名人那裡撈。最後 <code>依時間排序</code> 把兩條來源的貼文混在一起、由新到舊——你滑牆時根本分不出哪篇是事先推的、哪篇是現拉的。每筆我們刻意標了<strong>來源</strong>，就是要讓你在 demo 裡看見這兩條路。</p>
+    <p class="pause">💭 停一下：如果一篇貼文「推也推進來了、拉也拉到了」（重複），合併時怎麼辦？</p>
+    <details class="qa"><summary>看答案</summary>
+      用貼文編號當鑰匙<strong>去重</strong>：同一個編號只留一筆（demo 裡以「推來的」為準）。所以你的牆上不會看到同一篇出現兩次。這就是合併時除了排序，還要順手做的「去重」。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>判斷名人（分流的起點）</td><td>SocialGraph</td><td><code>是名人()</code> 的那行比大小</td></tr>
+      <tr><td>① 推：一般人發文挨家投遞</td><td>FeedService</td><td><code>發文()</code> 裡的 <code>if 不是名人</code> 迴圈</td></tr>
+      <tr><td>② 名人問題：名人不推、改拉</td><td>FeedService</td><td><code>發文()</code> 裡名人「什麼都不做」</td></tr>
+      <tr><td>③ Hybrid：合併推來的＋拉名人的</td><td>FeedService</td><td><code>讀牆()</code> 的合併＋依時間排序</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈」換成「<strong>Redis 信箱</strong>（每人的 feed 快取）＋<strong>Kafka 佇列</strong>（把挨家投遞丟給背景工人非同步做）＋分片資料庫」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>——一般人推、名人拉、讀時合併排序。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「報紙」的比喻，解釋「推」和「拉」差在哪？</summary>
     推＝報社半夜印好挨家投遞，你早上開信箱馬上拿到（讀快，但發報時很忙）。拉＝報社不送，你想看自己去報攤，店員當場幫你湊一份（發報輕鬆，但你每次要等現湊）。News Feed 的推＝發文時就塞進每個粉絲信箱；拉＝讀時才現場聚合。</details>
@@ -336,7 +415,7 @@ php -S localhost:8015 -t public
   <details class="qa"><summary>Q7（工程）：為什麼分頁要用 cursor（游標）而不是 offset（第幾筆）？</summary>
     因為牆一直有新貼文插進來。用「第幾筆開始」會因為位置變動而錯位、重複或漏看。用 cursor 記住「上次那篇的編號／時間」，從它之後接著拿，才穩定。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>News Feed = 把你追蹤的人最新貼文，又快又新地合成一條牆。</strong></p>
     <p><strong>核心比喻：</strong>報紙是「印好挨家投遞（推）」還是「你來報攤現買（拉）」。</p>

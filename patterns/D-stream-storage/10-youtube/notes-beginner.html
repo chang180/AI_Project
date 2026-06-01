@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -331,7 +332,100 @@ php -S localhost:8010 -t public
   </ol>
   <div class="box warn"><span class="label">誠實聲明</span>Demo <strong>不做真正的影片編碼</strong>：分塊合併、轉碼狀態機、各畫質流轉、HLS 菜單結構都是<strong>真實可執行的系統邏輯</strong>，但小段內容是<em>佔位文字</em>，不是真的 H.264 影像。真實系統用 <code>ffmpeg</code> 編碼切片、用 S3 類倉庫放 bytes、用 CDN 全球分發。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心就<strong>兩個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>UploadService</strong>（搬家分箱的搬運工：分塊收貨、缺哪塊補哪塊、到齊再黏成原片）→ <strong>TranscodePipeline</strong>（中央廚房：把原片<strong>煮成大中小份</strong>，每份各自跑「排隊→煮中→好了」的狀態機，最後出一張<strong>菜單</strong>給播放器）。影片進來，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>分塊收貨：缺哪塊補哪塊（UploadService）</h3>
+    <p>影片好幾 GB，不能整支一次傳。先把它切成固定大小的小塊（demo 用 5MB 一塊），<strong>一塊一塊收</strong>，每收一塊就記一筆「這塊到了」。哪塊掉了只補那一塊，不用整支重來——這就是「<strong>搬家分箱</strong>」。</p>
+<pre><code>建立上傳(檔名, 大小) {
+    總塊數 = 無條件進位( 大小 ÷ 每塊5MB )    // 算要切幾箱
+    為每一塊發一個「直傳位址」              // 客戶端把那塊直接 PUT 進倉庫
+    記下這次上傳：{ 總塊數, 已收=空清單, 狀態:上傳中 }
+}
+
+收一塊(上傳編號, 第幾塊, 內容) {
+    把這塊存進倉庫的「分塊區」
+    已收[第幾塊] = 這塊大小             // ← 同一塊重傳會「冪等覆蓋」，不會重複算
+    return { 已收幾塊, 共幾塊 }
+}</code></pre>
+    <p class="codecaption">重點在 <code>已收[第幾塊]</code> 用「第幾塊」當鑰匙：<strong>同一塊重傳就覆蓋同一格</strong>，所以斷線重連、補傳都安全。這就是「斷點續傳」的本質——記住每箱到了沒。</p>
+    <p>等所有塊到齊，才把它們<strong>照順序黏成一支完整原片</strong>，建立影片資料、丟去廚房排隊：</p>
+<pre><code>完成上傳(上傳編號) {
+    if (已收塊數 &lt; 總塊數) 擋下來：「還有箱沒到」   // 缺塊不准合併
+    for (第 0 塊 到 最後一塊)
+        把這塊的內容「接」到原片後面            // ← 照順序黏回完整影片
+    建立影片資料{ 狀態:排隊中, 各畫質:還沒填 }
+    丟進轉碼佇列(影片編號)                    // 立刻回 202，不站著等煮
+}</code></pre>
+    <p class="codecaption">注意最後<strong>沒有站著等煮完</strong>，只是「丟進佇列」就回覆了——這就是前面說的「上傳完先回 202，背景慢慢煮」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>轉碼狀態機：同一道菜出大中小份（TranscodePipeline）</h3>
+    <p>一支原片要<strong>煮成好幾種畫質</strong>（240p / 480p / 720p / 1080p）。建立工作時，先幫<strong>每一種畫質各開一張工單</strong>，全部標成「排隊中」——這叫 fan-out（一支影片炸成多個轉碼任務）：</p>
+<pre><code>排進佇列(影片) {
+    for 每一種畫質 in [240p, 480p, 720p, 1080p]
+        各畫質[這種] = { 狀態: 排隊中, 菜單位置: 還沒有 }
+}</code></pre>
+    <p>然後一個「Worker」每被叫一次，就把<strong>某張工單往前推一格</strong>。策略是<strong>低畫質先煮好</strong>，這樣使用者能先看 240p，高畫質陸續補上（漸進可用）：</p>
+<pre><code>推一步(影片) {
+    從低畫質到高畫質，找第一張還沒煮完的工單：
+      if (狀態 == 排隊中)    狀態 = 煮中;  停          // 前進一格
+      if (狀態 == 煮中)      狀態 = 好了;              // 再前進一格
+                            把這畫質的「小菜單」寫進倉庫
+    // 全部畫質都「好了」→ 整支影片狀態 = 好了
+    //   還有人在煮     → 整支影片狀態 = 煮中
+}</code></pre>
+    <p class="codecaption">每張工單就是一個小狀態機：<strong>排隊中 → 煮中 → 好了</strong>（真實系統失敗還會多一檔「失敗」可重試）。整支影片的總狀態，是把所有畫質的狀態「綜合」出來的：只要還有人在煮，整支就是「煮中」；全好了才是「好了」。這段就是這題面試最愛追問的<strong>轉碼管線狀態機</strong>。</p>
+    <p class="pause">💭 停一下：為什麼要「低畫質先煮好先 READY」，而不是等四種畫質全好才讓人看？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為煮 1080p 最久。如果等全好，使用者要乾等好幾分鐘。低畫質（240p）最快煮完，先讓它「好了」，菜單上就先列這一檔，使用者馬上能看，高畫質再悄悄補進菜單——這叫<strong>漸進可用</strong>，體驗好太多。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>出菜單：播放器照菜單點畫質（HLS manifest）</h3>
+    <p>影片煮好還不夠，得給播放器一張<strong>菜單</strong>，它才知道「有哪些畫質、各自的小段在哪」。菜單分兩層。第一層是<strong>總菜單（master）</strong>，列出<strong>目前已經「好了」的畫質</strong>和各自的頻寬：</p>
+<pre><code>產生總菜單(影片) {
+    菜單 = ["#EXTM3U", "#EXT-X-VERSION:3"]
+    for 每一種畫質:
+        if (這畫質還沒「好了」) 跳過          // ← 只列已就緒的（漸進可用）
+        菜單 += "#EXT-X-STREAM-INF:BANDWIDTH=頻寬,RESOLUTION=解析度"
+        菜單 += "這畫質/index.m3u8"           // 指向那一檔的「小菜單」
+    return 菜單
+}</code></pre>
+    <p class="codecaption">注意「<strong>沒好的畫質不列上去</strong>」——所以剛上傳時菜單可能只有 240p，過一會兒再拿，480p、720p 就陸續出現了。播放器每次重拿總菜單，就看到更多選擇。</p>
+    <p>第二層是每種畫質自己的<strong>小菜單（media）</strong>，把那種畫質切成一段段 6 秒的小片，逐段列出來：</p>
+<pre><code>產生小菜單(畫質, 總長秒) {
+    段數 = 無條件進位( 總長 ÷ 每段6秒 )
+    菜單 = ["#EXTM3U", "#EXT-X-TARGETDURATION:6", ...]
+    for (第 0 段 到 最後一段):
+        菜單 += "#EXTINF:6.0,"               // 這段長 6 秒
+        菜單 += "seg_000.ts"                 // 這段小片的檔名
+    菜單 += "#EXT-X-ENDLIST"                 // 點完了（VOD 結束標記）
+    return 菜單
+}</code></pre>
+    <p class="codecaption">這就是「<strong>水管細就轉小水流</strong>」的祕密：影片切成很多 6 秒小段＋一張菜單，播放器每播一段就重看一次網速，<strong>下一段自己決定點哪種畫質</strong>，無縫接上。&lt;這些 <code>#EXT...</code> 標籤就是 HLS 講好的菜單格式&gt;，播放器照著讀就會了。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 分箱搬（分塊上傳 + 斷點續傳）</td><td>UploadService</td><td><code>收一塊()</code> 用「第幾塊」當鑰匙</td></tr>
+      <tr><td>① 黏回原片 + 回 202</td><td>UploadService</td><td><code>完成上傳()</code> 的合併與丟佇列</td></tr>
+      <tr><td>② 煮成大中小份（轉碼狀態機）</td><td>TranscodePipeline</td><td><code>推一步()</code> 排隊中→煮中→好了</td></tr>
+      <tr><td>③ 出菜單（自適應串流）</td><td>TranscodePipeline</td><td><code>產生總菜單()</code> / <code>產生小菜單()</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「自家分塊端點 + JSON 檔 + 佔位小段」換成「<strong>物件儲存（S3 類）的 multipart 直傳 + FFmpeg 真編碼切片 + CDN 全球分發</strong>」，
+  但<strong>上面這幾段邏輯一字都不用改</strong>：分塊照樣「缺哪塊補哪塊」、轉碼照樣「排隊→煮中→好了」的狀態機、菜單照樣「只列好了的畫質、逐段列小片」。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「搬家」的比喻，解釋為什麼上傳要分塊？</summary>
     影片好幾 GB，整支傳到一半斷線就要從頭再來，像整個家一次搬。分塊＝分箱搬：切成小塊一塊塊傳，哪塊掉了只補哪塊，全到齊再黏回完整影片（斷點續傳）。</details>
@@ -348,7 +442,7 @@ php -S localhost:8010 -t public
   <details class="qa"><summary>Q7（工程）：這題為什麼說「設計要圍著讀路徑轉」？</summary>
     因為看的人比上傳的人多上千倍（讀寫比數千:1）。上傳很少不是瓶頸，真正難的是讓幾十億次播放都不卡又不燒爆頻寬——所以重點全押在 CDN 卸載 + 自適應串流 + 首段要快。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>YouTube = 一座全球連鎖的影片中央廚房。</strong></p>
     <p><strong>4 個關卡：</strong>① 分箱搬進來（分塊上傳）→ ② 煮成大中小份（轉碼）→ ③ 看時網路差就換小份（HLS 自適應串流）→ ④ 放到巷口倉庫（CDN 就近分發）。</p>

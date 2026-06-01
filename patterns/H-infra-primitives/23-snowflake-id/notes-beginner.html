@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -281,7 +282,80 @@ php -S localhost:8023 -t public
   <div class="box warn"><span class="label">誠實聲明（玩之前先知道）</span>
     真實 Snowflake 把那「兩個小數字」放在<strong>單機程式的記憶體</strong>裡、不落地存檔。但這個 demo 因為 PHP 內建伺服器<em>每個請求是獨立的小程式</em>、記憶體不共用，所以改用「<strong>寫進檔案 + 上鎖</strong>」的方式模擬，讓跨請求也能維持「時間不倒退」。這條檔案路徑只是<strong>教學替身</strong>，正式環境不會每次發號都讀寫檔案。但<strong>核心邏輯（三段拼號、同毫秒遞增、時鐘回撥處理、雙向解碼）都是真的、可執行的</strong>。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「發號這件事到底是<strong>哪幾段程式</strong>做的」。
+  好消息：整台發號機只有<strong>一個小檔</strong>（<code>Snowflake.php</code>），裡面就<strong>四個關鍵動作</strong>，剛好對應前面講的號碼牌祕密。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 四個動作 = 發號機的四個小幫手</span>
+    <strong>拼號碼</strong>（把三段拼成一個 64 位數字）→ <strong>同毫秒遞增＋發滿就等</strong>（流水號往上加、滿了等下一毫秒）→ <strong>顧時鐘</strong>（偵測倒退，先等或罷工）→ <strong>拆號碼</strong>（反過來把號碼還原成三段）。每次要號，就把前三個動作跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>拼號碼：三段挪到自己的欄位再合起來（64-bit 位元組合）</h3>
+    <p>這是<strong>全題的核心動作</strong>。一個 64 位的號碼，其實是把<strong>時間、機器編號、流水號</strong>各自<strong>挪到自己的欄位</strong>，再「<strong>並</strong>」在一起：</p>
+<pre><code>// 號碼 = 時間&lt;&lt;22 | 機器編號&lt;&lt;12 | 流水號
+號碼 = (現在毫秒 - 起點日)  挪左 22 位     // ← 騰出右邊 22 位的空位
+     | 機器編號             挪左 12 位     // ← 放進中間那 10 位的欄位
+     | 流水號                              // ← 放進最右邊 12 位的欄位</code></pre>
+    <p class="codecaption">「<strong>挪左幾位</strong>」（程式寫 <code>&lt;&lt;</code>，叫位移）就是「<strong>把這段數字推到它該待的欄位</strong>」——時間推到最左、機器編號推到中間、流水號待在最右，三段不重疊。再用「<strong>並</strong>」（<code>|</code>）把三段空位填滿，就拼成一個號碼。完全對應前面的號碼牌「<strong>日期 + 櫃台號 + 當天第幾號</strong>」：日期在最左（所以越晚越大）、櫃台號在中間、第幾號在最右。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>同毫秒遞增＋發滿就等（序號遞增 / 溢位等待）</h3>
+    <p>拼號碼前，要先算出「<strong>這次的流水號是幾</strong>」。規則很簡單：同一毫秒就 +1，跨到新毫秒就歸零；萬一這毫秒發滿了（4096 個），就<strong>等到下一毫秒</strong>再發。</p>
+<pre><code>if (現在毫秒 == 上次毫秒) {            // 還在同一毫秒
+    流水號 = (流水號 + 1) & 4095        // ← +1；加到 4096 會「繞回」變 0
+    if (流水號 == 0)                   // ← 繞回 0 代表「這毫秒發滿了」
+        現在毫秒 = 等到(上次毫秒 + 1)   // ← 溢位：自旋等到下一毫秒
+} else {                              // 進入新的毫秒
+    流水號 = 0                         // ← 歸零重數
+}
+上次毫秒 = 現在毫秒</code></pre>
+    <p class="codecaption">那個 <code>& 4095</code> 是「只保留最低 12 位」的小把戲：流水號加到 4096 會自動繞回 0，正好被我們拿來當「這毫秒滿了」的訊號 → 就<strong>自旋等到下一毫秒</strong>（程式裡叫 <code>waitUntil</code>，反覆看錶到時間追上）。這就是前面「怕同毫秒發太多」的對策：<em>絕不硬塞、絕不重複，寧可等一下下</em>。</p>
+    <p class="pause">💭 停一下：為什麼進入「新的毫秒」時，流水號要歸零，而不是接著往上加？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為流水號只是用來區分「<strong>同一毫秒內</strong>」發的多個號。一旦時間（毫秒）變了，前段的時間戳已經不同，號碼自然就不會撞了，流水號的任務結束 → 歸零重新數。這樣才能讓每毫秒都有滿滿 4096 個可用，不會越加越大爆掉欄位。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>顧時鐘：偵測倒退，先等或罷工（時鐘回撥處理）</h3>
+    <p>算流水號<strong>之前</strong>還有一道保命關：先看一眼「<strong>錶有沒有倒退</strong>」。這是 Part 1 說的「最致命的怕」，對策就這幾行：</p>
+<pre><code>if (現在毫秒 &lt; 上次毫秒) {              // ← 時鐘倒退了！危險
+    倒退幅度 = 上次毫秒 - 現在毫秒
+    if (倒退幅度 &lt;= 5 毫秒)              // 只倒退一點點
+        現在毫秒 = 等到(上次毫秒)        // ← 先等，等錶追回上次的時間
+    else                               // 倒退太多
+        丟出例外("時鐘回撥，拒絕發號")    // ← 乾脆罷工報警，絕不發重複號
+}</code></pre>
+    <p class="codecaption">為什麼要這樣？因為號碼前段是「現在時間」，時鐘一倒退就可能<strong>用到剛剛用過的時間 → 發出重複號</strong>。所以小幅倒退就<strong>稍等錶追上來</strong>，大幅倒退就<strong>寧可不發、直接報警</strong>。一句話：<em>寧可罷工，也絕不發重複號</em>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>拆號碼：反過來還原成三段（decode 還原）</h3>
+    <p>因為號碼是「挪到欄位再合起來」拼的，所以<strong>反過來也能拆開</strong>——把每段「<strong>挪回原位</strong>」再「<strong>遮罩</strong>」出來就好，看出「這號什麼時候、哪台機器發的」：</p>
+<pre><code>function 拆號碼(號碼) {
+    流水號   = 號碼 & 4095               // ← 取最右 12 位
+    機器編號 = (號碼 挪右 12) & 1023      // ← 挪回中間欄位、取 10 位
+    時間差   = 號碼 挪右 22               // ← 挪回最左欄位，得到「離起點幾毫秒」
+    時間     = 時間差 + 起點日            // ← 加回起點，還原成真正的時間
+    return { 時間, 機器編號, 流水號 }
+}</code></pre>
+    <p class="codecaption">「<strong>挪右</strong>」（<code>&gt;&gt;</code>）是拼號碼時「挪左」的反動作，把那一段推回最右邊；<code>&amp; 4095</code> / <code>&amp; 1023</code> 是「遮罩」——只留下那一段、把旁邊的位數遮掉。組合公式跟拆解公式<strong>剛好對稱</strong>，這也是 demo「解碼」頁能把號碼拆回三段的原理。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>概念（前面講的）</th><th>哪個動作</th><th>關鍵那段</th></tr>
+      <tr><td>三段拼成一個號碼</td><td>拼號碼</td><td><code>時間&lt;&lt;22 | 機器&lt;&lt;12 | 流水號</code></td></tr>
+      <tr><td>同毫秒第幾個 / 發太多</td><td>序號遞增 + 溢位等待</td><td><code>(seq+1) & 4095</code> ＋ <code>waitUntil</code></td></tr>
+      <tr><td>怕時鐘倒退（最致命）</td><td>時鐘回撥處理</td><td><code>現在 &lt; 上次</code> 的 if（等 / 罷工）</td></tr>
+      <tr><td>把號碼拆回三段（除錯）</td><td>decode 還原</td><td><code>&amp; 遮罩</code> ＋ <code>&gt;&gt; 挪回原位</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統的發號機<strong>內嵌在每台機器裡</strong>，把那「兩個小數字」放在<strong>記憶體</strong>就好（不像這個 demo 為了跨請求而寫檔上鎖）。
+  但上面這四段——<strong>位元組合（挪到欄位再合起來）、同毫秒遞增＋溢位等待、時鐘回撥處理、雙向解碼</strong>——的邏輯<strong>一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了 Snowflake 的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「號碼牌」比喻，說說 Snowflake 的號碼是哪三段拼成的？</summary>
     像醫院號碼牌「日期-櫃台號-當天第幾號」：① <strong>時間戳</strong>（現在幾點，放最前段，所以越晚越大）＋ ② <strong>機器編號</strong>（我是哪台，像櫃台號）＋ ③ <strong>流水號</strong>（這一毫秒內第幾個）。三段一拼，全球不撞號。</details>
@@ -298,7 +372,7 @@ php -S localhost:8023 -t public
   <details class="qa"><summary>Q7（工程）：Snowflake 跟 UUID 差在哪？什麼時候選哪個？</summary>
     Snowflake 是 64 位、能照時間排、還能反解來源，但要管機器編號與時鐘；UUID（尤其 v4）零協調、不怕時鐘，但 128 位較長又是亂序，當資料庫主鍵會讓索引變亂。要可排序的數字主鍵選 Snowflake；不在乎排序、只要去重可選 UUID（要排序又零協調可用 UUIDv7）。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>Snowflake = 一台超強的發號機：上千台機器各發各的、不問中央，發出的號碼全球不撞、還大致照時間排。</strong></p>
     <p><strong>號碼牌祕密（3 段）：</strong>① <strong>時間</strong>（放最前，越晚越大、可排序）＋ ② <strong>機器編號</strong>（我哪台，不撞號靠它）＋ ③ <strong>流水號</strong>（這毫秒第幾個）。</p>

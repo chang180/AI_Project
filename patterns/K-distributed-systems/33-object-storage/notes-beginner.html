@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -314,7 +315,98 @@ php -S localhost:8033 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把同一個檔案分別用「副本」和「抹除碼」存，比較<strong>佔的空間差多少</strong>（3 倍 vs 1.5 倍）——這就是<strong>關卡 3 的核心取捨</strong>。再弄壞一個倉庫，看抹除碼怎麼用 <code>剩下的塊 ⊕ 校驗片</code> 把缺的那塊變回來——這就是<strong>同位拼圖</strong>的魔術。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心就<strong>幾個小檔</strong>，剛好對應前面講的四關。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 幾個檔 = 幾個小幫手</span>
+    <strong>組裝員</strong>（multipart 把好幾箱拼回原檔、蓋指紋）→ <strong>圓圈時鐘</strong>（一致性雜湊決定放哪間倉庫）→ <strong>拼圖師</strong>（抹除碼算校驗片、缺一塊算回來）→ <strong>發碼員</strong>（預簽 URL 簽出有期限取件碼）。一箱貨進來，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>組裝員：好幾箱拼回原檔、蓋指紋（multipart + ETag）</h3>
+    <p>對應<strong>關卡 1（拆箱寄）</strong>。每箱（part）上傳時先各自算一枚「指紋」（這箱的 ETag＝md5）；喊「組裝」時，<strong>照箱號排好 → 一箱接一箱黏成完整檔</strong>，再算出整顆物件的指紋。</p>
+<pre><code>function 組裝(這批所有 part) {
+    把箱號 由小到大排好          // ← 順序錯就拼成亂碼，這步最關鍵
+    完整檔 = ""
+    指紋串 = ""
+    for (每一箱 依序) {
+        完整檔 = 完整檔 + 這箱內容          // 一箱接一箱黏起來
+        指紋串 = 指紋串 + 這箱的指紋(二進位)  // 把每箱指紋接起來備用
+    }
+    // S3 風格的「分段指紋」：把各箱指紋串起來再算一次，尾巴附箱數
+    物件ETag = md5(指紋串) + "-" + 箱數     // 例：&quot;a1b2...-2&quot;
+    return { 完整檔, 物件ETag }
+}</code></pre>
+    <p class="codecaption">看出那個 <code>-2</code> 了嗎？這就是前面說的「<strong>ETag 尾巴帶箱數</strong>」——光看指紋尾巴就知道這檔是不是拆箱寄的、拆成幾箱。它<strong>不是</strong>整檔直接算 md5，而是「<strong>把每箱的指紋接起來再算一次</strong>」，這樣每箱可以各傳各的、最後才湊指紋。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>圓圈時鐘：這箱貨走到哪間倉庫（一致性雜湊）</h3>
+    <p>對應<strong>關卡 2（放置）</strong>。把每間倉庫（含分身）算出一個「時間點」釘在圓圈上、排好序；一塊貨用名字算出自己的時間點，<strong>順時針走，遇到的第一間倉庫就是家</strong>。要放幾份就繼續往前撿幾間不同的。</p>
+<pre><code>function 選倉庫(這塊的名字, 要幾間) {
+    圓圈 = 每間倉庫算出時間點、由小到大排好   // 先把鐘面排好
+    我的點 = 雜湊(這塊的名字)
+    從圓圈上「第一個 &gt;= 我的點」的位置開始
+    一路順時針撿，撿到不重複的倉庫，撿滿「要幾間」為止
+    （走到底就繞回開頭 → 所以叫「圓圈」）
+    return 撿到的那幾間倉庫
+}</code></pre>
+    <p class="codecaption">關鍵在「<strong>順時針撿第一個</strong>」這個規則固定不變：所以<strong>存的時候</strong>跟<strong>之後拿的時候</strong>，用同一個名字一定走到<strong>同一間</strong>倉庫，不用另外問人。增減一間倉庫時，也只有那附近一小撮貨的「下一站」會變，其他都不動。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>拼圖師：算校驗片、缺一塊算回來（抹除碼 XOR）</h3>
+    <p>對應<strong>關卡 3（防丟）</strong>的抹除碼那招，也是<strong>本題最魔術的一段</strong>。把檔切成兩塊資料片 A、B，<strong>多算一塊校驗片 parity</strong>：</p>
+<pre><code>// 存的時候：算出校驗片
+parity = A XOR B          // ⊕ 互斥或：兩片「逐位元相加不進位」</code></pre>
+    <p class="codecaption">於是倉庫裡放著三塊：<code>A、B、parity</code>，分散在三間不同倉庫。比影印 3 份省很多——只多存半塊（共 1.5 倍）。</p>
+    <p>魔術在「<strong>缺一塊怎麼算回來</strong>」。XOR 有個自反特性：<code>掉了 B，就用 A XOR parity 還原</code>：</p>
+<pre><code>function 還原(剩下的塊) {
+    找出「缺了哪一塊」
+    缺的那塊 = 把「剩下的所有塊」全部 XOR 起來
+    // 例：parity = A XOR B
+    //     掉了 B → A XOR parity = A XOR (A XOR B) = B  ✓ 變回來了！
+    return 拼回 A + B（截掉補齊的尾巴）
+}</code></pre>
+    <p class="codecaption"><code>A XOR (A XOR B)</code> 裡兩個 A 互相抵消，剩下的<strong>剛好就是 B</strong>——這就是同位拼圖的核心。掉的若是 parity？那資料 A、B 本來就還在，<strong>重算一次 parity 即可</strong>。所以「k=2 + m=1」能<strong>容忍任一塊遺失</strong>。</p>
+    <p class="pause">💭 停一下：如果<strong>同時</strong>掉了 A 和 B 兩塊（只剩 parity），還救得回來嗎？</p>
+    <details class="qa"><summary>看答案</summary>
+      救不回來。只多算一塊 parity（m=1），就<strong>只能扛一塊遺失</strong>；一次掉兩塊就超過容忍上限。想扛更多塊同時壞，就要算更多校驗片（真實系統用 Reed-Solomon 做到 k+m 任意配置），代價是多存一點空間、還原時多算一點。原理一樣：<strong>多算的校驗片越多，能容忍同時壞的塊就越多。</strong></details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>發碼員：簽一張有期限的取件碼（預簽 URL HMAC）</h3>
+    <p>對應<strong>關卡 4（取件）</strong>。要給外人一條「只能拿這個檔、過期就失效」的連結。做法是用伺服器的<strong>祕密金鑰</strong>，把「動作＋倉庫＋單號＋到期時間」一起簽出一段<strong>防偽簽章</strong>：</p>
+<pre><code>function 發取件碼(倉庫, 單號, 有效幾秒) {
+    到期時間 = 現在 + 有效幾秒
+    要簽的內容 = "GET" + 倉庫 + 單號 + 到期時間
+    簽章 = HMAC(要簽的內容, 伺服器祕密金鑰)   // ← 沒金鑰就偽造不出來
+    return 網址 + "?expires=" + 到期時間 + "&sig=" + 簽章
+}</code></pre>
+    <p>對方拿這條網址來取貨時，伺服器<strong>用同一把金鑰重算一次簽章</strong>，兩關都過才放行：</p>
+<pre><code>function 驗碼(倉庫, 單號, 到期時間, 對方帶來的簽章) {
+    應有簽章 = HMAC("GET" + 倉庫 + 單號 + 到期時間, 祕密金鑰)
+    if (應有簽章 != 對方帶來的簽章) return 擋下;  // 網址被竄改 → 簽章對不上
+    if (現在 &gt; 到期時間)            return 擋下;  // 過期了
+    return 放行;
+}</code></pre>
+    <p class="codecaption">妙處：到期時間是<strong>被一起簽進去的</strong>，對方想偷改成「永不過期」？一改，簽章立刻對不上 → 403。所以不用把金鑰交出去，也能發一張<strong>限定檔案、限定時間</strong>的取件碼。（小細節：比對簽章要用「定時比較」，避免從「對到第幾個字」反推祕密。）</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪段邏輯</th><th>關鍵那幾行</th></tr>
+      <tr><td>① 拆箱寄 + 指紋</td><td>組裝員</td><td>排好箱號 → 黏成檔 → <code>md5(指紋串)+"-箱數"</code></td></tr>
+      <tr><td>② 圓圈時鐘選倉庫</td><td>一致性雜湊</td><td>「第一個 &gt;= 我的點」順時針撿</td></tr>
+      <tr><td>③ 拼圖備份／還原</td><td>拼圖師</td><td><code>parity=A XOR B</code>；缺塊＝剩下全 XOR</td></tr>
+      <tr><td>④ 有期限取件碼</td><td>發碼員</td><td><code>HMAC(動作+倉庫+單號+到期)</code> + 驗章</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統是 <strong>S3 / Ceph / MinIO</strong> 那種海量分散式儲存，會把「資料夾模擬倉庫 + JSON 帳本」換成「<strong>幾千台儲存節點 + 獨立的 metadata 服務 + Reed-Solomon 抹除碼</strong>」，
+  但<strong>上面這幾段邏輯——multipart 組裝＋ETag、一致性雜湊放置、抹除碼 XOR 還原、預簽 URL 簽章——一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「連鎖倉儲」的比喻說說看，物件儲存在幹嘛？</summary>
     它像幫全世界寄放東西的超大連鎖倉儲：你丟一箱貨（檔案）進去拿一張單號（bucket/key），它保證幾乎永遠不弄丟，要拿時憑單號還你一模一樣的東西。重點不是「存檔案」，而是「<strong>用一大群會壞的便宜硬碟，做到幾乎永不掉資料</strong>」。</details>
@@ -331,7 +423,7 @@ php -S localhost:8033 -t public
   <details class="qa"><summary>Q7（工程）：怎麼防止「帳本說有貨、倉庫卻只有半箱」？「11 個 9」又怎麼來的？</summary>
     防半箱：先把所有塊和備份寫好放穩，最後才在帳本上原子蓋章「完成」，之前查不到。11 個 9：多份冗餘 ＋ 分散不同故障域 ＋ 巡邏隊持續修復，三者相乘把「同時壞超過容忍數」的機率壓到極低。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>物件儲存 = 全世界共用的超大連鎖倉儲：寄一箱貨拿一張單號，幾乎永遠不弄丟。</strong></p>
     <p><strong>4 個關卡：</strong>① 大檔<strong>拆箱寄</strong>（multipart）→ ② <strong>圓圈時鐘</strong>選倉庫（一致性雜湊）→ ③ <strong>多存幾份或拼圖備份</strong>（副本 3 倍／抹除碼 1.5 倍）→ ④ 給外人<strong>有期限取件碼</strong>（預簽 URL）。</p>

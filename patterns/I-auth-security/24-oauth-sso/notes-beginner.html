@@ -74,6 +74,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -356,7 +357,105 @@ php -S localhost:8024 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把同一張授權碼丟去換兩次，看它怎麼被擋下——這就是<strong>「怕票被偷」的一次性設計</strong>。把識別證內容偷偷改一個字再驗，看鋼印怎麼對不上——這就是<strong>JWT 防偽簽章</strong>在運作。</div>
 
-  <h2 id="quiz">14. 考考自己</h2>
+  <h2 id="code">14. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那四關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>兩個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>AuthServer</strong>（發票／換票／撤票的「售票服務台」：管一次性通行證、簽發/刷新/撤銷識別證）→ <strong>Jwt</strong>（蓋鋼印／看鋼印的「防偽工坊」：簽 JWT、驗 JWT）。走一次登入流程，就是這兩個檔輪流上場。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>一次性通行證：用過就作廢（AuthServer）</h3>
+    <p>對應關卡 2→3：拿那張<strong>一次性通行證（授權碼）</strong>去換識別證。最關鍵的一句，是「<strong>用過沒？</strong>」的檢查——這就是「換票券撿到也只能換一次」那個比喻的本體。</p>
+<pre><code>function 用通行證換識別證(App, 暗號, 通行證, 導回網址) {
+    if (App 不存在 或 暗號對不上)  return 拒絕;     // 先確認 App 是它本人
+    這張 = 通行證簿[通行證]
+    if (這張 不存在)              return 拒絕;
+    if (這張.用過 == true)        return 拒絕「疑似重放攻擊」  // ← 一次性的核心！
+    if (現在 &gt;= 這張.過期時間)    return 拒絕;            // 只活 60 秒
+    if (這張.App 或 導回網址 對不上) return 拒絕;          // 綁死當初發給誰
+
+    通行證簿[通行證].用過 = true        // ← 先標記用過，再發票
+    寫回通行證簿
+    return 簽發識別證(...)               // 過了所有關才真的發票
+}</code></pre>
+    <p class="codecaption">就這一行 <code>if (用過 == true)</code>，把「同一張票換第二次」擋下來。注意順序：<strong>先把 used 標記成 true、再發票</strong>——就算發票過程出錯，這張票也已經作廢，撿到的人換不了第二次。demo 裡「同一張通行證換第二次被擋」演的就是這段。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>簽發 / 刷新 / 撤銷：三張票的一生（AuthServer）</h3>
+    <p>對應關卡 3→4 的「<strong>發識別證 → 過期換新 → 收回</strong>」。重點是：<strong>access token（識別證）不入庫</strong>（它自帶鋼印能自證），只有 <strong>refresh token（續命券）要存起來</strong>，才撤得掉。</p>
+<pre><code>// 簽發：一次給兩張票
+function 簽發識別證(App, 使用者, 權限) {
+    識別證 = Jwt.簽(使用者, 權限, 存活=15分鐘)   // ← access：JWT，不入庫
+    續命券 = 隨機字串("rt_")
+    續命券簿[續命券] = { 使用者, 權限, 過期=14天 } // ← refresh：要存，之後才撤得掉
+    return { 識別證, 續命券 }
+}
+
+// 刷新：續命券換新識別證（順便「輪替」舊券）
+function 刷新(App, 暗號, 續命券) {
+    if (續命券 在黑名單)  return 拒絕;          // 撤銷過就不給換
+    if (續命券簿沒這張 或 已過期 或 不屬於此 App) return 拒絕;
+    撤銷(舊續命券)                              // ← 輪替：舊的作廢、發一張新的
+    return 簽發識別證(...)                       // 被盜重放會因為「舊券已撤」而露餡
+}
+
+// 撤銷：把續命券丟進黑名單
+function 撤銷(續命券) { 黑名單[續命券] = 現在時間 }   // ← 之後它就換不到新識別證了</code></pre>
+    <p class="codecaption">三個動作扣回前面的「飯店房卡」比喻：<strong>簽發</strong>＝發房卡＋一張續住券；<strong>刷新</strong>＝房卡過期拿續住券去櫃台換新（順便把舊續住券作廢，這叫<strong>輪替</strong>，被偷的舊券一用就露餡）；<strong>撤銷</strong>＝把續住券列黑名單，整條鏈自然枯萎。demo 裡「撤銷續命券後就換不到新識別證」就是這段。</p>
+    <p class="pause">💭 停一下：為什麼撤銷時是把「續命券」列黑名單，而不是把「識別證」列黑名單？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為識別證（access token）是 JWT，自帶鋼印、資源伺服器當場驗、<strong>根本不查資料庫</strong>，列了黑名單它也不會去看。所以策略是：識別證<strong>設得很短命</strong>（最多十幾分鐘就自然失效）＋把<strong>續命券</strong>列黑名單（之後換不到新識別證）。短命＋黑名單雙保險，整條鏈枯萎。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>蓋鋼印：簽一張 JWT（Jwt）</h3>
+    <p>對應第 4 節「<strong>蓋了鋼印的識別證</strong>」。一張 JWT 長這樣：<strong><code>header.payload.簽章</code></strong>，三段用點接起來。前兩段是「<strong>明文</strong>」（誰、能做什麼、何時過期），第三段的<strong>簽章就是那個鋼印</strong>。</p>
+<pre><code>function 簽(內容, 存活秒數) {
+    header  = { 用哪種鋼印: "HS256" }
+    payload = 內容 + { 簽發時間, 過期時間=現在+存活秒數, 發證單位 }
+
+    h = base64url(header)            // 明文，編碼一下方便傳
+    p = base64url(payload)           // 明文（注意：能被讀！別塞祕密進去）
+    簽章 = base64url( hash_hmac("$h.$p", 密鑰) )   // ← 鋼印＝對「h.p」算 HMAC
+    return "$h.$p.$簽章"             // 點接三段
+}</code></pre>
+    <p class="codecaption">鋼印的本體就是 <code>hash_hmac(內容, 密鑰)</code>：把「header.payload」這串內容＋一把只有發證方知道的<strong>密鑰</strong>，用 HMAC-SHA256 算出一段<strong>誰也偽造不出來的指紋</strong>。內容改一個字，算出來的指紋就完全不同——這就是「一改鋼印就對不上」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>看鋼印：驗一張 JWT（Jwt）</h3>
+    <p>資源伺服器收到識別證，要回答「<strong>這是真的、沒被改、沒過期嗎？</strong>」——而且<strong>完全不問 Google</strong>，當場看鋼印就好：</p>
+<pre><code>function 驗(token) {
+    [h, p, 簽章] = token 用「.」拆三段
+    if (不是三段)  return 失敗「格式錯」;
+
+    期望簽章 = base64url( hash_hmac("$h.$p", 密鑰) )   // ← 自己照樣蓋一次鋼印
+    if (簽章 != 期望簽章)  return 失敗「被竄改」;        // 對不上＝假票/被改
+
+    payload = 解開(p)
+    if (現在 &gt;= payload.過期時間)  return 失敗「已過期」;  // 看有效期
+    return payload               // 兩關都過 → 放行，全程零查詢
+}</code></pre>
+    <p class="codecaption">驗章的精髓：<strong>拿一樣的內容＋一樣的密鑰，自己再蓋一次鋼印</strong>，看算出來的跟票上的<strong>一不一樣</strong>。一樣＝沒被動過；不一樣＝有人改了內容（鋼印對不上）。真實程式比簽章時會用 <code>hash_equals</code> 做「<strong>常數時間比較</strong>」，避免壞人靠「比對要花多久」一點一點猜出鋼印（時序攻擊）。demo 裡「偷改識別證內容 → 驗章失敗」就是這一句 <code>if</code> 擋的。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>② 一次性通行證，用過作廢</td><td>AuthServer</td><td><code>exchangeCode()</code> 的 <code>used</code> 檢查</td></tr>
+      <tr><td>③ 簽發識別證＋續命券</td><td>AuthServer</td><td><code>issueTokens()</code></td></tr>
+      <tr><td>④ 過期刷新＋撤銷（黑名單）</td><td>AuthServer</td><td><code>refresh()</code> / <code>revoke()</code></td></tr>
+      <tr><td>JWT 蓋鋼印</td><td>Jwt</td><td><code>sign()</code>＝<code>hash_hmac</code></td></tr>
+      <tr><td>JWT 看鋼印＋有效期</td><td>Jwt</td><td><code>verify()</code>＝再蓋一次比對</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔當資料庫」換成「分片資料庫＋Redis」，把鋼印從「<strong>大家共用一把密鑰（HS256）</strong>」換成「<strong>私章蓋、公開工具驗（RS256＋JWKS）</strong>」，
+  但上面這幾段邏輯<strong>一字都不用改</strong>：授權碼<strong>用過即廢</strong>、token <strong>簽發/刷新/撤銷</strong>那三步、鋼印<strong>蓋一次／再蓋一次比對</strong>——完全一樣。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">15. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「代客泊車」解釋，為什麼登入別的網站不該把 Google 密碼給它？</summary>
     密碼是能開全部東西的「主鑰匙」。代客泊車（App）只需要做一件小事，給它主鑰匙＝把信箱、改密碼的權限全交出去，太危險。OAuth 改發一把「權限有限、有期限」的泊車鑰匙（識別證），App 碰不到主鑰匙。</details>
@@ -373,7 +472,7 @@ php -S localhost:8024 -t public
   <details class="qa"><summary>Q7（工程）：JWT「難以即時撤銷」是怎麼來的？實務上怎麼補救？</summary>
     因為資源伺服器只看鋼印＋有效期、不問 Google，發出去的票在自然過期前喊不停。補救：把 access 設得很短命（撤銷最多等十幾分鐘自動失效）＋撤銷時把 refresh 列黑名單（之後換不到新 access，整條鏈枯萎）；需要更即時就加一個小型黑名單快取折衷。</details>
 
-  <h2 id="recap">15. 30 秒回顧</h2>
+  <h2 id="recap">16. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>OAuth／SSO ＝「不交密碼、只發臨時通行證」的代客授權。</strong></p>
     <p><strong>4 個關卡：</strong>① 你親自同意（密碼只給 Google）→ ② 拿一次性通行證（授權碼）→ ③ 後端換成有期限識別證（access token）→ ④ 過期用續命券（refresh token）換新。</p>

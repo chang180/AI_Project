@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -335,7 +336,95 @@ php -S localhost:8014 -t public
     但<strong>「座位讓出、立刻補人」的調度邏輯、優先級排隊、利用率統計（公車 vs 包車對比）全都是真的、可執行的</strong>——這正是本題的核心考點。
   </div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「公車調度到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>Request</strong>（每位客人的點餐卡：要寫幾個字、現在在哪一檔）→ <strong>BatchScheduler</strong>（公車調度員＝本題的靈魂，管座位填補）→ <strong>InferenceModel</strong>（假裝是 GPU 的廚房，每呼叫一次吐一個字）。一個請求進門，就照這個順序被服務。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>排隊：照優先級插進隊伍（BatchScheduler.submit）</h3>
+    <p>客人一進門，先丟進<strong>排隊區</strong>，並<strong>立刻照優先級排好</strong>——VIP（付費）排前面，半夜跑報表的 batch 任務墊底。</p>
+<pre><code>function 提交請求(客戶, 優先級, 提示文字, 最多寫幾字) {
+    要寫幾字 = 模型.算出這題大概要寫幾字(提示文字, 最多寫幾字)
+    新請求 = 建一張點餐卡(客戶, 優先級, 提示文字, 要寫幾字)
+    排隊區.加進去(新請求)
+    排隊區.重新排序()        // ← 小數字=高優先；同級先到先服務
+}</code></pre>
+    <p class="codecaption">排序的規則是「<strong>先比優先級，再比誰先到</strong>」。這就是 Part 1 講的「醫院檢傷分類」——不是先到先看，是照輕重排。排好之後，調度員每次都從隊伍<strong>最前面</strong>拉人補位。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>填補空位：座位一空就立刻補人（BatchScheduler.step 第一段）</h3>
+    <p>這是<strong>全題的心臟</strong>。桌子有固定幾個座位（<code>最大批次</code>，受 GPU 記憶體 / KV cache 限制）。每推進一步，<strong>第一件事就是巡一圈座位，只要有空位、排隊區又有人，馬上把新客人拉上桌</strong>——不必等整桌的人吃完。</p>
+<pre><code>function 推進一步() {
+    // ── 公車核心：邊開邊上客 ──
+    for (每個座位 in 桌子) {
+        if (座位是空的 且 排隊區還有人) {
+            新客 = 排隊區.拉出最前面那位()
+            新客.狀態 = 讀題中(prefill)     // 第一步先讀完他的問題
+            座位 = 新客                     // ← 空位「當下」就被補上
+        }
+    }
+    ... (下一段：幫桌上每個人寫一個字)
+}</code></pre>
+    <p class="codecaption">注意：填補發生在「幫大家寫字」<strong>之前</strong>。這一念之差就是公車（動態批次）和包車（靜態批次）的分水嶺——<strong>不等全車到站，哪個站牌有人、哪個座位空了，這一步就接上</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>寫一個字 + 寫完就讓座（BatchScheduler.step 第二段）</h3>
+    <p>補完位，接著幫<strong>桌上每一位</strong>各寫一個字（一個 step ＝ 全桌各前進一個 token）。<strong>誰寫到目標字數了，當場宣布完成、立刻清空他的座位</strong>——讓下一步開頭的「填補」能馬上把新人放進來。</p>
+<pre><code>for (每個座位 in 桌子) {
+    if (座位是空的) 跳過;
+    這位客.狀態 = 寫答案中(decode)
+    一個字 = 模型.寫下一個字(...)      // ← 真實系統這行＝GPU 算一次
+    這位客.已寫字數 += 1
+
+    if (這位客.已寫字數 &gt;= 要寫幾字) {  // 寫夠了
+        這位客.狀態 = 完成
+        座位 = 空                       // ← 當場讓座，不必等整桌
+    }
+}
+忙碌座位數 = 這一步真正有寫字的座位數
+累計利用率(忙碌座位數 / 總座位數)        // ← 用來算「桌子坐多滿」</code></pre>
+    <p class="codecaption">「<strong>當場讓座</strong>」這一行，就是公車「乘客到站立刻下車空出座位」。它和上一關的「立刻補人」一搭一唱，座位才會<strong>幾乎時時刻刻是滿的</strong>。每一步順手記下「幾個座位在忙」，就能算出整趟的<strong>平均利用率</strong>。</p>
+    <p class="pause">💭 停一下：為什麼「填補空位」要寫在「幫大家寫字」<strong>前面</strong>，而不是後面？順序真的有差嗎？</p>
+    <details class="qa"><summary>看答案</summary>
+      有差，而且是關鍵。先填補，這一步空出來的座位<strong>立刻</strong>能讓新客上桌、馬上開始算，這一步桌子就坐滿了。若放後面，新客要再等一整步才動工，桌子白白空一輪——這正是包車（靜態批次）空轉的來源。把「填補」放最前面，就是把空轉壓到最小。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>公車 vs 包車：算給你看坐多滿（continuous vs static 利用率）</h3>
+    <p>怎麼證明公車真的比較好？demo 用<strong>同一批請求</strong>各算一次平均利用率：公車法（邊開邊上下客）vs 包車法（湊一組、等全組最慢的人才換）。</p>
+<pre><code>// 公車法：每一步「在忙的座位」加總 ÷「總座位」
+公車利用率 = 累計忙碌座位 / 累計總座位
+
+// 包車法：每 N 人切一組，整組要陪「組裡最長的人」跑完才放人
+for (每一組 of 把所有人每N個切一組) {
+    整組步數 = 這組裡最長那位要寫的字數   // ← 大家被最慢的人綁住
+    總座位步 += 整組步數 × 每組座位數
+    忙碌座位步 += 這組每個人各自的字數     // 短的人寫完就空轉、卻仍佔著組
+}
+包車利用率 = 忙碌座位步 / 總座位步         // ← 通常明顯低於公車</code></pre>
+    <p class="codecaption">關鍵就在 <code>整組步數 = 組裡最長那位</code>：包車裡<strong>早寫完的人空出座位也不能讓新人上</strong>，得陪整組跑到最慢那位——空轉就是這樣來的。公車沒這限制，所以利用率（＝吞吐量）常常是包車的 <strong>2～4 倍</strong>。這就是你在 demo 畫面看到的那兩條對比數字。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>② 照優先級排隊</td><td>BatchScheduler</td><td><code>submit()</code> ＋ 重新排序</td></tr>
+      <tr><td>③ 併桌：空位立刻補人</td><td>BatchScheduler</td><td><code>step()</code> 開頭的「填補」迴圈</td></tr>
+      <tr><td>③ 寫完當場讓座</td><td>BatchScheduler</td><td><code>step()</code> 裡「達標 → 清空座位」</td></tr>
+      <tr><td>公車 vs 包車（吞吐對比）</td><td>BatchScheduler</td><td>兩種「利用率」算法</td></tr>
+      <tr><td>每位客人的點餐卡</td><td>Request</td><td>狀態 QUEUED→PREFILL→DECODING→DONE</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把這個「假廚房 + 一圈 for 迴圈」換成<strong>真正的 GPU、vLLM 這類推論引擎</strong>，把 KV cache 放進 GPU 記憶體用 PagedAttention 分頁管理。
+  但<strong>「座位空了立刻從佇列補新請求、寫完當場讓座」這套動態批次填補槽位的邏輯，一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「公車 vs 包車」解釋什麼是動態批次（continuous batching）？</summary>
     包車要湊滿才開、還得等全車最慢的人到站才能換下一批，座位常空著（靜態批次）。公車邊開邊上下客，誰到站就下、空位立刻補新乘客（動態批次），座位幾乎一直滿——同一張 GPU 吞吐常變 2～4 倍。</details>
@@ -352,7 +441,7 @@ php -S localhost:8014 -t public
   <details class="qa"><summary>Q7（工程）：離峰沒人用，為什麼不能把 GPU 全關掉省到底？</summary>
     因為模型權重載入要幾十秒（開店要時間）。全關掉的話，客人一來要乾等開店。對策是自動擴縮但<strong>保留最少幾組常駐＋預熱</strong>，平衡省錢與反應速度。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>LLM 推論 API = 把超貴的 GPU 當共享桌子，想辦法讓它一刻都不空轉。</strong></p>
     <p><strong>4 個關卡：</strong>① 門口驗票記帳 → ② 照優先級排隊 → ③ 像公車一樣邊開邊上下客（動態批次）把桌子塞滿 → ④ 一個字一個字串流端出去。</p>

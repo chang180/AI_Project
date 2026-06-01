@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -308,7 +309,94 @@ php -S localhost:8039 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>選一個在格網<strong>中段</strong>的終點，A* 的「指南針優勢」最明顯；選對角線角落則是 A* 的<strong>最壞情況</strong>（方向感幫不上忙）。另外把同一段路套上塞車，看「最快路」改道但「最短路」不動——這就是「<strong>時間會變、距離不變</strong>」在運作。<br><em>註：demo 是 30 路口的小圖，Dijkstra / A* / 路況改 ETA 都是真的可跑；CH 捷徑在這麼小的圖上看不出差異，所以只在筆記裡講觀念、demo 沒實作。</em></div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>兩個小檔</strong>，剛好對應前面講的東西。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>Graph</strong>（那張「點線網」＝記住路口、路段、塞車程度，還負責算直線距離當指南針）→ <strong>Router</strong>（找路引擎＝Dijkstra 和 A* 都在這，只差「下一個先展開誰」）。查一次路，就是 Router 在 Graph 上跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>把地圖記成「點線網」（Graph）</h3>
+    <p>第一件事：把路口記成點、路段記成線。每條線上記兩個<strong>不會變</strong>的數字（多長、正常開幾秒），再外掛一個<strong>會變</strong>的塞車係數。</p>
+<pre><code>// 加一條雙向路段，speedKmh = 限速
+function 加路段(a, b, 限速) {
+    距離 = 兩路口的直線距離(a, b)        // 公尺，地理固定
+    正常秒數 = 距離 / 限速              // 自由流通行時間
+    鄰接表[a][b] = { 距離, 正常秒數, 塞車係數: 1.0 }  // ← 1.0 = 順暢
+    鄰接表[b][a] = { 距離, 正常秒數, 塞車係數: 1.0 }  // 雙向都記
+}</code></pre>
+    <p class="codecaption">這個「<code>鄰接表[a][b]</code>」就是前面說的「<strong>捷運路線圖</strong>」——記住「從 a 這站能到 b 這站，這段多長/多久」。注意<strong>距離和正常秒數固定不變</strong>，只有<code>塞車係數</code>會被路況改——這正是「會變/不變分開存」落到程式裡的樣子。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>給鄰居算「當下代價」＋指南針（Graph）</h3>
+    <p>找路時，Router 會一直問 Graph：「<strong>從這個路口出發，旁邊有哪些路口、走過去要付多少代價？</strong>」代價是「距離」還是「時間」由你選——這就是最短路 vs 最快路的分岔點。</p>
+<pre><code>// 回傳某路口的鄰居 → 走過去的「當下權重」
+function 鄰居(路口, 看什麼) {
+    foreach (鄰接表[路口] as 鄰居 => 邊) {
+        權重 = (看什麼 == "距離")
+             ? 邊.距離                       // 最短路：純距離，不理路況
+             : 邊.正常秒數 × 邊.塞車係數      // 最快路：時間 × 塞車 → 即時 ETA
+    }
+}
+
+// A* 的指南針：用直線距離猜「還剩多遠」
+function 指南針(目前, 終點, 看什麼) {
+    直線 = 兩點直線距離(目前, 終點)
+    return (看什麼 == "距離") ? 直線         // 直線一定不比繞路長 → 不高估
+                            : 直線 / 最高限速  // 換成「最樂觀秒數」→ 一樣不高估
+}</code></pre>
+    <p class="codecaption">看那行 <code>正常秒數 × 塞車係數</code>：塞車係數平常是 1.0，某段塞車就調成 2.5，那段的「時間」立刻 ×2.5，最快路自然會繞開它——<strong>即時路況改 ETA</strong> 就這一個乘法。而下面的「指南針」永遠回傳<strong>偏小（樂觀）</strong>的估計，這就是「絕不高估」的鐵規矩，保證 A* 找到的是真正的最佳路。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>倒水法 Dijkstra ＝ 沒指南針的找路（Router）</h3>
+    <p>找路的主迴圈像「<strong>從起點倒水、一圈圈往外漫</strong>」：每次都挑「目前<strong>已走代價最小</strong>」的路口展開，看它的鄰居能不能走得更省。</p>
+<pre><code>g[起點] = 0                          // 起點到各路口的「已走最佳代價」
+優先佇列.放入(起點, 優先度 = 0)
+
+while (佇列不空) {
+    u = 佇列.取出最小的             // ← 永遠先展開「目前最省」的路口
+    已定案[u] = true; 探索數++       // 這個路口拍板定案（= explored 計數）
+    if (u == 終點) break            // 終點定案就收工
+
+    foreach (鄰居(u) as v => 走過去的權重) {
+        新代價 = g[u] + 走過去的權重
+        if (新代價 比 g[v] 更省) {
+            g[v] = 新代價; 來時路[v] = u
+            優先佇列.放入(v, 優先度 = 新代價)   // ← Dijkstra：優先度就是「已走代價 g」
+        }
+    }
+}</code></pre>
+    <p class="codecaption">關鍵就一句：<strong>優先度 = 已走代價 g</strong>。所以它只看「哪個路口離起點最近」，<strong>完全沒有終點方向的概念</strong>——水才會四面八方均勻漫開，連跟終點相反的方向也照漫。可靠，但探的路口爆多。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>A* ＝ 同一段程式、優先度多加指南針（Router）</h3>
+    <p>最妙的地方：A* 跟 Dijkstra <strong>幾乎是同一段程式</strong>，只改<strong>一個地方</strong>——放進佇列時，優先度從「已走代價 g」改成「<strong>已走 g ＋ 指南針估的還剩 h</strong>」。</p>
+<pre><code>h = 用指南針(v, 終點)               // ← 唯一的差別：A* 多問一句「離終點還多遠」
+優先佇列.放入(v, 優先度 = 新代價 + h)   // f = g + h（Dijkstra 就是 h 永遠 = 0）</code></pre>
+    <p class="codecaption">白話講：A* <strong>優先展開「已走 ＋ 預估到終點」最小的那個路口</strong>。多了 <code>+ h</code> 這一項，找路就會<strong>朝終點方向偏</strong>，跟終點相反的路口優先度變大、被排到後面——所以探的路口少很多。把 <code>h</code> 設成 0，A* 就退化回 Dijkstra：<strong>兩者根本是同一套引擎</strong>，差別只在那個指南針。</p>
+    <p class="pause">💭 停一下：A* 探更少的點，那它找到的路會不會比 Dijkstra 差（繞遠路）？</p>
+    <details class="qa"><summary>看答案</summary>
+      不會！只要指南針「<strong>絕不高估</strong>」（直線距離一定不比實際繞路長），A* 找到的路<strong>跟 Dijkstra 一模一樣最優</strong>，只是<strong>探的路口更少、更快</strong>。demo 的「比較」按鈕就是直接量這個給你看：同樣的路徑、同樣的代價，但 A* 的 explored 數字明顯更小。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>地圖變點線網</td><td>Graph</td><td><code>加路段()</code>＋鄰接表</td></tr>
+      <tr><td>即時路況改 ETA</td><td>Graph</td><td><code>正常秒數 × 塞車係數</code></td></tr>
+      <tr><td>① 倒水法 Dijkstra</td><td>Router</td><td>優先度 = <code>g</code></td></tr>
+      <tr><td>② 指南針 A*</td><td>Router</td><td>優先度 = <code>g + h</code>（多那個指南針）</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 30 路口小圖」換成「分區式圖儲存 + 全球十幾億邊 + contraction hierarchies 預挖捷徑」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>——Dijkstra 的「先展開最省的」、A* 的「＋指南針」、ETA 的「時間 × 塞車係數」都還是這樣。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：為什麼要先把「地圖」變成「點和線」？這東西叫什麼？</summary>
     因為電腦看不懂彩色地圖，只懂數字和關係。把路口當點、路段當線、線上記長度/時間，就變成電腦能算的「圖（graph）」。找路就變成「在點線網上找一條線上數字加起來最小的走法」。</details>
@@ -325,7 +413,7 @@ php -S localhost:8039 -t public
   <details class="qa"><summary>Q7（工程）：為什麼底圖「瓦片」要丟 CDN，跟算路機器分開？</summary>
     底圖是靜態圖片（不會變、可永久快取），而且看地圖的流量超大。把它全丟到 CDN（離使用者最近的倉庫）直接送，就不會讓「看地圖」的海量流量拖垮「算路」的機器——兩件事互不干擾、各自擴展。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>地圖路徑規劃 = 在一張超巨大的「點線網」上，毫秒內找出兩點間最快的路。</strong></p>
     <p><strong>3 個關卡：</strong>① 倒水法 Dijkstra（可靠但沒方向感）→ ② 指南針 A*（朝終點探、少走冤枉路）→ ③ 事先挖捷徑 CH（離線偷跑、查詢飛快）。</p>

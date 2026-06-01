@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -310,7 +311,98 @@ php -S localhost:8002 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把半徑調小，是不是有些人就「不會被通知」了？這就是<strong>關卡 2 的地理篩選</strong>在運作。把同一次地震連觸發兩次，看投遞簿會不會讓人「響兩下」——這就是<strong>冪等去重</strong>。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心就那<strong>四個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 四個檔 = 四個小幫手</span>
+    <strong>GeoIndex</strong>（看郵遞區號挑出附近的人＝地理篩選）→ <strong>NotificationQueue</strong>（把一個地震「炸開」成一人一張的派工單＝fan-out）→ <strong>Dispatcher</strong>（真的把警報送出去的推播工人，負責去重與重試）→ <strong>Store</strong>（記帳本：誰送到了沒）。地震一來，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>地理篩選：先看郵遞區號，再量距離（GeoIndex）</h3>
+    <p>對應<strong>關卡 2</strong>的「先看郵遞區號框出同區，再細看」。程式分兩步：<strong>粗篩</strong>（算出震央那格的代碼）＋<strong>細篩</strong>（精算每個人離震央幾公里）。</p>
+<pre><code>function 找出範圍內的人(全部裝置, 震央, 半徑) {
+    // ── 粗篩：算出震央那一格的「郵遞區號」前綴 ──
+    前綴集 = 算geohash(震央) 連同周圍 8 格   // ← 邊界的人也要撈，寧可多撈不漏人
+    // 真實系統拿這串前綴去空間索引秒撈候選；demo 資料少，直接做細篩
+
+    // ── 細篩：對候選逐一算「真正的距離」 ──
+    命中 = []
+    for (每個 裝置 in 全部裝置) {
+        距離 = haversine(震央, 裝置座標)     // 地球兩點實際距離公式
+        if (距離 &lt;= 半徑)
+            命中.加入(裝置 + { 距離 })         // 在圈內才留下
+    }
+    回傳 依距離排序(命中)                      // 近的先通知
+}</code></pre>
+    <p class="codecaption">這正是「<strong>郵遞區號先框、再精算距離</strong>」那兩步。<code>haversine</code> 就是名詞表裡那條「算地球兩點實際距離」的公式。注意粗篩一定要<strong>連周圍 8 格一起撈</strong>，否則住在格子邊緣的鄰居會被漏掉——<strong>寧可多撈，不可漏人</strong>。</p>
+    <p class="pause">💭 停一下：既然細篩一定會精算距離，為什麼還要先做「粗篩」這一步？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為細篩要對「每個候選」算一次距離公式。如果不先粗篩，就得對全國 5000 萬支手機<strong>每支都算一次</strong>（太慢）。粗篩用前綴比對先把範圍縮到「震央附近那幾格」的少數人，細篩才只需精算這一小群——這就是把 O(全國) 變成 O(附近)。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>fan-out：一個地震炸成一人一張派工單（NotificationQueue）</h3>
+    <p>對應<strong>關卡 3</strong>「老師通知全班，分組長分頭傳」。篩出名單後，要把<strong>「一個地震事件」展開成「一人一張派工單」</strong>排進佇列，工人才能分頭領。</p>
+<pre><code>function 展開(地震, 收件人名單) {
+    for (每個 收件人 in 收件人名單) {
+        抵達秒數 = 收件人.距離 ÷ 3.5         // S波每秒約3.5km，算「還有幾秒」
+        派工單佇列.加入({
+            冪等鍵: 地震.編號 + "|" + 收件人.裝置ID,  // ← 之後去重就靠這把鑰匙
+            裝置ID: 收件人.裝置ID,
+            內容: { 規模, 還有幾秒:抵達秒數, 該做什麼:"就地掩護，遠離窗戶" }
+        })
+    }
+}</code></pre>
+    <p class="codecaption">一個地震 → 名單上每個人各生一張派工單，這就是 <strong>fan-out（扇出）</strong>：一件事炸開成幾百萬則通知。注意每張派工單都帶一把<strong>冪等鍵</strong>＝<code>地震編號|裝置ID</code>，下一步去重就靠它。順手把「離震央幾公里」換算成「<strong>還有幾秒</strong>」塞進通知，這樣使用者收到的是「還有 18 秒」而不是冷冰冰的距離。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>冪等去重：同一個警報只響一次（Dispatcher + Store）</h3>
+    <p>對應<strong>怕「漏掉人」</strong>的解法：原則是<strong>寧可重送也不漏送</strong>（at-least-once），但重送不能讓你手機響兩下。所以工人送之前<strong>先翻記帳本</strong>：</p>
+<pre><code>function 投遞(派工單) {
+    // ── 冪等去重：這把鑰匙(地震|裝置)已經成功送過？跳過！──
+    if (記帳本.已送達(地震編號, 裝置ID))
+        return 跳過;                  // ← 同一警報只響一次，重送被擋在這
+
+    結果 = 真的送出去(派工單)          // 真實系統這裡換成呼叫 APNs/FCM
+    if (結果成功)
+        記帳本.記下("已送達", 地震編號, 裝置ID)   // 寫進帳本，下次重送就會被擋
+}</code></pre>
+    <p class="codecaption">這就是名詞表裡的<strong>冪等</strong>：上游為了不漏人「至少送一次」（可能重送），投遞層一翻帳本「這把鑰匙已經是已送達」就直接跳過。把「<strong>至少一次</strong>」修成「<strong>剛好一次</strong>的體驗」——重送也不會讓你手機響兩下。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>退避重試：送不到先等一下再試，真不行丟回收桶（Dispatcher）</h3>
+    <p>推播商偶爾會<strong>暫時</strong>送不到（網路抖動）。不能一失敗就放棄（漏人），也不能瘋狂猛重試（把對方打爆）。做法是<strong>每次失敗就等久一點再試</strong>：</p>
+<pre><code>嘗試 = 0
+while (嘗試 &lt; 3) {                    // 最多試 3 次
+    嘗試++
+    if (送出成功) { 標記成功; break }
+    // ── 指數退避 + 抖動：等待時間一次比一次長 ──
+    等待 = 50毫秒 × 2^(嘗試-1)         // 50 → 100 → 200…一次比一次久
+    等待 += random(0, 50)             // 加一點隨機「抖動」，避免大家同時重試
+    等一下(等待)
+}
+if (還是失敗) 丟進DLQ回收桶            // ← 試完還不行：地震時效太短，補送無意義，留著事後檢討</code></pre>
+    <p class="codecaption">每次失敗<strong>等待時間翻倍</strong>（50→100→200 毫秒）叫<strong>指數退避</strong>；再加一點隨機<strong>抖動</strong>，是怕幾百萬個工人「同時失敗、同時重試」又把推播商打爆。試到上限還不行，就丟進 <strong>DLQ（回收桶）</strong>——地震警報過了幾秒就沒意義，補送沒用，留著事後檢討為什麼送不到。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡 / 怕的事（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>② 挑出附近的人（地理篩選）</td><td>GeoIndex</td><td>粗篩前綴 + haversine 細篩</td></tr>
+      <tr><td>③ 同時通知超多人（fan-out）</td><td>NotificationQueue</td><td><code>展開()</code> 那個迴圈</td></tr>
+      <tr><td>怕漏人 → 不重響（冪等）</td><td>Dispatcher + Store</td><td>送前查記帳本「已送達？」</td></tr>
+      <tr><td>怕慢/暫時失敗（重試）</td><td>Dispatcher</td><td>指數退避 while 迴圈 + DLQ</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把這裡的「JSON 檔 + for 迴圈」換成<strong>更猛的工具</strong>——
+  geohash 粗篩換成 <strong>PostGIS / Redis GEO</strong> 的空間索引（一次秒撈附近的人）、記憶體佇列換成 <strong>Kafka</strong>（多 worker 依地區分頭並行消費）。
+  但上面這幾段判斷邏輯——<strong>粗篩再細篩、一個事件炸成多張派工單、送前查帳本去重、失敗就退避重試</strong>——<strong>一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「閃電與雷聲」解釋，為什麼地震能被預警？</summary>
     地震有快而溫和的 P 波（閃電）和慢而破壞的 S 波（雷聲）。震央附近的儀器先抓到 P 波就判定地震，再用光速的網路訊息通知遠方，趕在 S 波（雷聲）抵達前讓人避難。訊息超車地震波。</details>
@@ -327,7 +419,7 @@ php -S localhost:8002 -t public
   <details class="qa"><summary>Q7（工程）：平時流量幾乎 0，為什麼不能「地震才開機器」？</summary>
     開機器、暖機要幾十秒到幾分鐘，但地震只給 10 秒。要平時留小火種待命、瞬間放大，不能從零臨時開。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>地震預警 = 跟地震賽跑的精準群組廣播。</strong></p>
     <p><strong>3 個關卡：</strong>① 偵測地震 → ② 用網格（geohash）挑出附近的人 → ③ 一群工人同時推播（fan-out）。</p>

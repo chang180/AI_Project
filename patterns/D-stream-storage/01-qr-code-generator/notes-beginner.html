@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -307,7 +308,90 @@ php -S localhost:8000 -t public
   <div class="box warn"><span class="label">誠實聲明</span>
     Demo 的 QR 圖是<strong>教學用方格示意</strong>（不是真的能掃），但<strong>發短碼、儲存、快取、轉址、計數這些系統邏輯都是真的可以跑的</strong>——而那才是這題的考點。要產生真正可掃的 QR，照 <code>demo/README.md</code> 換一個現成套件即可。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的「發門牌 → 轉接 → 扛量」。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>ShortCode</strong>（抽號碼牌的發號機，發出猜不到的門牌）→ <strong>Store</strong>（門牌簿 ＋ 櫃台便利貼＝快取）→ <strong>掃描轉址那段</strong>（總機，掃了把人轉過去）。一張 QR 的一生，就是先被 ShortCode 發號、記進 Store，之後一直被轉址那段查。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>發門牌：抽號碼牌 → 打亂成亂碼（ShortCode）</h3>
+    <p>第一關要發一個<strong>不撞號、又猜不到</strong>的門牌。做法分兩步：先<strong>抽一張號碼牌</strong>（保證不撞號），再把號碼<strong>打亂成亂碼</strong>（保證猜不到）。</p>
+<pre><code>function 發下一個門牌() {
+    號碼 = 抽一張號碼牌()        // ← KGS：全域遞增、保證不撞號（如 1001,1002…）
+    亂數 = 打亂(號碼)            // ← 關鍵！把 1001、1002 攪成看似無關的兩個數
+    return 轉成base62(亂數)      // 用 0-9a-zA-Z 編成短短一串，如 "9zK2aQ"
+}</code></pre>
+    <p class="codecaption">就是前面「抽號碼牌」那個比喻：抽號碼牌負責<strong>不撞號</strong>，「打亂」這一步負責<strong>猜不到</strong>——少了它，門牌就會 1001、1002 一個接一個排隊，壞人從頭猜到尾。</p>
+    <p>「打亂」怎麼做到「攪得很亂、卻又絕不會把兩張號碼攪成同一個」？靠一個叫<strong>乘法雜湊</strong>的小數學：</p>
+<pre><code>function 打亂(號碼) {
+    // 乘上一個「跟 2 的次方互質」的大魔術數，再只取低位數
+    亂數 = (號碼 + 1) × 一個大魔術常數   // 例：×6364136223846793005
+    return 亂數 取低 40 位             // 留約 7 個 base62 字元
+}</code></pre>
+    <p class="codecaption">這個魔術常數選得剛剛好，使得「不同號碼一定打亂成不同亂數」（數學上叫<strong>雙射、可逆</strong>），所以<strong>打亂後依然不撞號</strong>，只是順序被攪到看不出規律。相鄰的 1001、1002 出來的門牌會天差地遠——壞人就猜不到下一張了。</p>
+    <p class="pause">💭 停一下：為什麼要先「抽號碼牌（遞增）」再「打亂」，不直接發隨機亂數當門牌？</p>
+    <details class="qa"><summary>看答案</summary>
+      直接發隨機亂數，<strong>沒辦法保證不撞號</strong>——要發一個就得回頭問「這個用過沒？」，量一大就慢又容易撞。先抽遞增號碼牌天生<strong>不可能撞號</strong>，再用「可逆的打亂」攪亂外觀，就同時拿到「不撞號（抽號碼牌的功勞）＋ 猜不到（打亂的功勞）」兩個好處。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>櫃台便利貼：先念便利貼，沒有才進倉庫（Store）</h3>
+    <p>第三關「扛量」的心臟，就是這段<strong>讀路徑</strong>。每次掃描查門牌，都先看<strong>櫃台便利貼（快取）</strong>，貼著就直接念，沒貼才進倉庫（資料庫）翻：</p>
+<pre><code>function 查門牌(門牌) {
+    if (便利貼上有這個門牌) {
+        命中次數++                  // ← 大部分掃描走這條：快！
+        return 便利貼[門牌]
+    }
+    未命中++
+    資料 = 進倉庫翻(門牌)            // 便利貼沒有，才驚動資料庫
+    if (沒這筆) return 查無此碼
+    便利貼[門牌] = 資料             // ← 回填：抄一張貼上，下次就不用再進倉庫
+    return 資料
+}</code></pre>
+    <p class="codecaption">這就是「<strong>把常被問的答案抄一張貼在櫃台</strong>」那個比喻。第一次有人問會進倉庫（未命中），抄一張貼上後，<strong>後面幾百萬人問同一個門牌都直接念便利貼</strong>（命中）——你玩 demo 看到命中率往上跳，就是這幾行在作用。</p>
+    <p>但便利貼有個陷阱：<strong>內容改了，舊便利貼會騙人</strong>。所以「換目標」時要記得把那張<strong>撕掉</strong>：</p>
+<pre><code>function 換目標(門牌, 新網址) {
+    倉庫[門牌].目標 = 新網址        // 先改倉庫裡的正本
+    撕掉便利貼[門牌]                // ← 關鍵！失效這張，下次讀會回填新值
+}</code></pre>
+    <p class="codecaption">這正是前面取捨講的「<strong>總機改轉接表，要把舊便利貼撕掉重貼</strong>」。少了這一撕，使用者改了目標卻還被轉到舊網址——動態 QR 的賣點就壞了。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>總機轉接：查到就「請往這邊走 →」（掃描轉址）</h3>
+    <p>有人掃了 <code>qr.io/abc123</code> 連進來，這段就是那位<strong>總機</strong>：查門牌、把人轉過去、順手記一筆，全部要<strong>飛快</strong>。</p>
+<pre><code>當收到 GET /{門牌} {
+    資料 = 查門牌(門牌)             // ← 先走上面那條「便利貼優先」的快路
+    if (沒這筆) return 404 短碼不存在
+    記一次掃描(門牌)               // 順手記帳（示意；真實系統丟給背景做）
+    回覆「302：請往這邊走 →」轉到 資料.目標網址
+}</code></pre>
+    <p class="codecaption">「302 請往這邊走」就是前面「<strong>總機幫你轉接分機</strong>」的比喻。注意它先<strong>念便利貼</strong>查到目標，才一句話把人轉走——這就是為什麼掃描能像膝反射一樣快。</p>
+    <p>還有一個小聰明在「<strong>圖片</strong>」上：QR 圖永遠不變（裡面是門牌、不是目標），所以回圖片時直接叫瀏覽器與 CDN <strong>永久快取</strong>：</p>
+<pre><code>當收到 GET /qr/{門牌}.svg {
+    設定「快取一年、不可變」    // Cache-Control: max-age=31536000, immutable
+    當場用門牌畫出 QR 圖回傳    // 圖只跟門牌有關，跟「目標」無關 → 放心永久快取
+}</code></pre>
+    <p class="codecaption">這對上前面「<strong>圖片放心讓 CDN 長期快取，但 302 轉址不行</strong>」的追問：<strong>圖</strong>跟門牌綁定、永遠不變，所以掛上「快取一年」；但<strong>轉址</strong>隨時可能被改，就不能讓它被長期快取住。同一支系統，兩種快取策略，差別全在「會不會變」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 建立：發不撞號又猜不到的門牌</td><td>ShortCode</td><td><code>抽號碼牌() → 打亂() → base62</code></td></tr>
+      <tr><td>③ 扛量：便利貼優先、改了要撕掉</td><td>Store</td><td><code>查門牌()</code> 與 <code>換目標()</code> 的失效</td></tr>
+      <tr><td>② 轉址：查到就 302 轉走</td><td>掃描轉址段</td><td><code>GET /{門牌}</code> 的 302</td></tr>
+      <tr><td>③ 圖片永久快取</td><td>圖片段</td><td><code>Cache-Control: immutable</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔當倉庫 + 行內陣列當便利貼」換成「<strong>分片資料庫 + Redis 快取 + Kafka 輸送帶</strong>」，
+  圖片渲染也會把示意方格換成現成套件（如 <code>endroid/qr-code</code>，輸出真正可掃的 SVG/PNG）。
+  但<strong>「打亂發號、便利貼優先、改了就失效、圖片永久快取、查到就 302」這幾段邏輯一字都不用改</strong>——所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「飯店門牌」解釋，為什麼動態 QR 印出去還能改內容？</summary>
     QR 裡藏的是「門牌（短碼 abc123）」，不是真正的目標網址。門牌印死了、永遠不變；真正連去哪存在系統裡，像房客一樣隨時可換。改內容只是改系統裡「abc123 對到哪」這筆設定，海報門牌沒動，所以不用重印。</details>
@@ -324,7 +408,7 @@ php -S localhost:8000 -t public
   <details class="qa"><summary>Q7（工程）：為什麼「圖片可以放心讓 CDN 長期快取，但 302 轉址不行」？</summary>
     因為 QR 圖裡是門牌、永遠不變，放 CDN 多久都沒問題。但「轉去哪」隨時可能被改（動態 QR 的賣點），若 CDN 把舊目標快取住，改了卻還轉到舊網址就出包。所以通常 CDN 只快取圖片，不快取轉址。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>動態 QR = 一張印死了卻還能換內容的圖。秘訣：QR 裡放的是「門牌（短碼）」，不是真網址。</strong></p>
     <p><strong>3 個關卡：</strong>① 建立（發不撞號的門牌）→ ② 轉址（像總機幫你轉接）→ ③ 扛量（便利貼快取 + 樓下分店 CDN）。</p>

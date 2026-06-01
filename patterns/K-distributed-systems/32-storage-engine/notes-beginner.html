@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -350,7 +351,122 @@ php -S localhost:8032 -t public
   <div class="box"><span class="label">玩的時候想一下</span>
     同一個 key <strong>put 兩次不同的值</strong>，在 compaction 前是不是「兩本冊子都有它」？compaction 後是不是只剩最新那筆？這就是<strong>讀放大</strong>與<strong>空間放大</strong>被回收的過程。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>兩個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>LsmEngine</strong>（整套流程的管家：put／get／flush／compact 都它在跑）＋ <strong>Bloom</strong>（冊子封面那張「一定沒有就跳過」的快速目錄）。
+    一筆 <code>put</code> 進來、一次 <code>get</code> 出去，就照下面四段順序跑。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>寫入：先記流水帳，再貼便利貼（put）</h3>
+    <p>來一筆 <code>put</code>，<strong>順序很重要</strong>：一定先在硬碟流水帳(WAL)抄一行，<em>之後</em>才動記憶體的便利貼。這樣萬一中間斷電，流水帳照念就能復原。</p>
+<pre><code>function put(key, 值) {
+    寫流水帳(「存」, key, 值)        // ← WAL 先記！抄在「絕不擦掉」的帳本尾巴
+    便利貼[key] = 值                // 再貼進記憶體的 memtable
+    把便利貼依 key 重新排好序        // 維持有序，之後歸檔才好排
+    if (便利貼數量 &gt;= 上限)
+        歸檔()                     // 貼滿了 → 觸發 flush（下一段）
+}
+
+function delete(key) {
+    寫流水帳(「刪」, key, 墓碑)       // 刪除也只是「再貼一張便利貼」
+    便利貼[key] = 墓碑              // tombstone：標記已刪，不去舊冊子擦
+}</code></pre>
+    <p class="codecaption">注意「先記流水帳、再改記憶體」這個順序就是 <strong>Write-Ahead Log（先寫日誌）</strong> 的字面意思。<code>delete</code> 不是真的擦資料，而是貼一張寫著「墓碑」的便利貼——對應前面「便利貼貼桌上、刪除靠貼新便利貼」的比喻。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>歸檔：便利貼貼滿了，整批排序寫成一本冊子（flush）</h3>
+    <p>便利貼一滿就把整桌<strong>排好序</strong>寫成一本永不再改的冊子(SSTable)，順便替它做一張 bloom 目錄；寫完就清空桌子、截斷流水帳。</p>
+<pre><code>function 歸檔() {
+    if (便利貼是空的) return;
+
+    目錄 = 新的 Bloom()
+    for (每個 key in 便利貼)
+        目錄.放入(key)              // 把這本冊子收的 key 都登記進 bloom 目錄
+
+    把便利貼整批寫成新冊子 sstable_000N.json   // 已排序、從此不可修改
+    冊子清單.加入({ 檔名, 最小key, 最大key, 目錄 })  // 記進 manifest
+
+    便利貼 = 空              // ← 桌子清空，繼續貼新的
+    流水帳 = 空             // ← 資料已安穩落盤，流水帳可截斷
+}</code></pre>
+    <p class="codecaption">對應比喻「便利貼貼滿了 → 找個下午排好序、裝訂成冊歸到書架」。歸檔後便利貼與流水帳都清空，因為這批資料已經安穩躺在硬碟的冊子裡了。每本冊子封面都附一張 bloom 目錄，下一段查詢就靠它。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查詢：先看便利貼，再由新到舊翻冊子，bloom 說沒有就跳過（get）</h3>
+    <p>這是<strong>讀路徑的心臟</strong>。順序是：先看桌上便利貼（最新）→ 再從<strong>最新冊子往舊翻</strong>，每本先問 bloom 目錄，「一定沒有」直接跳過、不碰硬碟；<strong>第一個命中的版本就是答案</strong>。</p>
+<pre><code>function get(key) {
+    if (便利貼有 key)                       // 1) 先看最新的便利貼
+        回傳 (是墓碑 ? 查無此 key : 值)
+
+    冊子們 = 冊子清單.由新到舊()             // 2) 新 → 舊 逐本看
+    for (冊子 in 冊子們) {
+        if (!冊子.目錄.可能有(key)) {
+            跳過數++; continue;             // ← bloom 說「一定沒有」→ 不開檔！
+        }
+        實際讀檔數++
+        資料 = 讀這本冊子(冊子.檔名)         // 真的開檔讀（一次磁碟 I/O）
+        if (資料有 key)
+            回傳 (是墓碑 ? 查無此 key : 值)   // ← 第一個命中即答案（由新到舊保證最新）
+        // bloom 說可能有、翻開卻沒有 = 偽陽性，繼續找更舊的
+    }
+    回傳 查無此 key
+}</code></pre>
+    <p class="codecaption">「由新到舊、第一個命中即答案」是為什麼同一個 key 即使散在多本冊子，也一定拿到<strong>最新</strong>那筆。bloom 那行 <code>continue</code> 就是「看封面目錄、一定沒有就跳過」，幫你省下大量沒必要的開檔。</p>
+    <p>那張 bloom 目錄怎麼判斷的？白話講：<strong>放入一個 key 時，用幾個雜湊函式算出幾個位置，把那幾格位元設成 1</strong>；查詢時同樣算出那幾格，<strong>只要有一格是 0 → 一定沒有</strong>（放入過就不可能還是 0），<strong>全都是 1 → 可能有</strong>（也可能剛好被別的 key 湊出來＝偽陽性）。</p>
+<pre><code>function 放入(key):                          // add
+    for (每個 雜湊 in 幾個雜湊)
+        位元[ 雜湊(key) ] = 1                 // 把對應幾格設 1
+
+function 可能有(key):                         // mightContain
+    for (每個 雜湊 in 幾個雜湊)
+        if (位元[ 雜湊(key) ] == 0)
+            return false                     // ← 有任一格是 0 → 100% 沒有
+    return true                              // 全是 1 → 可能有（含偽陽性）</code></pre>
+    <p class="codecaption">所以 bloom <strong>絕不會誤報「沒有」</strong>（放入時那幾格一定被設 1 了）、只會偶爾誤報「有」。因此「跳過」永遠安全、不會漏資料——這正是前面說「目錄判斷免翻每本」的原理。</p>
+    <p class="pause">💭 停一下：為什麼 <code>get</code> 一定要「<strong>由新到舊</strong>」翻冊子，不能隨便挑一本先翻？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為同一個 key 可能在多本冊子裡留下不同版本（每次覆寫都產生新的）。只有「由新到舊、第一個命中就回」才保證拿到<strong>最新</strong>那筆；若隨便翻，可能先撞到舊版本，回出過期資料。便利貼（記憶體最新）排第一個看，也是同個道理。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>整理：把多本舊冊子合併成一本、丟掉過時資料（compact）</h3>
+    <p>冊子越堆越多 → 查詢要翻的本數越多（讀變慢）。compaction 趁背景把<strong>多本合併成一本</strong>：同一 key 只留最新、墓碑與被覆寫的舊值<strong>趁機丟掉</strong>。</p>
+<pre><code>function compact() {
+    if (冊子數 &lt; 2) return 「不用整理」;
+
+    合併 = {}
+    for (冊子 in 冊子清單.由舊到新())          // ← 由舊到新處理
+        for (key, 值 in 冊子)
+            合併[key] = 值                    // 後處理的(較新)覆蓋先處理的(較舊)
+
+    丟掉 合併 裡所有「墓碑」                     // ← 壓實後，已刪的 key 徹底消失
+    把 合併 排序後寫成「一本」新冊子
+    刪掉 剛剛那些舊冊子檔                       // 用一本新的換掉好幾本舊的
+    冊子清單 = [ 那本新冊子 ]
+}</code></pre>
+    <p class="codecaption">「由舊到新、後者覆蓋前者」讓最新值勝出；接著一次把墓碑與舊版本清掉。結果：冊子又少又乾淨 → 讀放大、空間放大一起降。對應比喻「幾本舊冊子合併歸成一冊、舊版本趁機丟掉」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔／函式</th><th>關鍵那段</th></tr>
+      <tr><td>① 寫＝WAL 先記 + 貼便利貼</td><td>LsmEngine <code>put()</code></td><td>先 <code>寫流水帳</code> 再改 memtable</td></tr>
+      <tr><td>② 滿了排序歸成冊子</td><td>LsmEngine <code>flush()</code></td><td>整批寫 SSTable + 建 bloom + 清空</td></tr>
+      <tr><td>③ 查＝由新到舊 + bloom 跳過</td><td>LsmEngine <code>get()</code> ＋ Bloom</td><td>新→舊迴圈裡的 <code>可能有()</code> continue</td></tr>
+      <tr><td>④ 整理＝合併丟舊</td><td>LsmEngine <code>compact()</code></td><td>合併覆蓋 + 丟墓碑 + 換成一本</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：這個 demo 為了好懂，把冊子用 JSON 檔、便利貼用記憶體陣列、compaction 用「全部併成一本」的簡化版。
+  真實系統是 <strong>RocksDB / LevelDB</strong>（Cassandra、HBase 也用同一套），把這些換成 SkipList、二進位 SSTable、分層 compaction——但
+  <strong>WAL 先記、memtable→SSTable flush、bloom 跳過、get 由新到舊、compaction 合併丟舊這幾段邏輯一字都不用改</strong>。讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「翻書 vs 便利貼」解釋，為什麼 LSM 寫得比 B-tree 快？</summary>
     B-tree 要就地翻到對的頁去改＝跳來跳去的隨機寫，慢。LSM 不改舊資料，只往記憶體貼便利貼 + 在流水帳尾巴 append＝順序寫，快。核心就是「把隨機寫變順序寫」。</details>
@@ -367,7 +483,7 @@ php -S localhost:8032 -t public
   <details class="qa"><summary>Q7（工程）：什麼情況該選 LSM、什麼情況該選 B-tree？</summary>
     寫密集（日誌、時序、計數、訊息）→ LSM（順序寫、寫放大低）。讀密集、交易型、要單筆穩定低延遲 → B-tree（一次樹查找、讀快又穩）。面試開場先問「寫多還讀多」定調。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>LSM-tree = 「先記便利貼、之後再整理歸檔」的存法，靠把隨機寫變順序寫來換取極快的寫入。</strong></p>
     <p><strong>4 個關卡：</strong>① 寫＝貼便利貼(memtable)+記流水帳(WAL) → ② 滿了排序歸檔成不可改的冊子(SSTable) → ③ 查＝先看 bloom 目錄跳過「一定沒有」的冊子 → ④ 背景 compaction 合併舊冊子、丟過時資料。</p>

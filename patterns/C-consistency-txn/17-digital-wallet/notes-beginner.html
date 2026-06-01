@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -342,7 +343,98 @@ php -S localhost:8017 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>同一把冪等鍵重送，餘額有沒有少第二次？這就是<strong>關卡 2 的冪等</strong>。轉一筆超過餘額被拒，餘額有沒有變負？這就是<strong>關卡 3 的防透支</strong>。最後列帳本看「借總和 = 貸總和」——這就是<strong>關卡 4 的守恆</strong>在運作。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>兩個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>Ledger</strong>（那本只能往下加的帳本＝記分錄、扣加餘額、對帳）→ <strong>TransferService</strong>（每筆轉帳的守門員＝冪等＋防透支＋原子過帳）。一筆轉帳進來，就由守門員指揮帳本，照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>雙分錄：一筆轉帳寫兩行（Ledger）</h3>
+    <p>記帳的靈魂：A 轉 B 100 元，<strong>不是</strong>改兩個數字，而是在帳本「只往下加」地寫<strong>兩行</strong>——A 借（D）、B 貸（C），金額一樣、方向相反。</p>
+<pre><code>function 寫兩行分錄(轉帳編號, 出錢方, 收錢方, 金額) {
+    帳本[] = { 轉帳編號, 帳戶:出錢方, 方向:'D'(借), 金額 }   // ← 第一行：出錢方「借」
+    帳本[] = { 轉帳編號, 帳戶:收錢方, 方向:'C'(貸), 金額 }   // ← 第二行：收錢方「貸」
+    // 兩行金額相等、方向相反 → 這筆的淨額剛好是 0
+}</code></pre>
+    <p class="codecaption">這就是「<strong>有借必有貸</strong>」。因為每筆都這樣寫，全帳的「借總和」永遠等於「貸總和」——錢只是從一個口袋搬到另一個口袋，<strong>總額憑空生不出也滅不掉</strong>。連開戶初始入帳都走這套（系統金庫「借」、你的帳戶「貸」），所以全帳照樣守恆。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>防透支：餘額夠才扣（Ledger）</h3>
+    <p>扣款的關鍵一行。要扣之前先算「扣完會不會變負數」，會變負就<strong>一毛都別動、直接回報失敗</strong>。</p>
+<pre><code>function 改餘額(帳戶, 變動額) {        // 扣款時變動額是負數，例如 -150
+    新餘額 = 現在餘額 + 變動額
+    if (新餘額 &lt; 0)
+        return 失敗;                   // ← 防透支：會變負就拒絕，餘額永不為負
+    餘額[帳戶] = 新餘額                 // 夠才真的扣
+    return 成功;
+}</code></pre>
+    <p class="codecaption">真實系統會把這寫成一句條件式 SQL：<code>UPDATE 帳戶 SET 餘額=餘額-150 WHERE 餘額&gt;=150</code>，由資料庫保證「檢查＋扣款」一口氣做完、中間插不進別人（就是前面說的「窄門」）。受影響列數 = 0 就代表餘額不足、扣款被乾淨地拒絕。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>冪等：同一把鑰匙只扣一次（TransferService）</h3>
+    <p>這是<strong>防手滑的心臟</strong>。每筆轉帳帶一把獨一無二的<strong>冪等鍵</strong>，真正動錢之前先查「這把鑰匙用過沒？」</p>
+<pre><code>function 轉帳(出錢方, 收錢方, 金額, 冪等鍵) {
+    if (鑰匙簿裡有這把冪等鍵) {
+        if (這次的請求內容 != 上次登記的內容)
+            return 衝突;               // ← 同鑰匙卻換了金額 → 不准冒充
+        return 上次的結果;             // ← 用過了：直接回放，不再扣款！
+    }
+    // ↓↓ 沒用過，才真的進去動錢（接第 4 段）↓↓
+}</code></pre>
+    <p class="codecaption">手滑按兩次、網路自動重送，第二次一進來看到「這把鑰匙已登記」，就<strong>直接回上次那筆 txn 的結果</strong>，餘額一毛都不會再少。這就是「轉帳按兩次只扣一次」——做幾次 = 做一次。</p>
+    <p class="pause">💭 停一下：為什麼「扣款失敗（餘額不足）」時，<strong>不要</strong>把這把冪等鍵寫進鑰匙簿？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為餘額不足是「<strong>暫時</strong>」的失敗——你晚點儲值後，<strong>同一把鑰匙應該還能重試成功</strong>。如果失敗也把鑰匙登記成「已處理」，那你補了錢再送，系統會誤以為「這筆早做過了」直接回放失敗結果，害你永遠轉不出去。所以只有<strong>真的成功過帳</strong>才寫鑰匙。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>原子過帳：扣、加、記帳綁成一包（TransferService）</h3>
+    <p>確認鑰匙沒用過、餘額也夠，才真的動錢。關鍵是這三件事<strong>綁在同一道鎖裡，全成或全敗</strong>：</p>
+<pre><code>上鎖();   // ← 窄門：整段過帳序列化，同一帳戶一次只放一筆進來
+try {
+    if (改餘額(出錢方, -金額) == 失敗)
+        return 餘額不足;               // 防透支擋下，這裡直接返回（不寫鑰匙）
+    改餘額(收錢方, +金額)              // 對手方入帳
+    寫兩行分錄(新交易編號, 出錢方, 收錢方, 金額)   // append 借/貸兩行
+    鑰匙簿[冪等鍵] = 這筆結果          // ← 成功了才登記鑰匙，供日後重送回放
+} finally { 解鎖(); }</code></pre>
+    <p class="codecaption">「扣出錢方 → 加收錢方 → 寫借貸兩行」三步在<strong>同一把鎖內一起完成</strong>：要嘛全做、要嘛全不做，<strong>絕不會「A 扣了、B 沒加」</strong>把錢扣一半蒸發掉。這把鎖就是 Part 1 講的「窄門」，也讓兩筆同時搶同一帳戶時排好隊、不會雙花。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">5</span>對帳守恆：整本帳重算一遍（Ledger）</h3>
+    <p>最後的安全網：把帳本<strong>從頭加總一遍</strong>，驗證「全部的借 = 全部的貸」，而且重算的餘額要跟「存著的餘額快取」對得上。</p>
+<pre><code>function 對帳() {
+    借總和 = 貸總和 = 0
+    foreach (帳本每一行 分錄) {
+        if (分錄.方向 == 'D') { 借總和 += 金額; 重算餘額[帳戶] -= 金額 }  // 借=出錢=減
+        else                 { 貸總和 += 金額; 重算餘額[帳戶] += 金額 }  // 貸=收錢=加
+    }
+    守恆嗎 = (借總和 == 貸總和)                    // ← 全帳守恆：借=貸
+    foreach (每個帳戶) 比對(重算餘額 vs 餘額快取)   // ← 算出來的 要等於 存著的
+}</code></pre>
+    <p class="codecaption">因為關卡 1 每筆都「有借必有貸」，這裡的「借總和 = 貸總和」理論上<strong>永遠成立</strong>；一旦不成立，就代表有 bug 或被竄改，馬上告警。這就是「<strong>總額不憑空生滅</strong>」能被「證明」出來的根據——像店長每晚盤點收銀機。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 有借必有貸記帳</td><td>Ledger</td><td><code>寫兩行分錄()</code>（一借一貸）</td></tr>
+      <tr><td>② 手滑兩次只扣一次</td><td>TransferService</td><td>動錢前的「查鑰匙」</td></tr>
+      <tr><td>③ 餘額不夠不准扣</td><td>Ledger</td><td><code>改餘額()</code> 的那行 if &lt; 0</td></tr>
+      <tr><td>③+ 全成或全敗</td><td>TransferService</td><td>鎖內「扣→加→記帳」一包</td></tr>
+      <tr><td>④ 全帳對得上</td><td>Ledger</td><td><code>對帳()</code>（借=貸＋餘額比對）</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 檔案鎖」換成「<strong>強一致資料庫的 DB 交易 + 帳本表 + 冪等鍵索引</strong>」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>：雙分錄（有借必有貸）、冪等（按兩次只扣一次）、防透支（夠才扣）、守恆（借=貸）。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「記帳本 vs 便利貼」解釋，為什麼餘額不該是一個「可隨手改的數字」？</summary>
     便利貼式餘額塗掉重寫、沒有歷史，出錯查不出哪裡錯、也擋不住兩筆同時扣的競態。記帳本「只追加不塗改」，每塊錢來去都留痕、可查帳、可重算餘額，還能驗證全帳守恆。</details>
@@ -359,7 +451,7 @@ php -S localhost:8017 -t public
   <details class="qa"><summary>Q7（工程）：餘額快取壞了或系統崩潰，餘額會不會永久算錯？</summary>
     不會。真相來源是 append-only 帳本，餘額只是由帳本加總而來的快取。崩潰後重放帳本（或用快照加速）就能把每個帳戶餘額重算還原。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>數位錢包 = 一本永遠對得起來的會計帳本。</strong>錢只在口袋間搬，不憑空多也不憑空少。</p>
     <p><strong>4 個關卡：</strong>① 有借必有貸記帳本 → ② 手滑兩次只扣一次（冪等）→ ③ 餘額不夠不准扣（防透支）→ ④ 全帳加總對得上（對帳守恆）。</p>

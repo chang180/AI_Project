@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -325,7 +326,98 @@ php -S localhost:8040 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>故意加一筆「除不盡」的（例如 1000 三人均分），看系統怎麼把那 1 元補給前面的人、總和還是剛好。再把<strong>同一筆支出送兩次</strong>，看淨額會不會被算兩遍——這就是<strong>冪等去重</strong>在保護你。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那三關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：整題核心其實塞在<strong>一個小檔</strong>（<code>Ledger.php</code>，一本「帳本」）裡，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一本帳本 = 一個全能小幫手</span>
+    這題不像別題拆成好幾個檔，而是一本<strong>帳本（Ledger）</strong>包辦四件事：<strong>算分攤</strong>（三種分法）→ <strong>算淨額</strong>（並檢查守恆=0）→ <strong>化簡</strong>（最小現金流）→ 加上一道<strong>冪等</strong>防呆。一筆支出進來，就照這個順序跑一遍。全程用「分」當整數，<strong>沒有小數能出錯</strong>。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>三種分法：把一筆錢分回給大家（computeShares）</h3>
+    <p>加一筆支出時，第一件事就是照分法算出「<strong>每個人這筆各分攤幾分</strong>」。三種分法各一段，但都守著同一條鐵律：<strong>分出去的加起來＝原本那筆</strong>。</p>
+<pre><code>// 均分：1200 ÷ 4。除不盡的「餘數」逐分補給前面的人
+每人基本額 = 總額 ÷ 人數（取整）          // 例：1000 ÷ 3 = 333
+餘數 = 總額 − 每人基本額 × 人數           // 例：1000 − 999 = 1（分）
+for (第 i 個人) {
+    分攤[人] = 每人基本額 + (i &lt; 餘數 ? 1 : 0)  // ← 前 1 人多拿 1 分 → 333,333,334
+}</code></pre>
+    <p class="codecaption">就是前面說的「<strong>除不盡的那 1 元，分給前面幾個人多付</strong>」。加起來剛好還是 1000，<strong>一分錢都沒憑空消失</strong>。</p>
+<pre><code>// 指定金額：直接收下每人講好的數字，但總和要對得上
+分攤[人] = 講好的金額
+if (所有分攤加總 ≠ 總額)  丟出錯誤  // ← 守住「總和=總額」，少一分多一分都不行
+
+// 百分比：先按比例下取整，少掉的零頭再逐分補回
+分攤[人] = 總額 × 百分比 ÷ 100（取整）
+零頭 = 總額 − 已分配總和
+把零頭一分一分補給前面的人        // ← 跟均分一樣的補零手法</code></pre>
+    <p class="codecaption">三種分法殊途同歸：<strong>不管怎麼分，最後一定加回原本那筆</strong>。「指定金額」靠一道 <code>if</code> 擋掉對不齊的輸入；「均分／百分比」靠「餘數逐分補給前面人」消化除不盡。這就是把「<strong>出遊分帳</strong>」三種常見場景翻成程式。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>淨額 + 守恆檢查：每人算一個數字，相加必為 0（balances）</h3>
+    <p>記了一堆支出後，把每個人的帳<strong>合併成一個淨額</strong>：你<strong>墊付的</strong>減掉你<strong>該分攤的</strong>。算完<strong>順手檢查總和是不是 0</strong>。</p>
+<pre><code>每人淨額 = 0
+for (每一筆支出) {
+    淨額[付款人] += 這筆總額        // ← 付款人幫大家墊了整筆
+    for (這筆的每個分攤者)
+        淨額[某人] −= 他這筆分攤    // ← 每個人欠下自己那份
+}
+總和 = 所有人淨額相加
+回傳 { 各人淨額, 總和, 守恆: (總和 == 0) }   // ← 守恆鐵律：總和必為 0</code></pre>
+    <p class="codecaption">為什麼總和一定是 0？因為每筆支出對全體的貢獻是「<strong>付款人 +總額</strong>」抵掉「<strong>分攤者們 −總額</strong>」＝0（這就是第 1 段守住的「分攤總和=總額」在發功）。累積起來自然歸零。淨額正的是<strong>債主</strong>（該收）、負的是<strong>欠款人</strong>（該付）。系統把 <code>守恆:true</code> 一起回傳，等於每次都自我體檢一次。</p>
+    <p class="pause">💭 停一下：如果某次回傳 <code>守恆:false（總和≠0）</code>，問題最可能出在哪？</p>
+    <details class="qa"><summary>看答案</summary>
+      幾乎一定是<strong>前面某筆分攤算錯了</strong>——某筆支出「分出去的加起來」沒等於它的總額（例如指定金額那道檢查被繞過、或補零零頭算錯）。守恆檢查的價值就在這：它把錯誤<strong>當場抓出來</strong>，不讓一分錢的誤差悄悄蔓延到「誰欠誰」。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>債務化簡：把三角債抵成最少筆轉帳（settle）</h3>
+    <p>這是<strong>全題的心臟</strong>。有了每人淨額，就用「<strong>最小現金流</strong>」把一團亂帳抵消成最少筆轉帳。做法白話到不行：<strong>每一輪，拿「該收最多的人」配「該付最多的人」結一筆。</strong></p>
+<pre><code>工作集 = 所有淨額不為 0 的人
+while (還有人沒歸零) {
+    最大債主   = 淨額最正的人（該收最多）
+    最大欠款人 = 淨額最負的人（該付最多）
+    這筆金額 = min(債主該收, 欠款人該付)      // ← 取兩邊較小的，至少結清一人
+    轉帳清單 += { 從: 最大欠款人, 到: 最大債主, 金額: 這筆金額 }
+    最大債主淨額   −= 這筆金額
+    最大欠款人淨額 += 這筆金額
+    誰歸零就把誰移出工作集                    // ← 每輪至少踢掉一人
+}</code></pre>
+    <p class="codecaption">為什麼這樣就最少筆？因為<strong>每一輪至少讓一個人歸零、被踢出局</strong>，所以 <strong>N 個人最多 N−1 筆</strong>就全部結清。就是前面三角債的比喻：「你欠我、我欠他 → 你直接付他」——能抵消的先抵消，省掉中間人來回轉帳。demo 還回傳「<strong>原本幾筆欠款邊 → 簡化後幾筆</strong>」讓你看出化簡效果。</p>
+    <p class="pause">💭 停一下：為什麼每輪挑「最大」債主配「最大」欠款人，而不是隨便配一對？</p>
+    <details class="qa"><summary>看答案</summary>
+      挑最大的兩邊對沖，<strong>min(債,欠) 會盡量大</strong>，一刀就能把其中一個人完全結清、踢出局，讓「每輪至少消掉一人」這件事最容易成立 → 筆數壓到最少。這叫<strong>貪婪法</strong>：不保證理論上絕對最優（那是 NP-hard 難題），但<strong>又快又夠好</strong>，業界都這樣做。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>冪等：同一筆送兩次只記一次（addExpense）</h3>
+    <p>真的要寫進帳本前，最後一道保險：<strong>同一筆支出，重送也只記一次</strong>。</p>
+<pre><code>function 加支出(..., 冪等編號) {
+    if (這個冪等編號已經記過了) {
+        回傳上次那筆的結果（標記「重播」）   // ← 不再記一筆
+        return
+    }
+    算好分攤 → 寫進帳本 → 把這個冪等編號記下來
+}</code></pre>
+    <p class="codecaption">手機網路一卡，你以為失敗又按一次，「加支出」就被送了兩遍。系統靠這個<strong>冪等編號</strong>認出「這是同一筆」，<strong>直接回上次結果、不重記</strong>——這頓晚餐就不會被算兩遍。整個讀-改-寫還包在一道<strong>檔案鎖</strong>裡，避免兩個人同時加支出時互相蓋掉。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個方法</th><th>關鍵那段</th></tr>
+      <tr><td>三種分法（均分/指定/百分比）</td><td><code>computeShares()</code></td><td>餘數逐分補回 + 指定金額的總和檢查</td></tr>
+      <tr><td>② 結算（淨額，相加=0）</td><td><code>balances()</code></td><td>墊付−分攤，並回傳 <code>守恆</code></td></tr>
+      <tr><td>③ 化簡（最少筆轉帳）</td><td><code>settle()</code></td><td>最大債主↔最大欠款人的 while 迴圈</td></tr>
+      <tr><td>不重複入帳</td><td><code>addExpense()</code></td><td>進門先查冪等編號</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 檔案鎖」換成「<strong>強一致資料庫帳本（append-only）+ 增量維護的淨額表</strong>」，
+  化簡結果也會<strong>快取</strong>起來、淨額變了才重算。但<strong>上面這幾段判斷邏輯——三種分攤、淨額守恆=0、最大配最大的貪婪化簡、冪等去重——一字都不用改</strong>。
+  所以讀懂這本小帳本，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：三種分攤方式各是什麼？用一頓晚餐的例子說說看。</summary>
     均分（1200 四人各 300）、指定金額（牛排的 Cat 付多、喝湯的 Dan 付少，總和=1200）、百分比（主管出 40%、其餘平分 60%，總和=100%）。共通點：分出去的加起來一定等於原本那筆。</details>
@@ -342,7 +434,7 @@ php -S localhost:8040 -t public
   <details class="qa"><summary>Q7（工程）：百人團上千筆支出，為什麼不要「每次查都全部重算」？怎麼改？</summary>
     每次重算就要把上千筆從頭加總一遍，又慢又重複。改用「增量維護」：加一筆只動相關那幾個人的淨額，其他人不碰，查的時候讀現成的，飛快。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>Splitwise = 一群朋友出遊的自動分帳機。</strong></p>
     <p><strong>3 個關卡：</strong>① 記帳（誰墊、怎麼分）→ ② 結算（每人一個淨額，相加=0）→ ③ 化簡（亂帳抵消成最少筆轉帳）。</p>

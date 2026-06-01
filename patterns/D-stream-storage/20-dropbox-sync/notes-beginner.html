@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -332,7 +333,100 @@ php -S localhost:8020 -t public
   <div class="box"><span class="label">玩的時候想一下</span>同一段內容上傳兩次，第二次是不是「沒有新增任何塊」？這就是<strong>去重</strong>。
   只改一個字再傳，是不是只多了一兩塊、其他塊都沿用？這就是<strong>增量同步</strong>。兩邊基於同版各改一次，是不是兩份都被留下？這就是<strong>衝突副本</strong>。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>四個小檔</strong>，剛好對應前面講的四關。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 四個檔 = 四個小幫手</span>
+    <strong>Chunker</strong>（把檔案切塊、算指紋的切紙機）→ <strong>BlobStore</strong>（倉庫：一樣的塊只收一份）→ <strong>FileIndex</strong>（帳本：記每版是哪串塊）→ <strong>SyncService</strong>（總管：串起去重、增量、衝突）。一次上傳，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>分塊 + 指紋：把報告拆成一頁一頁（Chunker）</h3>
+    <p>第一關，把檔案<strong>切成固定大小的小塊</strong>，並幫每一塊<strong>算一個指紋（hash）</strong>。指紋就是後面去重、比對的鑰匙。</p>
+<pre><code>function 切塊(內容) {
+    塊清單 = []
+    一塊一塊往後切（每塊固定大小，例如 16 個位元組）:
+        這塊 = 內容的這一段
+        塊清單.加入({ 指紋: 算指紋(這塊), 內容: 這塊 })
+    return 塊清單
+}
+function 算指紋(資料) {
+    return "sha256:" + sha256(資料)   // ← 內容一樣 → 指紋一定一樣
+}</code></pre>
+    <p class="codecaption">關鍵就是<strong>算指紋</strong>那一行：相同內容必得相同指紋。這個「<strong>同內容 → 同指紋</strong>」的特性，正是下一關「指紋一樣就不再存」能成立的地基。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>去重：指紋一樣就不再存（BlobStore）</h3>
+    <p>要把一塊存進倉庫前，先看「<strong>這個指紋我有沒有？</strong>」。有了就<strong>不再存第二份</strong>，只把「被幾個人用著」的計數加一。這就是「相同段落寫『同上』」。</p>
+<pre><code>function 存一塊(指紋, 資料) {
+    if (倉庫裡已經有這個指紋) {
+        引用計數[指紋] += 1     // ← 同上！不重抄，只記「我也用這塊」
+        累計省下的空間 += 資料大小
+        return 去重命中          // 沒有真的多存
+    }
+    倉庫[指紋] = 資料            // 第一次見到，才真的落地一份
+    引用計數[指紋] = 1
+    return 新存了一塊
+}</code></pre>
+    <p class="codecaption">就這個 <code>if</code>：<strong>指紋一樣 = 內容一樣 → 直接跳過不存</strong>。光這招就能省下接近一半的硬碟。<code>引用計數</code> 是為了刪檔時知道「這塊還有沒有別人在用」，歸零才能安全清掉。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>增量同步：只算出缺的那幾塊（SyncService）</h3>
+    <p>上傳一個檔案，<strong>不是整檔硬塞</strong>，而是先切塊算指紋，再<strong>一個一個問倉庫「這塊你有嗎？」</strong>，挑出<strong>缺的（missing）</strong>才傳。這就是「改報告只寄修改頁」。</p>
+<pre><code>function 上傳(檔案, 內容, 裝置, 基底版本) {
+    塊清單 = 切塊(內容)                    // ← 第 1 關
+
+    缺的塊 = []
+    for 每一塊 in 塊清單:
+        if (倉庫沒有這塊的指紋)
+            缺的塊.加入(這塊)             // ← delta：只挑出新出現的塊
+
+    // ……（先做衝突偵測，見第 4 關）……
+
+    只把「缺的塊」存進倉庫             // ← 省頻寬 + 去重
+    沿用的舊塊只把引用計數 +1
+    新版本 = 帳本.提交(檔案, 塊清單的指紋, 裝置)
+    return { 共幾塊, 缺幾塊, 沿用幾塊 }   // 沿用越多 = 省越多
+}</code></pre>
+    <p class="codecaption">重點是那個 <code>if (倉庫沒有這塊)</code>：只有沒見過的塊才進 <code>缺的塊</code>。改一個字的大檔，<strong>只有變動那一兩塊算「缺」</strong>，其餘整批沿用——傳輸量只跟「你改了多少」有關。</p>
+    <p class="pause">💭 停一下：為什麼是「一塊一塊問倉庫缺不缺」，而不是「比對上一版的塊清單」？兩種想法會得到一樣的結果嗎？</p>
+    <details class="qa"><summary>看答案</summary>
+      結果幾乎一樣，但「問倉庫」更強：它連<strong>別人</strong>傳過的相同塊也算「已有」（跨檔去重），不只是「跟我上一版比」。所以 demo 直接問倉庫——沒見過才傳，自然同時做到「只傳改動」和「跨檔去重」兩件事。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>衝突副本：兩邊都改，留兩份（SyncService）</h3>
+    <p>提交新版本前，先看一句「<strong>我基於的版本，是不是已經落後了？</strong>」如果有人搶先提交過，就<strong>不硬蓋</strong>，把較晚這份<strong>另存成衝突副本</strong>，兩份都留。</p>
+<pre><code>伺服器版本 = 帳本.最新版本(檔案)
+有衝突 = (伺服器版本 &gt; 0 且 基底版本 &lt; 伺服器版本)
+//        ↑ 我以為是第 7 版，但伺服器已經是第 9 版 → 有人搶先了
+
+if (有衝突) {
+    // 不偷偷覆蓋！另存一份，名字標清楚是誰的衝突副本
+    衝突檔名 = 檔案 + "（" + 裝置 + " 的衝突副本）"
+    存缺的塊；帳本.提交(衝突檔名, 塊清單, 裝置)
+    return { 狀態: "conflict", 衝突副本: 衝突檔名 }   // ← 兩份都在
+}
+// 沒衝突，才正常提交成新版本</code></pre>
+    <p class="codecaption">核心就那行 <code>基底版本 &lt; 伺服器版本</code>：一旦成立就代表「<strong>我改的時候，別人已經先改過了</strong>」。系統<strong>絕不靜默覆蓋</strong>，寧可留兩份讓你自己選，這就是<code>report（裝置B 的衝突副本）.docx</code> 的由來。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 切塊 + 算指紋</td><td>Chunker</td><td><code>切塊()</code> + <code>算指紋()</code></td></tr>
+      <tr><td>② 去重（同上不重抄）</td><td>BlobStore</td><td><code>存一塊()</code> 的那個 if</td></tr>
+      <tr><td>③ 增量同步（只傳改動）</td><td>SyncService</td><td>挑出 <code>缺的塊</code> 的迴圈</td></tr>
+      <tr><td>④ 衝突就留兩份</td><td>SyncService</td><td><code>基底版本 &lt; 伺服器版本</code> 的判斷</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 一塊塊問」換成<strong>內容定址儲存（S3/物件儲存）+ 分片帳本 + Redis</strong>，
+  切塊也會從「固定大小」升級成「看內容切（CDC）」，但<strong>分塊去重、delta 增量、衝突留兩份這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「寄 300 頁報告」解釋，為什麼不能每次都整檔重傳？</summary>
     報告只改了第 5 頁，沒人會把整本 300 頁重印重寄，只會重寄改過那一頁。檔案同步一樣：先把檔案切成小塊，只傳變動的塊，頻寬成本只跟「改了多少」有關，跟「檔案多大」無關。</details>
@@ -349,7 +443,7 @@ php -S localhost:8020 -t public
   <details class="qa"><summary>Q7（工程）：刪檔時為什麼不能馬上把它的塊清掉？怎麼處理？</summary>
     因為去重的關係，同一塊可能被很多檔案、很多版本共用。要用「引用計數（ref_count）」記「還有幾個人在用」，歸零後再加一段寬限期才真的回收，否則會誤刪別人還在用的內容。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>Dropbox 同步 = 把檔案切成小塊的聰明同步。</strong></p>
     <p><strong>4 個關卡：</strong>① 切塊（拆成一頁頁）→ ② 去重（相同塊只存一份，像「同上不重抄」）→ ③ 增量同步（只傳改動的塊，像「改報告只寄修改頁」）→ ④ 衝突就留兩份（不偷偷覆蓋）。</p>

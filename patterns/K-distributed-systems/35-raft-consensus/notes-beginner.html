@@ -72,6 +72,7 @@
       <li><a href="#data">每台機器要記住哪些事？（狀態資料）</a></li>
       <li><a href="#scale">為什麼不是越多台越好？（擴展與取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -342,7 +343,135 @@ php -S localhost:8035 -t public
     真實的 Raft 靠背景計時器自動跑，但 PHP 沒有常駐背景行程，所以 demo 改成<strong>你按一下 tick、時間就走一步</strong>。
     好處是你可以<strong>慢動作觀察</strong>選舉與複製的每一步，看得比真實系統還清楚。選舉、投票限制、過半數定案這些<strong>核心規則都是真的</strong>。</div>
 
-  <h2 id="quiz">12. 考考自己</h2>
+  <h2 id="code">12. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「前面那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：整個 Raft 核心就放在<strong>一個檔（<code>RaftCluster.php</code>）</strong>裡，可以拆成<strong>四個小幫手</strong>，剛好對應前面講的工作。
+  <strong>不用會 PHP</strong>，我把程式翻成白話、變數改中文、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 四段程式 = 四個小幫手</span>
+    <strong>tick（時間鐘）</strong>：每走一步，組員倒數「還要多久沒收到心跳就舉手」→
+    <strong>startElection / RequestVote（拉票＋檢查清單夠不夠新）</strong>：舉手選組長 →
+    <strong>AppendEntries（組長念、大家對齊著抄）</strong>：抄清單＋一致性檢查 →
+    <strong>advanceCommit / apply（過半數才定案、定案才真的去做）</strong>：把「抄好的」變成「算數的」。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>時間鐘：每走一步，沒收到心跳就準備舉手（tick）</h3>
+    <p>真實 Raft 每台機器背景各有一個計時器在跑；這個 demo 沒有背景行程，改成<strong>你按一下 tick、時間就走一格</strong>，
+    每走一格就讓每個組員的「<strong>選舉倒數</strong>」減一。倒數歸零＝「等太久沒組長訊息」→ 舉手選舉。</p>
+<pre><code>function 走一步() {
+    for (每個還活著的節點) {
+        if (它是組長) 心跳倒數--;          // 組長：該發心跳了沒？
+        else          選舉倒數--;          // 組員：還要多久沒消息就舉手？
+    }
+    for (每個組長) if (心跳倒數 &lt;= 0)
+        發心跳並抄清單給大家;              // ← 報平安，順便把清單同步過去
+    for (每個組員) if (選舉倒數 &lt;= 0)
+        發起選舉(它);                      // ← 等太久了 → 舉手喊「選我」
+    套用已定案的指令到狀態機();           // ← 定案的才真的去執行
+}</code></pre>
+    <p class="codecaption">這就是前面說的「組長定時<strong>報平安（心跳）</strong>，組員<strong>等不到就舉手</strong>」。
+    每個人初始倒數是<strong>隨機錯開</strong>的（避免大家同時舉手分票）。真實系統把「按 tick」換成背景隨機計時器，<strong>邏輯一模一樣</strong>，只是這裡用手動慢動作播放。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>拉票：舉手選組長，但「清單太舊」會被拒投（RequestVote）</h3>
+    <p>舉手的人先把自己升成候選人：<strong>屆數＋1、投自己一票</strong>，再挨家挨戶問「投我好嗎？」。
+    重點是別人<strong>投票前會檢查你的清單夠不夠新</strong>——這就是「<strong>清單舊的不能當組長</strong>」那條保命規則藏在程式裡的地方。</p>
+<pre><code>function 發起選舉(候選人) {
+    候選人.屆數++;                         // 開新的一屆
+    候選人.角色 = 候選人;  投自己一票;
+    for (每個別的活節點 as 對方) {
+        if (我的屆數 &gt; 對方.屆數)            // 看到更高屆 → 對方先退位、跟上屆數
+            對方 變回組員、屆數跟上;
+        if (對方願意投我) 票數++;           // ↓ 願不願意投，看下面這段
+    }
+    if (票數 &gt;= 過半數) 當選組長並立刻發心跳;  // 壓住其他候選人
+}
+
+function 對方要不要投我(對方, 我的屆數, 我清單最後一格, 我最後一格的屆數) {
+    if (我的屆數 &lt; 對方.屆數)        return 不投;   // 你那屆太舊了
+    if (對方這屆已投過別人)          return 不投;   // 每屆只能投一票
+    清單夠新 = (我最後一格的屆數 &gt; 對方的)
+            || (屆數一樣 且 我清單 &gt;= 對方清單長);
+    if (!清單夠新)                  return 不投;   // ← 關鍵！清單落後就拒投
+    對方.這屆投給 = 我;  return 投;
+}</code></pre>
+    <p class="codecaption">中間那兩個「<strong>每屆只投一票</strong>」＋「<strong>要過半數才當選</strong>」，就是 Part 1 說的「<strong>數學上不可能有兩個組長</strong>」。
+    最後那行「清單不夠新就拒投」則保證新組長手上<strong>一定有全部已定案的指令</strong>。真實系統把這段「同一個 process 內的函式呼叫」換成<strong>真的網路 RPC</strong>，判斷邏輯一字不改。</p>
+    <p class="pause">💭 停一下：為什麼候選人一開新屆，就要先「投自己一票」？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為當選門檻是「<strong>過半數</strong>」，自己這票也算數。3 台時過半數是 2，候選人有自己 1 票，只要再說服 1 個組員就夠了。自己不投自己，等於白白少一票。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>抄清單：組長念、大家對齊著抄；對不上就退一格重抄（AppendEntries）</h3>
+    <p>當上組長後，就把指令<strong>抄給每個組員</strong>。但不能硬塞——要先<strong>對齊</strong>：
+    「你前一格<strong>應該</strong>是第幾格、第幾屆寫的？」對得上才往下抄，對不上就<strong>往前退一格</strong>再問，直到兩人接得上。</p>
+<pre><code>// 組長端：對每個組員抄清單（對不上就退一格重試）
+function 組長抄清單給組員(組員) {
+    要抄的起點 = 我記的「該從第幾格抄給他」;
+    while (true) {
+        前一格 = 要抄的起點 - 1;
+        if (組員抄成功(我的屆數, 前一格, 前一格的屆數, 起點之後的所有指令, 我定案到哪)) {
+            記下「他已對齊到我清單末端」;  break;   // 成功 → 更新 matchIndex
+        }
+        要抄的起點--;                              // ← 失敗：退一格再試（直到接得上）
+    }
+}
+
+// 組員端：收到組長的「抄清單」要求
+function 組員抄成功(組長屆數, 前一格, 前一格屆數, 新指令[], 組長定案到哪) {
+    if (組長屆數 &lt; 我的屆數)          return 失敗;   // 是舊組長，不理他
+    我的屆數 = 組長屆數;  我變回組員;  重設選舉倒數;  // ← 收到合法心跳就別舉手了
+    if (前一格 &gt; 0 且 我第「前一格」的屆數 != 前一格屆數)
+        return 失敗;                                // ← 對不上！請組長退一格
+    把我清單「前一格」之後砍掉，換成組長給的新指令;     // 衝突就覆蓋
+    if (組長定案到哪 &gt; 我的定案) 我的定案 = 跟上(別超過自己清單長);
+    return 成功;
+}</code></pre>
+    <p class="codecaption">這正是前面「組長念出第 5 條、大家抄到第 5 格；<strong>前幾格要一模一樣</strong>，不一樣就<strong>擦掉重抄</strong>」的比喻。
+    「組員收到合法心跳就<strong>重設選舉倒數</strong>」這行，就是組長靠心跳<strong>壓住大家別亂選</strong>的機制。清單為空時這通電話就只是心跳。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>定案＋執行：過半數抄好了→這條算定案→才真的去做（commit / apply）</h3>
+    <p>這是<strong>全題的心臟</strong>。組長怎麼知道一條指令可以「<strong>定案</strong>」了？答案：<strong>數一數有幾個人抄好了，過半數就定案</strong>。
+    定案之後，每台機器才把它<strong>真的拿去執行</strong>（套到狀態機，例如真的把 x 設成 1）。</p>
+<pre><code>// 組長：找出「過半數都抄好」的最高那格，把定案線往前推
+function 推進定案線(組長) {
+    for (格 = 清單末端; 格 &gt; 目前定案線; 格--) {
+        if (這格不是「我這屆」寫的) continue;       // ← 安全規則：只用當前屆的指令來定案
+        抄好的人數 = 1;                            // 組長自己算一份
+        for (每個組員) if (他已對齊到 &gt;= 這格) 抄好的人數++;
+        if (抄好的人數 &gt;= 過半數) { 定案線 = 格; break; }  // ← 過半數 → 這條定案！
+    }
+}
+
+// 每台機器：把「已定案、但還沒做」的指令一條條真的執行
+function 套用已定案() {
+    while (已執行到 &lt; 定案線) {
+        已執行到++;
+        套到狀態機(清單[已執行到].指令);            // 例：x=1 → KV 裡 x 真的變成 1
+    }
+}</code></pre>
+    <p class="codecaption">所有機器<strong>照同一個順序、套用同一份定案清單</strong>，最後狀態自然一模一樣——這就是「複製狀態機」。
+    那行「<strong>只用我這屆寫的指令來定案</strong>」是 Raft 最細也最重要的安全規則：避免拿舊屆的指令去定案，造成已定案的東西被後來覆蓋。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>對應函式</th><th>關鍵那段</th></tr>
+      <tr><td>① 沒組長就選一個</td><td><code>tick</code> → <code>startElection</code></td><td>選舉倒數歸零 → 舉手</td></tr>
+      <tr><td>② 清單舊的不能當組長</td><td><code>handleRequestVote</code></td><td>「清單夠不夠新」那個 if</td></tr>
+      <tr><td>③ 組長抄清單給大家</td><td><code>AppendEntries</code></td><td>對齊檢查 + 退一格重抄</td></tr>
+      <tr><td>④ 過半數才定案、定案才執行</td><td><code>advanceCommit</code> + <code>apply</code></td><td>數人頭 ≥ 過半數 → 推定案線</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「<strong>同一個 process 內的函式呼叫</strong>」換成<strong>真正的網路 RPC</strong>、把「<strong>手動按 tick</strong>」換成<strong>背景隨機計時器</strong>、清單太長還會用<strong>快照</strong>砍掉舊紀錄。
+  但<strong>選舉、清單複製、過半數定案、term 與選舉限制這些核心邏輯一字都不用改</strong>——這個 demo 只是把它們用<strong>慢動作 tick 模擬</strong>給你看清楚。讀懂這個小檔，你就讀懂了 Raft 的核心。</p>
+
+  <h2 id="quiz">13. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「分組作業」的比喻，說說 Raft 在解什麼問題？</summary>
     一群同學要維護同一份待辦清單，但靠傳訊息溝通、訊息會遲到/漏掉、有人會斷線。Raft 讓大家先選一個組長，之後只聽組長的，組長把指令抄給每個人，過半數抄好才算定案——這樣大家的清單內容與順序就一致了。</details>
@@ -359,7 +488,7 @@ php -S localhost:8035 -t public
   <details class="qa"><summary>Q7（工程）：清單（log）會無限變長，工程上怎麼處理？為什麼讀資料通常走組長？</summary>
     用快照（snapshot）：定期把目前狀態拍照存下，丟掉前面的舊紀錄，重開時從快照恢復就好；落後太多的組員直接收快照追上。讀走組長是因為只有組長最確定「定案到哪」，組員的清單可能還差幾格沒抄到，讀它可能讀到舊值（可用 lease read 讓組長免於每次都跑一輪共識）。</details>
 
-  <h2 id="recap">13. 30 秒回顧</h2>
+  <h2 id="recap">14. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>Raft = 用「選組長」讓一群會掛掉的機器，對同一份清單的內容與順序達成一致。</strong></p>
     <p><strong>4 個關卡：</strong>① 沒組長就選一個（過半數票、隨機逾時避免分票）→ ② 組長把指令抄給大家、過半數才定案 → ③ 清單舊的不能當組長（不丟已定案資料）→ ④ 組長掛了自動重選。</p>

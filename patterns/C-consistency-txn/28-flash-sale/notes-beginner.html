@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -333,7 +334,90 @@ php -S localhost:8028 -t public
     為什麼 1000 人搶、售出剛好 100？因為扣庫存被鎖進「一次只放一人進的小房間」（demo 用檔案鎖 <code>flock</code> 模擬 Redis 原子操作 / 資料庫行鎖）。
     把同一筆帶相同編號連送兩次，看訂單會不會變兩筆——不會，這就是<strong>冪等去重</strong>在運作。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那三關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心邏輯都擠在<strong>同一個小檔（FlashSale）</strong>裡，剛好對應前面講的三個關卡。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 一個小幫手（但裡面有四個機關）</span>
+    這題不像別題拆成好幾個檔，而是把全部機關裝在同一個<strong>FlashSale 小幫手</strong>裡：<strong>領令牌</strong>（門口發手環）→ <strong>下單</strong>（裡面再依序做冪等、限購、原子扣減）。每筆搶購就照這順序跑一遍。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">0</span>那個「一次只放一人進的小房間」（atomic）</h3>
+    <p>先認識全題的地基。所有會改到共享數字（庫存、令牌、已購…）的動作，<strong>都包在這個小房間裡跑</strong>，一次只准一個請求進去。</p>
+<pre><code>function atomic(要做的事) {
+    鎖門(LOCK_EX)              // ← 上門栓，後面的人在門外等
+    讀出目前狀態                // 庫存、令牌、訂單… 全在這份狀態裡
+    新狀態 = 要做的事(目前狀態)  // 在門內安心地「讀-改-寫」
+    寫回新狀態
+    開門(LOCK_UN)              // ← 開門，放下一個人進來
+}</code></pre>
+    <p class="codecaption">第 2 節說的「<strong>讀和減之間的空檔被人插隊</strong>」，就靠這個鎖門/開門堵死。進門的人從讀到寫整段都<strong>不會被打斷</strong>，下一個人進來時看到的一定是最新數字——這就是「原子」。下面三關全都在這個房間裡發生。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>削峰：門口發限量手環（issueToken）</h3>
+    <p>第一關，發<strong>限量入場令牌</strong>。發完了就把人擋在門外（請排隊），<strong>後面的下單根本碰不到庫存</strong>。</p>
+<pre><code>function 領令牌(使用者) = atomic( 狀態 =&gt; {
+    if (已發數量 &gt;= 令牌上限)
+        return 回「排隊中(queued)」    // ← 手環發完 → 擋在門外
+    已發數量 = 已發數量 + 1
+    token = 隨機產生一張
+    令牌池[token] = 使用者            // 記住這張是誰的
+    return { token }                 // 拿到才有資格下單
+})</code></pre>
+    <p class="codecaption">這就是<strong>夜店門口的手環</strong>。令牌上限通常設得<strong>略多於庫存</strong>（留點緩衝），但仍遠小於湧入人數，所以 99% 的人卡在這關。注意整段在 <code>atomic</code> 房間裡，所以「已發數量」並發下也不會被灌爆。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>下單三連檢查：冪等 → 限購 → 原子扣減（buy）</h3>
+    <p>這是<strong>全題的心臟</strong>。一筆下單進到房間後，<strong>照順序</strong>過三道關卡，任何一關不過就退回：</p>
+<pre><code>function 下單(使用者, 存根編號, token) = atomic( 狀態 =&gt; {
+
+    // (0) 冪等：這張存根編號處理過了嗎？
+    if (冪等簿有這張編號)
+        return 直接回上次的訂單結果      // ← 手滑點兩次／重送 → 不重扣
+
+    // (1) 令牌驗證：手上這張手環有效、且是你的嗎？
+    if (需要令牌 且 令牌無效)
+        return 回「invalid_token」
+
+    // (2) 每人限購：你已經買的 + 這次 會不會超過上限？
+    已購 = 每人已購簿[使用者]
+    if (已購 + 這次數量 &gt; 每人限購)
+        return 回「limit_exceeded」      // ← 擋黃牛掃貨
+
+    // (3) 原子條件扣減（核心！）：只有「還有貨」才扣
+    if (剩餘 &lt; 這次數量)
+        return 回「sold_out」            // ← 沒貨了，絕不硬扣 → 不超賣
+    剩餘 = 剩餘 - 這次數量               // 扣庫存（這一步保證售出 ≤ 庫存）
+    每人已購簿[使用者] = 已購 + 這次數量
+
+    建立訂單(...)                       // 落單（真實系統丟 MQ 慢慢做）
+    消耗掉這張令牌(token)               // 手環一次性，用過作廢
+    冪等簿[存根編號] = 這次的訂單結果    // (6) 記起來，之後重送回這筆
+    return { 訂單編號, 剩餘 }
+})</code></pre>
+    <p class="codecaption">看 (3) 這幾行：<strong>先檢查 <code>剩餘 &lt; 數量</code> 就回 sold_out，否則才減一</strong>——而且整段都在 <code>atomic</code> 房間裡，所以「檢查還有貨 + 扣減」是<strong>同一個不可打斷的動作</strong>，這就是<strong>原子條件扣減</strong>，第 2 節的超賣 race 從根上被堵死。(0) 的冪等、(2) 的限購也都因為在同一個房間裡，<strong>並發無法繞過</strong>。</p>
+    <p class="pause">💭 停一下：為什麼「每人限購」這個檢查也一定要放進 <code>atomic</code> 房間裡，不能在外面先檢查？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為如果在門外檢查，同一個人<strong>同時送兩筆</strong>下單，兩筆都會讀到「已購 = 0」、都覺得沒超限，於是雙雙放行 → 一個人買了兩個，限購形同虛設。只有把「<strong>讀已購 + 比上限 + 寫回</strong>」鎖進房間一次只放一人，限購才真的擋得住——這跟防超賣是<strong>同一招</strong>。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個函式</th><th>關鍵那段</th></tr>
+      <tr><td>地基：一次只放一人的小房間</td><td><code>atomic()</code></td><td>鎖門 → 讀-改-寫 → 開門</td></tr>
+      <tr><td>① 令牌削峰</td><td><code>issueToken()</code></td><td>已發 ≥ 上限就回 queued</td></tr>
+      <tr><td>③ 冪等去重</td><td><code>buy()</code> (0)</td><td>冪等簿有這張編號 → 回原結果</td></tr>
+      <tr><td>每人限購擋黃牛</td><td><code>buy()</code> (2)</td><td>已購 + 數量 &gt; 上限 → 退回</td></tr>
+      <tr><td>② 原子條件扣減防超賣</td><td><code>buy()</code> (3)</td><td>剩餘 &lt; 數量回 sold_out，否則減一</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：這個 demo 為了好懂，用<strong>檔案鎖 <code>flock</code> ＋ 一份 JSON 狀態檔</strong>來扮演「那個小房間」。真實系統會把庫存熱點搬到 <strong>Redis</strong>，用 <code>DECR</code> 或 <strong>Lua 腳本</strong>做原子條件扣減（或資料庫的 <code>UPDATE … SET remaining=remaining-1 WHERE remaining&gt;0</code> 靠行鎖），落單走 <strong>MQ</strong>、令牌做排隊削峰。
+  但<strong>「原子條件扣減 / 令牌削峰 / 冪等去重 / 限購」這四段判斷邏輯一字都不用改</strong>——換的只是更快、能水平擴展的工具。讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「兩個人搶最後一罐奶粉」解釋，超賣為什麼會發生？</summary>
     兩人「同時」讀到「還有 1 罐」，都以為自己買得到，各自扣 1，結果賣了 2 個但只有 1 個庫存。問題出在「讀」和「減」之間有空檔被人插隊。解法是把「檢查還有貨＋扣減」綁成不可打斷的原子操作。</details>
@@ -350,7 +434,7 @@ php -S localhost:8028 -t public
   <details class="qa"><summary>Q7（工程）：所有人都扣同一個庫存數字會塞車，怎麼拓寬？有什麼代價？</summary>
     用「庫存分桶 / sharding」：把 1000 張拆成 10 桶各 100，請求分散到不同桶各自原子扣，吞吐變大。代價是會出現「某桶賣完、別桶還有」的碎片，需要跨桶調度把零頭湊起來借用。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>秒殺 / 搶票 = 百萬人同時搶少量庫存，而你絕不能賣超過。</strong></p>
     <p><strong>3 個關卡：</strong>① 門口發<strong>令牌削峰</strong>（夜店手環，擋掉 99%）→ ② <strong>原子條件扣減</strong>（一次只放一人進的小房間，只有還有貨才扣）→ ③ <strong>冪等鍵去重</strong>（票根存根，手滑點兩次只算一次）+ 每人限購擋黃牛。</p>

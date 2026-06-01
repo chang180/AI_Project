@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -309,7 +310,99 @@ php -S localhost:8018 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把座標移到一格的<strong>邊緣</strong>，看看「9 格粗篩」是不是仍然抓到了隔壁格的店——這就是<strong>關卡 2 的補鄰格防漏</strong>在運作。把半徑調很小，看結果怎麼變少；把它調很大，看它是不是得掃更多格子。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那 3 關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心就<strong>兩個小檔</strong>——一個算「郵遞區號代碼」，一個拿代碼去查附近。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>GeoHash</strong>（發郵遞區號的人：把經緯度編成代碼，還會列出「隔壁那幾格」）→ <strong>SpatialIndex</strong>（管網格索引的人：拿代碼粗篩 9 格，再精算距離排序）。一次查詢，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>發郵遞區號：把經緯度編成代碼（GeoHash.encode）</h3>
+    <p>第一關的核心動作：把「經度、緯度」這兩個數字，壓成一條字串代碼。手法是<strong>輪流對半切地圖</strong>——這一刀切經度、下一刀切緯度，落在右半邊記 1、左半邊記 0，切越多次代碼越長、格子越小。</p>
+<pre><code>function 編碼(緯度, 經度, 代碼長度) {
+    經度範圍 = [-180, 180]; 緯度範圍 = [-90, 90]
+    代碼 = ""
+    while (代碼還不夠長) {
+        // 輪流切：先切經度，再切緯度，交錯進行
+        中點 = 這次要切的範圍取中間
+        if (座標 &gt;= 中點) { 記下 1; 範圍縮到右半 }
+        else            { 記下 0; 範圍縮到左半 }
+        每湊滿 5 個 0/1 → 查表換成 1 個字母接到代碼後面
+    }
+    return 代碼     // 例如 "wsq6m"
+}</code></pre>
+    <p class="codecaption">關鍵就是「<strong>輪流對半切</strong>」這招：因為兩個相近的點，前面幾刀一定切在同一邊，所以<strong>代碼開頭就會一樣</strong>——這正是「位置越近、代碼開頭越像」的由來，也就是前面說的「地圖的郵遞區號」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>列出隔壁格：站在邊緣也不漏（GeoHash.neighbors）</h3>
+    <p>這段就是<strong>關卡 2「補鄰格防漏」的本尊</strong>。給一個格子代碼，回傳「它自己 + 周圍 8 格」共 9 個代碼。作法很直覺：先反推出這格的中心點和「一格有多寬多高」，再往<strong>上下左右斜角八個方向各位移一格</strong>，重新編碼。</p>
+<pre><code>function 鄰居(格子代碼) {
+    中心點, 一格的寬高 = 反推這個代碼涵蓋的範圍
+    九格 = { 自己 }
+    for 上下移 in [-1, 0, 1]:
+      for 左右移 in [-1, 0, 1]:
+        新中心 = 中心點往這個方向移一格的寬高
+        // 緯度別超過南北極；經度過了換日線要繞回來
+        if (緯度超界) 跳過
+        if (經度 &gt; 180) 經度 -= 360
+        九格.加入( 編碼(新中心) )   // 重新算出隔壁格的代碼
+    return 九格的代碼清單        // 最多 9 個（去重）
+}</code></pre>
+    <p class="codecaption">就這個雙層迴圈把「周圍 8 格」一次算齊。對應比喻：<strong>你家在巷口（格子邊緣），最近的超商在隔壁里——把隔壁 8 個里一起看，就不會漏。</strong>這跟第②題地震預警「連旁邊 8 格一起撈」是<strong>同一招</strong>。</p>
+    <p class="pause">💭 停一下：為什麼算鄰格不是「把代碼字串 +1」，而要先反推中心點、再位移、再重新編碼？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為 geohash 代碼<strong>不是連續編號</strong>——相鄰的兩格代碼字串差很多（甚至開頭不同），直接「字串 +1」會跳到完全不相干的地方。唯一可靠的方法是回到真實世界的經緯度：<strong>找出中心點 → 往該方向移動「一格的實際寬高」→ 重新編碼</strong>，才會得到真正在隔壁的那格。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>半徑查詢：9 格粗篩 → haversine 細算排序（SpatialIndex.nearby）</h3>
+    <p>這是<strong>整題的主流程</strong>，把前兩關串起來：先用 neighbors 拿到 9 格，只掃這 9 格的店當候選（<strong>粗篩</strong>），再對候選一家家量真實距離、過濾、排序（<strong>細算</strong>）。</p>
+<pre><code>function 找附近(緯度, 經度, 半徑, 類別, 最低評分) {
+    中心格 = 編碼(緯度, 經度)
+    九格   = 鄰居(中心格)              // ← 關卡2：中心格 + 8 鄰格
+    命中 = []
+    for 格子 in 九格:
+      for 店 in 這格裡的店:           // ← 粗篩：只碰這 9 格的候選
+          if (類別不符 或 評分太低) 跳過      // 順手過濾條件
+          距離 = haversine(我, 店)          // ← 細算：地球實際距離
+          if (距離 &lt;= 半徑) 命中.加入({店, 距離})
+    把命中「由近到遠」排序
+    return 前 20 家（分頁）
+}</code></pre>
+    <p class="codecaption">看出「<strong>先粗後細</strong>」了嗎？粗篩把 2 億家瞬間縮到 9 格裡的幾十家；只有這幾十家才需要跑 haversine 精算。<code>haversine</code> 就是「算地球上兩點實際距離」的公式，是排序的依據。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>最近 K：湊不滿就放大格子（SpatialIndex.nearestK）</h3>
+    <p>「最近 5 家」就算你在郊區也<strong>保證湊滿</strong>。訣竅：先用最細的格子找，<strong>候選不夠 K 家就把格子放大</strong>（縮短代碼前綴）再找，直到湊滿。</p>
+<pre><code>function 最近K家(緯度, 經度, K) {
+    for 代碼長度 from 最細 downto 1 {     // ← 從小格子開始，不夠就放大
+        九格 = 鄰居( 編碼(緯度, 經度, 這個長度) )
+        命中 = 撈這 9 格的店，逐家算距離
+        if (命中數 &gt;= K)
+            return 命中排序後的前 K 家      // 湊滿了，收工
+        // 否則格子再放大一級，繼續找
+    }
+}</code></pre>
+    <p class="codecaption"><strong>代碼前綴越短 = 格子越大 = 涵蓋範圍越廣</strong>。郊區附近很空時，就靠這招一級一級放大搜尋範圍，直到找滿 K 家——這就是①「半徑查詢」可能撲空、②「最近 K」一定有答案的差別所在。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 粗篩：算出你這格</td><td>GeoHash</td><td><code>encode()</code> 輪流對半切</td></tr>
+      <tr><td>② 補鄰格防漏</td><td>GeoHash</td><td><code>neighbors()</code> 的雙層迴圈</td></tr>
+      <tr><td>③ 精算距離、排序</td><td>SpatialIndex</td><td><code>nearby()</code>：9 格粗篩 + haversine 細算</td></tr>
+      <tr><td>＋最近 K（一定湊滿）</td><td>SpatialIndex</td><td><code>nearestK()</code>：不夠就放大格子</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈過濾」換成 <strong>Redis GEO</strong> 或 <strong>Elasticsearch</strong> 的地理查詢，
+  撈候選不再是手寫迴圈、而是底層 O(log N) 的排序集。但<strong>「geohash 粗篩 → 補周圍鄰格 → 對候選 haversine 細篩排序」這套邏輯一字都不用改</strong>——工具換了，骨架一樣。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「郵遞區號」解釋，為什麼不用把 2 億家店一個個量距離？</summary>
     因為 geohash 把每個位置編成一個代碼，「開頭一樣 = 地理相近」。先用你所在那格的代碼前綴，秒撈出同格的幾十家店當候選，再對這一小撮精算距離——先粗篩、再細算，不用碰其他 1.9999 億家。</details>
@@ -326,7 +419,7 @@ php -S localhost:8018 -t public
   <details class="qa"><summary>Q7（工程）：什麼時候 geohash 會不夠用？要換成什麼？</summary>
     當資料密度極不均（市區一格擠爆、海上的格子全空）時，geohash 固定格子大小就不划算。改用 QuadTree 或 Google S2：人多的地方自動切細、人少的地方切粗，邊界處理也更精確。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>找附近 = 用「位置郵遞區號(geohash)」先框出同格的店，再精算距離排序。</strong></p>
     <p><strong>3 個關卡：</strong>① 用 geohash 框出你這格 → ② 連周圍 8 格一起撈（防邊界漏掉）→ ③ 對這幾十家精算距離、過濾、由近到遠排序。</p>

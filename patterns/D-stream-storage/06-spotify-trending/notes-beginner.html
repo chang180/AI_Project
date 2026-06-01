@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -328,7 +329,106 @@ php -S localhost:8006 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>多按幾次「套用衰減」，是不是榜上的老歌排名一直往下、最近狂播的歌往上爬？這就是<strong>關卡 4 的時間衰減（退燒）</strong>在運作。再看「估計值 ≥ 真值」永遠成立——這就是小量杯「<strong>只會偏多、取 min 最接近真相</strong>」的特性。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>CountMinSketch</strong>（估每首歌大概幾次的「小量杯」，含退燒）→ <strong>TopK</strong>（只放 K 格的「VIP 席」＝排行榜）→ <strong>EventStore</strong>（把工人腦中的狀態存起來，讓多次看榜能接著算）。一筆播放事件來了，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>小量杯：用固定幾格估每首歌幾次（CountMinSketch）</h3>
+    <p>核心就是一塊<strong>固定 d 排 × w 格</strong>的計數板。每首歌用名字算出「該記在哪幾格」，播一次就在那幾格各 +1：</p>
+<pre><code>// 計數板：d 排、每排 w 格，全部從 0 開始
+// 不管 1 億首還是 10 億首歌，板子大小固定不變 ← 記憶體可控的關鍵
+
+function 哪一格(第幾排, 歌名) {
+    雜湊 = crc32(歌名 + 這排專屬種子)   // 每排用不同種子 → 算出不同位置
+    return 雜湊 % w                     // 落在 0 ~ w-1 的某一格
+}
+
+function 計入(歌名) {
+    for (第幾排 = 0 .. d-1)
+        板子[第幾排][ 哪一格(第幾排, 歌名) ] += 1   // 每排都 +1（共 d 格）
+}</code></pre>
+    <p class="codecaption">這就是「<strong>舀一小量杯估個大概</strong>」的板子。不同的歌偶爾會擠到同一格（撞格子），所以某格可能被別人灌水、<strong>偏多一點</strong>——但板子大小固定，這正是它省記憶體的本錢。</p>
+    <p>查一首歌大概幾次時，看它對應的那 d 格、<strong>取最小的那個</strong>：</p>
+<pre><code>function 估計(歌名) {
+    最小值 = 無限大
+    for (第幾排 = 0 .. d-1)
+        最小值 = min( 最小值, 板子[第幾排][ 哪一格(第幾排, 歌名) ] )
+    return 最小值    // ← 被灌水只會變大，取最小那格最接近真相
+}</code></pre>
+    <p class="codecaption">為什麼取 min？因為撞格子只會讓數字<strong>變大、不會變小</strong>，所以那幾格裡最小的那個，最接近真值。這也是 demo 頁面上「<strong>估計值永遠 ≥ 真值</strong>」的由來。</p>
+    <p class="pause">💭 停一下：為什麼不取那幾格的「平均」或「最大」，偏偏要取「最小」？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為每一格都<strong>可能被別的歌灌水（只會偏多）、絕不會偏少</strong>。所以這幾格全都是「真值 + 一些別人的灌水」。灌水最少的那一格＝數字最小的那一格，自然最貼近真值。取平均或最大反而把別人的灌水也算進來，誤差更大。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>退燒：定期把整塊板子打折（CountMinSketch.decay）</h3>
+    <p>這是「總量榜」變「趨勢榜」的分水嶺。每隔一輪，把<strong>整塊板子的每一格都乘上一個衰減係數</strong>（例如 0.9）：</p>
+<pre><code>function 衰減(λ) {              // λ 例如 0.9
+    for (每一格 in 板子)
+        每一格 = floor(每一格 × λ)   // 全部打 9 折，舊播放一輪一輪淡掉
+}</code></pre>
+    <p class="codecaption">就像<strong>新聞熱度會退燒</strong>：每打一次折，舊播放的影響就淡一截，而新播放是用「+1」剛加進來的、幾乎沒被打折。連打幾輪，最近狂飆的新歌自然浮上來、陳年老歌往下沉——這就是趨勢榜的靈魂。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>VIP 席：只放 K 個位子的排行榜（TopK）</h3>
+    <p>小量杯只能「給一首歌估個數字」，<strong>不會自己吐出前 K 名是誰</strong>。所以另外擺一個<strong>只有 K 格的 VIP 席</strong>。每來一筆播放，先讓量杯 +1、估出最新分數，再嘗試擠進席位：</p>
+<pre><code>function 餵入(歌名) {
+    量杯.計入(歌名)              // ① 先讓小量杯 +1
+    分數 = 量杯.估計(歌名)        // ② 估出這首歌最新分數
+
+    if (歌名 已在席內)  { 更新它的分數; return }   // 已在榜上 → 刷新分數
+    if (席內還沒坐滿 K 個) { 收進來; return }       // 還有空位 → 直接坐進來
+
+    // 席滿了：找出「目前席內分數最低的那位」
+    最低者 = 席內分數最小的歌
+    if (分數 &gt; 最低者的分數) {     // ③ 新人比最低的高 → 換人
+        踢掉 最低者
+        收進 歌名
+    }
+}</code></pre>
+    <p class="codecaption">這就是「<strong>100 格 VIP 席 + 門口保鏢盯著最低分那位</strong>」。<strong>量杯估分數、VIP 席排名次，兩個缺一不可</strong>——這是這題最常被考倒的點。demo 為了好懂用一個迴圈找最低者；真實系統把它換成 <strong>min-heap（小頂堆）</strong>，堆頂永遠是最低分，換人是 O(log K)——<strong>邏輯一模一樣</strong>，只是換更快的工具。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>衰減後刷新榜 + 存狀態（TopK.decay + EventStore）</h3>
+    <p>打完折別忘了：席內每首歌的分數都變小了，要<strong>用量杯重新估一次、刷新席位分數</strong>，舊歌才會真的往下掉：</p>
+<pre><code>function 席位衰減(λ) {
+    量杯.衰減(λ)                       // 整塊板子先打折（退燒）
+    for (歌名 in 席內每一位)
+        席內[歌名] = 量杯.估計(歌名)    // 用打折後的板子重估，刷新席位分數
+}</code></pre>
+    <p class="codecaption">這樣「最近沒人播」的老歌分數會一路下滑、可能跌出榜，反映趨勢變化。</p>
+    <p>最後，因為 PHP 內建伺服器每次請求是<strong>從零開始</strong>的，要把工人腦中的板子與席位<strong>存進一個 JSON 檔</strong>，下次請求才能接著累積：</p>
+<pre><code>function 存檔(狀態) {                  // 狀態 = { 板子, 席位, 精確值, 事件數 }
+    寫入 state.json（json 格式, 加檔案鎖避免並行寫壞）
+}
+function 讀檔() {
+    if (檔案不存在) return 空狀態      // 空狀態裡放一塊全 0 的新板子
+    return 從 state.json 還原回來
+}</code></pre>
+    <p class="codecaption">demo 還順手存了一份<strong>「精確計數」</strong>，純粹是為了在頁面上跟量杯估計值對照，讓你親眼看到「<strong>估計值 ≥ 真值</strong>」的誤差。真實系統不會這樣存，這份精確值只是教學用的對照組。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>② 用小量杯估每首歌幾次</td><td>CountMinSketch</td><td><code>計入()</code> + <code>估計()</code> 取 min</td></tr>
+      <tr><td>④ 讓榜退燒</td><td>CountMinSketch</td><td><code>衰減()</code> 整塊板子打折</td></tr>
+      <tr><td>③ 挑前 K 名</td><td>TopK</td><td><code>餵入()</code> 的「換人」判斷</td></tr>
+      <tr><td>把狀態存起來</td><td>EventStore</td><td><code>存檔()</code> / <code>讀檔()</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈找最低者」換成「<strong>Redis / Flink 串流邊流邊算 + min-heap + state backend</strong>」，
+  但<strong>上面這幾段「近似計數取 min、量杯估分 VIP 席排名、定期打折退燒」的邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「量杯估米」解釋，為什麼趨勢榜不需要精確計數？</summary>
     因為榜只在乎「相對名次」，每首歌都被估得稍微偏多一點，名次幾乎不變，誤差可容忍。就像估一袋米幾粒，舀一小杯數完乘回去估個大概就夠了，不必一粒粒數。精確計數要替上億首歌各留計數器、記憶體會爆。</details>
@@ -345,7 +445,7 @@ php -S localhost:8006 -t public
   <details class="qa"><summary>Q7（工程）：這題「寫遠多於讀」，跟一般網站相反，設計重點該擺哪？</summary>
     重點擺在扛住海量寫入：用 Kafka 攤平爆量、串流邊流邊算、固定大小小量杯省記憶體、依歌ID 分流給多個工人並行。讀（看榜）量小要快，把算好的榜貼到 Redis 公告欄即可。哪邊壓力大，料就往哪堆。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>Spotify 趨勢榜 = 對數不完的播放估個大概，挑出現在最紅的前 K 名。</strong></p>
     <p><strong>4 個關卡：</strong>① 驗票口收事件 → ② 小量杯（Count-Min Sketch）估每首歌大概幾次 → ③ 100 格 VIP 席（min-heap）挑前 K 名 → ④ 時間衰減讓舊播放退燒。</p>

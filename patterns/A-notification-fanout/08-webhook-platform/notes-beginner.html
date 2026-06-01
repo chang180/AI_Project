@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -362,7 +363,107 @@ php -S localhost:8008 -t public
   <div class="box warn"><span class="label">小提醒</span>為了讓單執行緒的 PHP 內建伺服器不會「自己打自己」卡死，demo 預設用「<strong>模擬投遞結果</strong>」（依端點設定直接判定成功/失敗/慢），
   但<strong>狀態機、HMAC 簽章與驗證、指數退避+抖動、重試上限、DLQ 都是真的在跑</strong>。真實系統會用<strong>一群獨立的送信工人</strong>並發、非阻塞地送。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>四個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 四個檔 = 四個小幫手</span>
+    <strong>EndpointStore</strong>（登記簿：誰訂了哪些事、各自的暗號 secret）→ <strong>DeliveryQueue</strong>（投遞簿＝那台會記「下次幾點再試」的狀態機，也兼待領郵箱 DLQ）→ <strong>Signer</strong>（蓋鋼印的人：算 HMAC 簽章、也負責驗章）→ <strong>Dispatcher</strong>（送信工人：取信、蓋章、送、依結果決定成功/重試/丟 DLQ）。事件一發布，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>蓋鋼印：HMAC 簽章（Signer）</h3>
+    <p>每封信送出前都要<strong>蓋一個鋼印</strong>，對方才知道「這真的是平台寄的、而且路上沒被改」。鋼印是用「<strong>暗號(secret) ＋ 時間戳 ＋ 信件內容</strong>」一起壓出來的：</p>
+<pre><code>function 蓋章(暗號, 信件內容) {
+    時間戳 = 現在時間
+    // 關鍵：把「時間戳.信件內容」整串拿去壓鋼印
+    鋼印 = HMAC_SHA256(暗號, 時間戳 + "." + 信件內容)
+    return {
+        "X-Webhook-Timestamp": 時間戳,
+        "X-Webhook-Signature": "sha256=" + 鋼印,   // ← 隨信附上
+    }
+}</code></pre>
+    <p class="codecaption">就像公文蓋鋼印：沒暗號的壞人壓不出對的鋼印（<strong>防偽造</strong>）；信件內容改一個字，鋼印就對不上（<strong>防竄改</strong>）。為什麼<strong>連時間戳也一起壓</strong>？這樣攔截到的舊信會「過期」，壞人沒辦法把它一直<strong>重放</strong>。</p>
+    <p>對方收到信後，用<strong>同一組暗號照算一遍</strong>，對得上才收：</p>
+<pre><code>function 驗章(暗號, 信件內容, 來的時間戳, 來的鋼印) {
+    if (現在 - 來的時間戳 &gt; 5 分鐘) return 拒收;   // ① 太舊 → 防重放
+    應有鋼印 = "sha256=" + HMAC_SHA256(暗號, 來的時間戳 + "." + 信件內容)
+    return 常數時間比較(應有鋼印, 來的鋼印)          // ② 對得上才收
+}</code></pre>
+    <p class="codecaption">注意「<strong>常數時間比較</strong>」（程式裡的 <code>hash_equals</code>）：不是普通的字串相等，而是不管對幾個字都花一樣久，避免壞人靠「猜得越對、回應越慢」一點一點試出鋼印（時序攻擊）。</p>
+    <p class="pause">💭 停一下：如果鋼印<strong>只壓信件內容、不壓時間戳</strong>，會怎樣？</p>
+    <details class="qa"><summary>看答案</summary>
+      壞人只要<strong>攔截到一次合法的信</strong>，就能把「內容＋鋼印」原封不動<strong>無限重放</strong>——因為鋼印永遠對得上。把時間戳一起壓進去後，舊信會被「5 分鐘視窗」擋下，重放就失效了。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>沒人接？間隔越拉越長再撥：指數退避 + 抖動（Dispatcher）</h3>
+    <p>信沒送到（對方回 5xx 或逾時），不要<strong>馬上狂撥</strong>把剛恢復的對方又打掛。等待時間要<strong>一次比一次久</strong>，還要<strong>加一點隨機</strong>：</p>
+<pre><code>function 算等多久(第幾次嘗試) {
+    基礎 = 1秒 × 2^(第幾次 - 1)     // 1、2、4、8、16… 一次比一次久
+    抖動 = 0 到 基礎 之間的隨機數    // ← 打散「驚群」，別大家同一秒一起撥
+    return 基礎 + 抖動
+}</code></pre>
+    <p class="codecaption">像打電話<strong>沒人接，就隔久一點再撥</strong>，越撥不通隔越久。<strong>抖動（隨機）</strong>是怕一大堆失敗的信「同一秒」全衝過去（驚群效應），把它們錯開到不同時間點。</p>
+    <p>算好之後，<strong>不是原地 sleep 等</strong>，而是把「下次幾點再試」記進投遞簿，工人先去忙別的：</p>
+<pre><code>等待 = 算等多久(這封信.嘗試次數)
+這封信.狀態 = RETRY
+這封信.下次幾點再試 = 現在 + 等待       // ← 只記下時間，工人不空等
+存回投遞簿(這封信)</code></pre>
+    <p class="codecaption">關鍵就是<strong>「記時間、不空等」</strong>：送信工人永遠不會被一封信卡住空轉，時間到了，那封信自然會被「現在可投」的掃描重新撈出來。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>撥到上限就丟待領郵箱：DLQ（Dispatcher + DeliveryQueue）</h3>
+    <p>不能<strong>無限重試</strong>（對方網址可能早就廢了）。撥超過上限還送不到，就把信丟進<strong>待領郵箱（DLQ）</strong>保留起來，並順手<strong>停用</strong>這個一直掛的端點：</p>
+<pre><code>// 送出後拿到回應碼，依結果決定下一步（狀態機）
+if (回應碼 是 2xx) {
+    這封信.狀態 = DELIVERED            // 成功，收工
+} else if (這封信.嘗試次數 &gt;= 6) {     // ← 達重試上限
+    這封信.狀態 = DEAD                 // 丟進 DLQ（待領郵箱）
+    停用端點(這個端點)                  // 連續掛 → 自動停用，別再浪費資源
+} else {
+    這封信.狀態 = RETRY                // 還沒到上限 → 走上面第②關退避重試
+}</code></pre>
+    <p class="codecaption">DLQ 就是<strong>「待領郵箱」</strong>：送不到的信不直接丟掉，而是收進一個專門的箱子保留，供事後人工或自動重送。要拿全部死信，就是把投遞簿裡<strong>狀態是 DEAD</strong> 的撈出來：</p>
+<pre><code>function 看待領郵箱() {
+    return 投遞簿裡「狀態 == DEAD」的所有信   // 這就是 DLQ
+}</code></pre>
+    <p class="pause">💭 停一下：為什麼要設「最多撥 6 次」這個上限，而不是一直撥到通為止？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為對方網址可能<strong>早就廢了</strong>，一直撥只是<strong>白白浪費資源</strong>，還會擠佔正常任務的工人。設上限 → 丟 DLQ → 停用端點 → 通知客戶，比無止境空撥務實得多。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>各客戶各排各的隊：端點隔離（DeliveryQueue 的分區鍵）</h3>
+    <p>一個<strong>慢客戶</strong>不該拖垮所有人。秘訣在入列時：每筆投遞都記住<strong>它是哪個端點的</strong>，這個 <code>endpoint_id</code> 就是<strong>分區鍵</strong>——讓「同一個端點的信走自己那一格」：</p>
+<pre><code>function 入列(事件編號, 事件內容, 端點編號) {
+    新任務 = {
+        投遞編號:   隨機產生,
+        事件編號:   事件編號,        // = 冪等鑰匙（對方據此去重，重送也只算一次）
+        端點編號:   端點編號,        // ← 分區鍵：同端點的信排同一格，彼此隔離
+        狀態:       PENDING,
+        嘗試次數:   0,
+        下次幾點再試: 0,             // 0 = 立即可投
+    }
+    存進投遞簿(新任務)
+}</code></pre>
+    <p class="codecaption">有了「<strong>每個端點各排各的隊</strong>」，一個慢/掛的客戶只會塞住<strong>它自己那一格</strong>，不會卡到其他人的信——這就是把前面講的「隊頭阻塞」隔離掉。順帶一提：<code>事件編號</code> 全程不變，當作對方去重的<strong>冪等鑰匙</strong>，所以就算「寧可重送」送了兩次，對方也只當一次。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 蓋鋼印防偽防竄改</td><td>Signer</td><td><code>蓋章()</code> / <code>驗章()</code>（HMAC + 時間戳）</td></tr>
+      <tr><td>② 沒人接就隔久再撥</td><td>Dispatcher</td><td><code>算等多久()</code>（退避 + 抖動）</td></tr>
+      <tr><td>③ 撥到上限丟待領郵箱</td><td>Dispatcher / DeliveryQueue</td><td>狀態機 → <code>DEAD</code> / <code>看待領郵箱()</code></td></tr>
+      <tr><td>④ 各客戶各排各隊</td><td>DeliveryQueue</td><td><code>入列()</code> 的 <code>端點編號</code>（分區鍵）</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈掃描」換成 <strong>Kafka / SQS（依 endpoint 分區）＋ 延遲佇列承載 next_retry_at ＋ 一群獨立的送信工人</strong>並發地真正發 HTTP（demo 為了不讓單執行緒伺服器自己打自己卡死，預設用「模擬投遞結果」）。
+  但<strong>上面這幾段判斷邏輯——HMAC 簽章、指數退避、DLQ、端點隔離——一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「等包裹」的比喻，說說 Webhook 跟 polling（輪詢）差在哪？</summary>
     polling 是你<strong>一直自己刷新</strong>「到了沒？」，大多白問又費力；Webhook 是<strong>包裹到了，物流主動打給你</strong>——即時又省力，代價是你要留一個打得到的公開網址，而送信責任全在送信方。</details>
@@ -379,7 +480,7 @@ php -S localhost:8008 -t public
   <details class="qa"><summary>Q7（工程）：失敗重試，為什麼「原地 sleep 等一下再試」是壞做法？正解是什麼？</summary>
     原地 sleep 會把這個送信工人<strong>卡住空轉</strong>，那段時間什麼都不能做。正解是把「<strong>下次幾點再試（next_retry_at）</strong>」記進投遞簿，工人先去處理別的任務，時間到了再回來拿——工人永遠不浪費。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>Webhook 平台 = 一個超可靠的送信員：事件一發生就把消息送到對方門口，蓋了鋼印、對方不在就改天再來。</strong></p>
     <p><strong>4 個關卡：</strong>① 對方<strong>登記</strong>網址＋拿暗號 → ② 一個事件<strong>炸開</strong>成多筆獨立投遞(fan-out) → ③ 每封信<strong>蓋鋼印</strong>(HMAC 防偽防竄改) → ④ <strong>送達/重試/丟待領郵箱</strong>(指數退避＋DLQ)。</p>

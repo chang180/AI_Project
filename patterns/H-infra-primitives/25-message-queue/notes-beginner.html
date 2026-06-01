@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -354,7 +355,97 @@ php -S localhost:8025 -t public
   <div class="box"><span class="label">玩的時候想一下</span>把同一個 key 連放幾次，是不是永遠同一條帶子、且照順序？這就是<strong>「同 key 同分區保順序」</strong>。
   把書籤倒帶回 0 再消費一次，東西是不是又全部出現？這就是<strong>「訊息留著、可重播」</strong>——傳統佇列做不到。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心邏輯全在<strong>一個小檔</strong>（<code>Broker.php</code>＝那位「帶子管理員」）裡，剛好對應前面講的工作。
+  <strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 一位帶子管理員，管四件事</span>
+    <strong>分流</strong>（依 key 決定走哪條帶子）→ <strong>放上帶子</strong>（往後追加、配流水號）→ <strong>拿下來＋記書籤</strong>（消費者組各自的進度）→ <strong>倒帶＋分配</strong>（seek 重播、rebalance 指派）。一則訊息的一生，就照這順序跑。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>分流：同 key 永遠同一條帶子（partitionFor）</h3>
+    <p>訊息進來第一件事：算出<strong>它該走哪條帶子</strong>。秘訣只有一行——把 key 丟進一個固定算法（crc32），再對帶子數取餘數。</p>
+<pre><code>function 算分區(主題, key) {
+    N = 這個主題切了幾條帶子
+    if (沒有 key) return 0;           // 沒貼標籤 → 都丟第 0 條
+    return crc32(key) % N             // ← 核心就這一行！
+}</code></pre>
+    <p class="codecaption">crc32 是個「<strong>同樣輸入永遠算出同樣數字</strong>」的算法。所以同一個 key（例如 <code>user-42</code>）每次都算出同一個餘數 → <strong>永遠落在同一條帶子</strong>，那條帶子上它的訊息就照放入順序排好。這正是前面「郵局按地區分流：同地區的信走同一條線」的程式版。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>放上帶子：往後追加、配一個流水號（produce）</h3>
+    <p>知道走哪條帶子後，就把訊息<strong>寫到那條帶子的最尾端</strong>，並給它一個流水號（offset）。重點：<strong>只往後加、不改前面</strong>。</p>
+<pre><code>function 放上帶子(主題, key, 內容) {
+    分區 = 算分區(主題, key)            // ← 用上一段決定走哪條
+    鎖住這條帶子的檔案                  // 同時多人放也不會打架
+    offset = 這條帶子目前有幾則         // ← 流水號 = 現在的行數
+    把 { offset, key, 內容, 時間 } 寫到檔案最後一行   // 只追加，不覆蓋
+    解鎖
+    return { 分區, offset }            // 回一張「收據」：第幾條帶子、第幾號
+}</code></pre>
+    <p class="codecaption">「目前有幾則」就是下一個流水號（0、1、2…<strong>單調遞增</strong>，只增不減）。整條帶子是一本<strong>只往後寫的紀錄簿</strong>——這就是 Kafka 的靈魂「提交日誌（commit log）」。因為舊的從不被塗改，後面才能<strong>原封不動地倒帶重看</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>拿下來＋記書籤：消費者組各自的進度（poll / commit）</h3>
+    <p>這是<strong>「書」和「書籤」分開</strong>的精髓。消費者組來拿時，先看<strong>自己的書籤夾在第幾號</strong>，從那之後接著拿；處理完了，才把書籤往前挪。</p>
+<pre><code>// 拿：從「我的書籤之後」往下拿（先拿，不自動記書籤）
+function 拿訊息(組, 主題) {
+    for 每一條帶子 p {
+        書籤 = 這個組在 (組,主題,p) 記到第幾號     // ← 每組各記各的
+        撈出這條帶子上 offset &gt;= 書籤 的訊息
+        下一個書籤[p] = 最後拿到那則的 offset + 1
+    }
+    return { 訊息清單, 下一個書籤 }                // 注意：還沒 commit！
+}
+
+// 記書籤：處理成功了，才把書籤往前挪（另一個動作）
+function 記書籤(組, 主題, 各帶子的新書籤) {
+    書籤表[ 組|主題|帶子 ] = 新書籤                // ← 跟帶子分開存的小本子
+}</code></pre>
+    <p class="codecaption">書籤的鑰匙是 <code>(組, 主題, 第幾條帶子)</code>，存在<strong>另一個小本子</strong>裡，跟帶子本體完全分開。所以「計費組」和「分析組」能各夾各的書籤、各看各的，互不干擾。<strong>拿（poll）和記書籤（commit）刻意分成兩步</strong>：先處理完、成功了才記＝寧可重做不漏做（崩潰會重拿，所以下游要冪等）。</p>
+    <p class="pause">💭 停一下：如果「拿」的時候就自動把書籤挪到底，會出什麼事？</p>
+    <details class="qa"><summary>看答案</summary>
+      會變成「<strong>先記書籤、後處理</strong>」。萬一處理到一半當機，書籤已經挪過去了 → 重開後從新書籤往後拿，<strong>剛剛沒做完的那批就被跳過＝漏訊息</strong>。所以才要把兩步分開，讓你能選「先做完才記書籤」這個更安全的順序。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>倒帶＋分配：把書籤挪回去、把帶子分給隊員（seek / assign）</h3>
+    <p>最後兩個招式都很短。<strong>倒帶（replay）</strong>就是把書籤硬挪回某個位置：</p>
+<pre><code>function 倒帶(組, 主題, 挪到=0) {
+    for 每一條帶子 p {
+        書籤表[ 組|主題|p ] = 挪到        // ← 挪回 0 就從頭重看一遍
+    }
+}</code></pre>
+    <p class="codecaption">因為帶子上的訊息一直留著、從沒被刪改，書籤往回挪，下次「拿」就會把那之後的全部重撈一遍——這就是「新消費者回填歷史」「改完 bug 重跑」的魔法。</p>
+    <p>而 <strong>rebalance（重新分配）</strong>就是工頭把帶子分給隊員，這裡用 range（連續切段）策略：</p>
+<pre><code>function 分配(帶子數 N, 隊員清單) {
+    隊員排序                              // 穩定分配，每次結果一致
+    每人基本 = N ÷ 人數（取整）
+    剩幾條 = N 餘 人數                     // 前「剩幾條」位隊員各多拿一條
+    依序把連續的帶子 0,1,2… 切段發給隊員
+    return { 隊員 → 他負責的帶子清單 }
+}</code></pre>
+    <p class="codecaption">例：3 條帶子、2 個隊員 → A 拿 {0,1}、B 拿 {2}。<strong>一條帶子只會分給一個隊員</strong>（才不會搶、才保順序），所以<strong>隊員再多也不會超過帶子數</strong>，多的只能閒置——這就是「加人不一定變快」的程式根據。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個函式</th><th>關鍵那段</th></tr>
+      <tr><td>② 分流：同 key 同一條</td><td><code>partitionFor()</code></td><td><code>crc32(key) % N</code> 這一行</td></tr>
+      <tr><td>① 放上帶子（落盤＋流水號）</td><td><code>produce()</code></td><td>追加寫一行、<code>offset = 行數</code></td></tr>
+      <tr><td>③ 拿下來、用書籤記進度</td><td><code>poll()</code> / <code>commit()</code></td><td>從書籤往後撈、兩步分開</td></tr>
+      <tr><td>④ 倒帶重播 + 隊員分配</td><td><code>seek()</code> / <code>assign()</code></td><td>挪書籤、連續切段分帶子</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統是<strong>一整個 Kafka 叢集</strong>——多台 broker、每條帶子還<strong>多存幾份副本（ISR）</strong>、走網路協定、靠協調員（ZooKeeper／KRaft）管誰顧哪條。
+  但上面這幾段判斷邏輯——<strong>crc32 分區、單調 offset、消費者組各記書籤、seek 重播、range 分配</strong>——<strong>一字都不用改</strong>。
+  demo 只是把「叢集 + 副本 + 網路」換成「一台機器上的幾個檔案」，<strong>骨架完全一樣</strong>。所以讀懂這個小 demo，你就讀懂了 Kafka 的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「輸送帶」解釋，為什麼兩個系統中間要放訊息佇列？</summary>
     前面師傅做好就往輸送帶一放、繼續做，不用等後面接（解耦）；突發太多先堆在帶子上、後面照步調消化（削峰）；Kafka 的帶子像錄影一直留著，可以倒帶重看（可重播）。換來解耦、扛突發、可重播三樣寶。</details>
@@ -371,7 +462,7 @@ php -S localhost:8025 -t public
   <details class="qa"><summary>Q7（工程）：什麼是「倒帶重播 (replay/seek)」？它靠的是什麼設計才做得到？</summary>
     把某個組的書籤往回挪（挪到 0 就從頭），重新消費歷史。它靠的是「訊息持久留在 log、不可改」加上「書籤與訊息分開存」——書沒被撕掉、書籤又能自由移動，所以隨時能重看。用於新消費者回填、改完 bug 重跑。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>訊息佇列 = 放在兩個系統中間、可以倒帶重播的輸送帶。</strong></p>
     <p><strong>4 個關卡：</strong>① 生產者放上帶子就走 → ② 一主題分多條帶子、同 key 同一條保順序 → ③ 消費者主動拿、用書籤記進度、可倒帶 → ④ 一隊人瓜分帶子分頭做。</p>

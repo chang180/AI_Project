@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -336,7 +337,119 @@ php -S localhost:8019 -t public
   <div class="box"><span class="label">玩的時候想一下</span>把上限調小，是不是更容易被擋？這就是<strong>關卡 2 的數數</strong>在運作。連打到被擋時，看它回的「<strong>還剩 0 次、請等幾秒</strong>」——這就是<strong>關卡 3 的 429 + Retry-After 紙條</strong>。
   <br><br><span style="color:var(--text-dim)">小提醒：這個 demo 用<strong>檔案鎖（flock）</strong>模擬 Redis 的「原子劃記」，所以單機就能玩；要上線只要把檔案鎖換成 Redis，限流邏輯一模一樣。</span></div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>TokenBucket</strong>（令牌桶＝發通行券的數數機）＋ <strong>SlidingWindowCounter</strong>（滑動視窗＝看最近一段的數數機）→ <strong>RateLimiter</strong>（門衛本人：拿出某人的桶、原子地劃一筆、決定放行或回 429）。一個請求進來，門衛就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>令牌桶：每秒補幾張券、按時間差補滿、扣一張（TokenBucket）</h3>
+    <p>呼應前面「<strong>門口發通行券</strong>」的比喻。重點是<strong>不用真的每秒去發券</strong>——等你來用券的那一刻，再用「<strong>距離上次過了幾秒 × 每秒補幾張</strong>」一次補滿，這叫「用到才算、慵懶補券」：</p>
+<pre><code>function 嘗試扣一張券(這個人的桶, 現在時間) {
+    券數   = 桶裡剩幾張券（第一次來 → 直接給滿桶）
+    上次   = 上次補券的時間
+
+    // 關鍵一行：按「過了多久」一次補滿（但不超過容量）
+    過了幾秒 = 現在時間 - 上次
+    券數     = min(容量, 券數 + 過了幾秒 × 每秒補幾張)
+
+    if (券數 &gt;= 1) {
+        券數 = 券數 - 1               // ← 扣一張 → 放行
+        return { 放行, 還剩 = 券數 }
+    } else {
+        // 沒券 → 算「還要等幾秒才補出 1 張」告訴客人
+        還缺      = 1 - 券數
+        該等幾秒  = ceil(還缺 ÷ 每秒補幾張)
+        return { 擋下, 該等幾秒 }      // ← 對應那張「請 N 秒後再來」紙條
+    }
+}</code></pre>
+    <p class="codecaption">「攢著的券」就是<strong>容許突發</strong>：你剛剛沒打、券補到滿桶，就能一口氣連打好幾下。容量＝可累積的最大券數，每秒補幾張＝平均速率——調這兩個數就能調出鬆緊。</p>
+    <p class="pause">💭 停一下：為什麼券數會出現「4.2 張」這種小數，而不是整數？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為券是<strong>按時間連續補</strong>的，不是整點才一次補一張。過了 0.4 秒、每秒補 0.5 張，就補出 0.2 張——所以中間會有小數。要不要放行只看「<strong>湊不湊得到 1 張</strong>」（<code>券數 &gt;= 1</code>），不必等它變整數。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>滑動視窗：把整點漏洞抹平（SlidingWindowCounter）</h3>
+    <p>另一種數法。最樸素的「固定視窗」有個著名漏洞：整點一到計數歸零，交界 1 秒內可能放兩倍。滑動視窗的小聰明是：<strong>把「前一個視窗」還沒滑出去的部分，按比例算回來</strong>：</p>
+<pre><code>function 嘗試計一次(狀態, 現在時間) {
+    當前窗計數 = 這個視窗目前來幾次
+    前一窗計數 = 上個視窗來幾次
+
+    // 前一窗「還沒滑出去」的比例：越接近新窗開頭，前一窗算得越重
+    前一窗權重 = 1 - (進入本窗多久 ÷ 一個窗多長)   // 介於 0~1
+
+    估計值 = 當前窗計數 + 前一窗計數 × 前一窗權重    // ← 加權，抹平整點突刺
+
+    if (估計值 &lt; 上限) {
+        當前窗計數 = 當前窗計數 + 1                  // ← 放行
+        return { 放行 }
+    } else {
+        return { 擋下, 該等幾秒 = 到本窗結束還有幾秒 }
+    }
+}</code></pre>
+    <p class="codecaption">只要記<strong>兩個整數</strong>（當前窗、前一窗）就能把交界抹平，比「記下每一筆精確時間戳」省太多記憶體。這就是前面 Q3 講的「整點漏洞」的修法。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>per-key 原子計數：拿出「這個人」的桶、一氣呵成劃記（RateLimiter）</h3>
+    <p>這是<strong>分散式限流的心臟</strong>。前面兩個只是「數數的數學」，真正要小心的是：<strong>每個 key 各算各的</strong>、而且<strong>讀→算→寫這三步不能被別的門衛插隊</strong>（否則會把對方的劃記蓋掉而超賣放行）：</p>
+<pre><code>function 該放行嗎(這是誰key) {
+    規則 = 讀設定（每幾秒幾次、用哪種演算法）
+
+    // ===== 原子區塊開始（用檔案鎖 flock 鎖住整段）=====
+    鎖住帳簿();                              // ← 同時只准一個門衛進來
+    全部狀態   = 讀出整本帳簿
+    這個人的桶 = 全部狀態[key]               // ← per-key：只拿「這個人」那一格
+
+    結果 = 跑演算法(這個人的桶, 現在時間)     // 令牌桶 或 滑動視窗
+    全部狀態[key] = 結果.新狀態              // 把劃好的記回去
+
+    寫回帳簿(全部狀態)
+    解鎖();
+    // ===== 原子區塊結束 =====
+
+    return 結果   // { 放行嗎, 還剩幾次, 該等幾秒 }
+}</code></pre>
+    <p class="codecaption">注意 <code>全部狀態[key]</code> 這層——這就是 <strong>per-key 隔離</strong>：你的桶只記你的，跟隔壁客人無關。而「鎖住 → 讀 → 算 → 寫回 → 解鎖」整段被綁成<strong>一個不可分割的動作</strong>，就是<strong>原子計數</strong>：兩個門衛同時來，也得排隊一個一個劃，不會打架。</p>
+    <p class="pause">💭 停一下：如果把「讀→算→寫」拆開、不上鎖，兩個門衛同時來會發生什麼？</p>
+    <details class="qa"><summary>看答案</summary>
+      會發生<strong>競態（race）</strong>：兩個門衛同時讀到「還剩 1 張券」，各自都判斷「可以放」，於是各扣一張、各寫回——結果<strong>1 張券放行了 2 個人</strong>，超賣了。把整段鎖成原子操作，就是為了堵住這個洞。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>429 + Retry-After：被擋下時回一張「請 N 秒後再來」的紙條（index.php）</h3>
+    <p>門衛算完後，最後一步就是把結果翻成 HTTP 回應。放行回 200，超限就回那張紙條：</p>
+<pre><code>結果 = 該放行嗎(key)
+
+// 不管放行與否，都先附上「總共幾次 / 還剩幾次」標頭
+回應標頭 X-RateLimit-Limit     = 上限
+回應標頭 X-RateLimit-Remaining = 結果.還剩幾次
+
+if (結果.放行嗎) {
+    回 200 { 放行 = true, 還剩 = ... }       // ← 過關，轉給後端
+} else {
+    回 429 (Too Many Requests)               // ← 那張「稍後再來」紙條
+    回應標頭 Retry-After = 結果.該等幾秒      // ← 明確告訴你等幾秒
+}</code></pre>
+    <p class="codecaption">關鍵是<strong>被擋下時不只說「不行」，還附上 <code>Retry-After</code> 和「還剩幾次」</strong>——乖巧的客戶端就會安靜等那幾秒，不會無腦狂敲門（驚群效應）把你打更慘。這就是前面講的「<strong>沒券就遞一張請 N 秒後再來</strong>」的紙條，落到真實 HTTP 上的樣子。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>② 數數：令牌桶（容許突發）</td><td>TokenBucket</td><td>「按時間差補券 → 扣一張」</td></tr>
+      <tr><td>② 數數：滑動視窗（抹平整點）</td><td>SlidingWindowCounter</td><td>「前一窗加權估計」</td></tr>
+      <tr><td>① 認人 + ④ 對同一本帳</td><td>RateLimiter</td><td><code>全部狀態[key]</code> + flock 原子區塊</td></tr>
+      <tr><td>③ 決定：放行或回 429</td><td>index.php</td><td>200 / 429 + Retry-After</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：這個 demo 用<strong>「JSON 檔 + 檔案鎖（flock）」</strong>模擬中央帳簿和原子劃記，所以單機就能跑。真實系統會把它換成 <strong>Redis 原子計數（INCR/EXPIRE）</strong>，令牌桶那種「讀→算→扣→寫」多步驟則包成一段 <strong>Lua 腳本</strong>由 Redis 一口氣執行——但<strong>上面令牌桶補券、滑動視窗加權、per-key 隔離、429 這幾段邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「網美餐廳門衛」解釋，限流器在幹嘛、為什麼需要它？</summary>
     門衛站在後端門口，替每個客人數「最近來幾次」，沒超過放行、超過就先擋。需要它是因為後端能承受的量是固定的，全部放進來會把廚房打爆，<strong>連正常客人也遭殃</strong>——犧牲少數超量請求，保住多數人的服務。</details>
@@ -353,7 +466,7 @@ php -S localhost:8019 -t public
   <details class="qa"><summary>Q7（工程）：中央帳簿（Redis）掛了，門衛該放人還是擋人？</summary>
     要<strong>事先講好</strong>。對外 API 多選 <strong>fail-open</strong>（寧可放行也別讓全站 503）；對脆弱的寫入路徑可能選 <strong>fail-close</strong>（寧可擋住保住後端）。也常配一個「本地降級令牌桶」兜底。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>限流器 = 站在後端門口的門衛，保護廚房不被打爆。</strong></p>
     <p><strong>4 個關卡：</strong>① 認人（per-key，各自一桶）→ ② 數數（令牌桶=通行券、滑動視窗=看最近一段）→ ③ 決定放行或回 429+Retry-After → ④ 多門衛對同一本帳（原子操作）。</p>

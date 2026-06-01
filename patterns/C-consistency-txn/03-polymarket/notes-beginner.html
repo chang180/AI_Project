@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -321,7 +322,95 @@ php -S localhost:8003 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>下一筆大買單去吃好幾張小賣單，看是不是「<strong>部分成交</strong>」、剩下的繼續掛著。每做一筆，把所有人的現金加股份全加起來，是不是<strong>總數永遠不變</strong>？這就是<strong>資金守恆</strong>——錢沒憑空多也沒憑空少。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>OrderBook</strong>（菜市場的喊價配對員＝委託簿）→ <strong>Ledger</strong>（那本絕不出錯的帳本，管凍結與過帳）→ <strong>MatchingEngine</strong>（總指揮：排隊、先凍結、再撮合、再過帳）。一筆單進來，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>喊價配對：價高/價低先，同價先到先（OrderBook）</h3>
+    <p>這是<strong>菜市場喊價</strong>那一關。一張新買單進來，去吃簿上<strong>「最便宜、同價先掛」的賣單</strong>，能吃多少吃多少，剩下的掛回去等：</p>
+<pre><code>function 撮合(新買單) {
+    把賣單排序：價低的在前、同價先掛的在前   // ← 價格-時間優先
+    剩餘 = 新買單.數量
+    for (每一張賣單 in 賣簿) {
+        if (賣單.價格 &gt; 新買單.出價) break;   // ← 最便宜的都比我出價貴 → 收手
+        成交量 = min(剩餘, 賣單.數量)
+        記一筆成交{ 成交價 = 賣單.價格,        // ← 成交價用「先掛的那張(maker)」的價
+                   量 = 成交量, 買方, 賣方 }
+        剩餘      -= 成交量
+        賣單.數量 -= 成交量                    // 這張被吃掉一部分
+    }
+    清掉數量歸零的賣單
+    if (剩餘 &gt; 0) 把剩餘掛回買簿            // ← 沒吃完 → 部分成交，繼續掛著等
+    return 這次的成交清單
+}</code></pre>
+    <p class="codecaption">排序那兩行就是「<strong>誰出得高/開得低誰先，同價先到先</strong>」；<code>break</code> 那行是「最便宜的都比我貴就收手」。成交價刻意取<strong>簿上先掛那張（maker）</strong>的價，所以主動來吃單的人有時拿到比自己出價更好的價——多凍結的錢稍後會退。這段是<strong>純算簿、完全不碰錢</strong>，職責分得很乾淨。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>先卡住錢：有才扣得動，餘額永不為負（Ledger）</h3>
+    <p>下買單前，先<strong>把錢卡住</strong>（刷卡預授權）。關鍵是用「<strong>有才扣得動</strong>」的條件判斷——不夠就整筆拒絕，所以餘額<strong>永遠不會變負數</strong>：</p>
+<pre><code>function 凍結保證金(使用者, 金額) {
+    if (可用餘額 &lt; 金額) return false;    // ← 條件不成立 → 拒絕(防超額)，不進簿、不撮合
+    可用餘額 -= 金額                       // 從「可用」搬到「凍結」
+    凍結中   += 金額
+    return true
+}
+// 賣單同理：freezeShares() 先把要賣的「票」卡住 → 防雙花</code></pre>
+    <p class="codecaption">就這一行 <code>if</code>，把「餘額不足」「同一筆錢想花兩次」全擋在門外。對應到真實 DB 就是一句條件更新 <code>UPDATE … SET available=available-N WHERE available &gt;= N</code>——<strong>受影響列數 = 0 就代表錢不夠</strong>，邏輯一模一樣。</p>
+    <p>成交時則要<strong>一手交錢一手交貨</strong>，買賣雙方一次到位（要嘛全成、要嘛全不動）：</p>
+<pre><code>function 成交過帳(買方, 賣方, 量, 成交價) {
+    成本 = 量 × 成交價
+    買方.凍結中 -= 成本;   買方.持票 += 量    // 買方：扣掉預授權的錢、拿到票
+    賣方.持票   -= 量;     賣方.可用 += 成本  // 賣方：交出票、收到錢
+}   // ← 這整段在「同一把鎖(＝同一個交易)」內完成，全成或全不動</code></pre>
+    <p class="codecaption">四行加減必須<strong>綁成一個不可分割的動作</strong>（ACID 原子性）：絕不會「買方錢扣了、票卻沒到手」。demo 用一把檔案鎖模擬「一個 DB 交易」，真實系統換成 <code>BEGIN … COMMIT</code>，<strong>原子過帳的邏輯不變</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>總指揮：排一條隊，先凍結→再撮合→再過帳（MatchingEngine）</h3>
+    <p>這是<strong>全題的心臟</strong>。它把上面兩個幫手串起來，而且關鍵在<strong>整段下單在「一條隊伍」裡一筆筆做</strong>，不讓人同時搶：</p>
+<pre><code>function 下單(使用者, 買賣, 價格, 數量) {
+    搶到全域鎖();                          // ← 一次只處理一筆單(單執行緒序列化)，防搶單打架
+    try {
+        // 1) 先凍結 → 凍不到就直接拒，不進簿、不撮合
+        if (買) { if (!凍結保證金(使用者, 價格×數量)) return 拒絕「餘額不足」 }
+        else    { if (!凍結票(使用者, 數量))         return 拒絕「持倉不足」 }
+
+        記事件('ORDER_PLACED', 這張單)        // ← 每個動作都寫進永不塗改的流水帳
+        成交清單 = OrderBook.撮合(這張單)     // 2) 純算簿，產生成交
+
+        for (每筆成交 in 成交清單) {
+            Ledger.成交過帳(...)              // 3) 逐筆原子過帳
+            記事件('TRADE_EXECUTED', 成交)
+            if (成交價 比我出價便宜) 退回多凍結的錢  // ← 拿到更好的價 → 退差額
+        }
+        把委託簿寫回硬碟                       // 4) 含剩餘掛單，跨請求也記得
+    } finally { 放開全域鎖() }
+}</code></pre>
+    <p class="codecaption">順序<strong>不能換</strong>：一定是<strong>先凍結（防超額）→ 再撮合 → 再原子過帳</strong>。「搶到全域鎖 / 放開鎖」那兩行，就是前面說的「同一攤位排一條隊、一筆筆認真處理」；中間每步都 <code>記事件()</code>，崩潰時把流水帳重播一遍就能還原。三個幫手在這裡合體，一題的精華全在這段。</p>
+    <p class="pause">💭 停一下：為什麼是「先凍結錢，才去撮合」？反過來先撮合再扣錢不行嗎？</p>
+    <details class="qa"><summary>看答案</summary>
+      不行。若先撮合再扣錢，撮合都成交了卻發現「買方其實沒錢」，這筆成交就得反悔、把對手單也退回——一團亂。<strong>先凍結（確定付得起）再讓單上場</strong>，凍不到就根本不進簿、不撮合，從源頭杜絕爛帳。這就是「刷卡預授權確認你付得起，才放心讓你開車」。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 下單先凍結錢</td><td>Ledger</td><td><code>凍結保證金()</code> 的那行 if（有才扣得動）</td></tr>
+      <tr><td>② 喊價配對撮合</td><td>OrderBook</td><td><code>撮合()</code>（價格-時間優先 + 部分成交）</td></tr>
+      <tr><td>③ 一手交錢一手交貨</td><td>Ledger</td><td><code>成交過帳()</code>（同一交易內原子完成）</td></tr>
+      <tr><td>排隊不亂搶 + 可重播</td><td>MatchingEngine</td><td>全域鎖 + 每步 <code>記事件()</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 檔案鎖 + 迴圈撮合」換成「<strong>專業撮合引擎 + 關聯式 DB 交易（BEGIN…COMMIT）+ 事件串流</strong>」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>：撮合照樣價格-時間優先、資金照樣「先凍結→原子過帳→有才扣得動」。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：為什麼一張票的「價格」就等於「機率」？用兌獎券解釋。</summary>
     因為這張票「事件成真就兌 1 元、不成真歸零」。如果市場覺得有 62% 機會成真，這張票就值約 0.62 元——願意付多少買，就等於賭它有多少把握成真。所以價格 = 隱含機率。</details>
@@ -338,7 +427,7 @@ php -S localhost:8003 -t public
   <details class="qa"><summary>Q7（工程）：引擎在記憶體跑很快，但崩潰了狀態怎麼救回來？</summary>
     每個關鍵動作（下單、成交、過帳）都先寫進「永不塗改的事件日誌」。崩潰後把日誌從頭重播一遍就能還原現場；再配定期存「快照」縮短重播時間。這本日誌也是查帳、對帳、處理糾紛的真相來源。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>預測市場 = 喊價配對的交易所 + 絕不出錯的帳本。</strong>價格就是大家心中的「機率」。</p>
     <p><strong>4 個關卡：</strong>① 下單先<strong>凍結錢</strong>（刷卡預授權）→ ② <strong>喊價配對</strong>撮合（菜市場，價格-時間優先）→ ③ <strong>一手交錢一手交貨</strong>原子過帳 → ④ 事件揭曉<strong>結算發錢</strong>。</p>

@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -321,7 +322,100 @@ php -S localhost:8026 -t public
   <div class="box warn"><span class="label">誠實聲明</span>
     這個 demo 是<strong>單機、用記憶體＋JSON 檔</strong>的教學版：<strong>切詞、倒排索引、BM25 排序、AND/OR 查詢、存檔</strong>都是真的能跑；但<strong>沒有</strong>做分片／副本、位置索引與片語查詢、詞形還原、scatter-gather、近即時 refresh、查詢快取。要上線就把核心換成 Elasticsearch / Lucene，原理一模一樣。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心其實就<strong>一個小檔</strong>（InvertedIndex），裡面剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 四個小幫手分工</span>
+    雖然只有一個檔，但裡面住著四個小幫手：<strong>切詞員 tokenize</strong>（把文章剁成詞）→ <strong>登記員 addDocument</strong>（寫那本索引頁：詞→哪幾篇→出現幾次）→ <strong>對清單員 candidateDocs</strong>（AND 取交集／OR 取聯集）→ <strong>評審 bm25</strong>（幫每篇打相關性分數）。一篇文章進來建索引、一個查詢進來找答案，都靠這四個輪流上場。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>切詞員：把文章剁成一個個詞（tokenize）</h3>
+    <p>第一關，把一段文字剁成乾淨的詞：<strong>統一小寫</strong>、<strong>遇到非英數字就切一刀</strong>、<strong>丟掉廢話詞</strong>。</p>
+<pre><code>function 切詞(文字) {
+    小寫文字 = 全部轉小寫           // Apple 和 apple 算同一個詞
+    詞陣列  = 用「非英數字」切開    // 標點、空白都當成切點
+    foreach (詞 in 詞陣列)
+        if (詞 不是廢話詞)         // the/is/of… 沒辨識度，丟掉
+            收進結果
+    return 結果
+}</code></pre>
+    <p class="codecaption">這就是前面「做菜前把食材切好洗好」那一步。<strong>建索引</strong>和<strong>查詢</strong>都會先呼叫它——這很重要：兩邊用<strong>同一把刀</strong>切，存進去的詞和查的詞才對得上（不然你存 apple、查 Apple 就永遠搜不到）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>登記員：寫那本索引頁（addDocument）</h3>
+    <p>新文章進來，先切詞，數一數<strong>這篇有幾個詞（文章長度）</strong>，再把<strong>每個詞 → 這篇 → 出現幾次</strong>登記進索引頁。</p>
+<pre><code>function 加入文章(標題, 內文) {
+    詞們 = 切詞(標題 + " " + 內文)
+    文章長度[這篇] = 詞們的數量          // 之後 BM25 幫長文打折要用
+
+    // 先數這篇裡每個詞出現幾次（tf＝詞頻）
+    foreach (詞 in 詞們)
+        次數[詞] = 次數[詞] + 1
+
+    // 登記進索引頁：詞 → (這篇 → 出現幾次)
+    foreach (詞, 幾次 in 次數)
+        索引頁[詞][這篇] = 幾次
+}</code></pre>
+    <p class="codecaption"><code>索引頁[詞][這篇] = 幾次</code> 這一行就是<strong>整本「書末索引頁」的本體</strong>——術語叫 <strong>倒排索引（term → docId → tf）</strong>。建好後，查任何詞都是「翻到那一格」秒拿清單，不用碰其他文章。</p>
+    <p class="pause">💭 停一下：為什麼要先在這篇文章內把每個詞「數成 tf（出現幾次）」，而不是看到一個詞就往索引頁塞一次？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為索引頁要存的是「這個詞在<strong>這篇</strong>出現<strong>幾次</strong>」這個數字（tf），不是出現一次就記一筆。先在這篇內把次數加總好，<strong>一篇一個詞只寫一格</strong>，索引才乾淨、又剛好存到 BM25 要用的 tf。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>對清單員：AND 取交集、OR 取聯集（candidateDocs）</h3>
+    <p>查「inverted index」時，先各自從索引頁拿出兩張清單，再看你要 AND 還是 OR：</p>
+<pre><code>// 先拿每個查詢詞的「文章清單」
+清單["inverted"] = 索引頁["inverted"] 的所有文章
+清單["index"]    = 索引頁["index"]    的所有文章
+
+if (op == "and") {                  // 都要含 → 取交集
+    候選 = 清單[第一個詞]
+    foreach (其餘的詞)
+        候選 = 候選 ∩ 這個詞的清單     // 一路取交集，空了就停
+} else {                            // op == "or" → 含其一 → 取聯集
+    候選 = 把所有清單「合起來去重」
+}</code></pre>
+    <p class="codecaption">這就是前面「兩張名單對一對」：<strong>AND＝共同部分（交集，少而精）</strong>、<strong>OR＝合起來（聯集，多而廣）</strong>。注意 AND 時只要某個詞在索引頁裡<strong>完全不存在</strong>，它的清單是空的，交集就直接變空——所以「含一個沒人用過的詞」會查無結果，很合理。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>評審：BM25 幫每篇打相關性分數（bm25TermScore）</h3>
+    <p>這是<strong>全題的心臟</strong>。候選文章拿到後，對每個查詢詞算一個分數加起來。別被公式嚇到，它就是把<strong>三個常識</strong>翻成數字：</p>
+<pre><code>function 算分(詞, 這篇) {
+    tf  = 索引頁[詞][這篇]            // 這詞在這篇出現幾次
+    df  = 這詞總共出現在幾篇
+    dl  = 這篇有多長；  avgdl = 全部文章平均多長
+
+    稀有度 = 看 df 算（df 越小→這詞越罕見→稀有度越高）   // 「的」到處都有→趨近 0
+    加分   = 稀有度 ×（tf 越高→加越多，但會「越加越緩」）
+                     ×（這篇 dl 比 avgdl 長→打折；短→加分）
+    return 加分
+}
+// 一篇的總分 = 把每個查詢詞的「加分」全部加起來；分數高的排前面
+</code></pre>
+    <p class="codecaption">對著前面「⭐ 三個常識」一句一句看：<strong>① 詞頻越高加分</strong>（tf）、<strong>② 詞越常見扣分／越罕見加重分</strong>（稀有度，看 df）、<strong>③ 文章越長打折</strong>（dl ÷ avgdl）。BM25 真正的公式只是把這三句寫成數學式（還加了 k1、b 兩個旋鈕微調力道），<strong>方向跟常識完全一致</strong>，背不背公式都不影響你懂它。</p>
+    <p class="pause">💭 停一下：兩篇都含「index」3 次，一篇 20 個詞、一篇 200 個詞，BM25 會給誰較高分？為什麼？</p>
+    <details class="qa"><summary>看答案</summary>
+      <strong>20 個詞的短文較高分。</strong>因為長文章天生塞更多詞、本來就比較容易碰到「index」3 次，沒什麼了不起；短文裡同樣出現 3 次，代表它「整篇都在講這個」、更切題。所以 BM25 用「這篇長度 ÷ 平均長度」幫長文打折、短文加分，這就是常識③。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個函式</th><th>關鍵那段</th></tr>
+      <tr><td>① 切詞</td><td><code>tokenize()</code></td><td>小寫化 + 非英數字切開 + 去廢話詞</td></tr>
+      <tr><td>② 建索引頁</td><td><code>addDocument()</code></td><td><code>索引頁[詞][這篇] = 幾次</code>（倒排索引）</td></tr>
+      <tr><td>③ AND / OR 對清單</td><td><code>candidateDocs()</code></td><td>交集 ∩ ／ 聯集 ∪</td></tr>
+      <tr><td>④ BM25 排序</td><td><code>bm25TermScore()</code></td><td>稀有度 × 詞頻 × 長度打折</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「一個 PHP 檔 + JSON 存檔 + 迴圈過濾」換成 <strong>Lucene / Elasticsearch</strong>（分片、副本、近即時 refresh、scatter-gather）。
+  但<strong>上面這四段的核心邏輯——倒排索引（詞→哪幾篇→幾次）＋ BM25（罕見＋出現多＋文章短＝排前面）——一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「書末索引頁」解釋，為什麼搜尋不能「一篇篇翻」？</summary>
     一篇篇翻（資料庫 LIKE）要掃過每一篇，文件越多越慢，且不知道哪篇最相關。搜尋引擎像查書末索引頁：事先做好「詞 → 出現在哪幾篇」的倒排索引，查一個詞直接翻到那一格拿清單，不用碰其他幾十億篇——又快又能附帶相關性資訊。</details>
@@ -338,7 +432,7 @@ php -S localhost:8026 -t public
   <details class="qa"><summary>Q7（工程）：為什麼資料模型裡要特別存「文章長度」和「平均文章長度」？</summary>
     BM25 做長度正規化要用：長文章天生塞更多詞、容易碰到查詢詞，若不處理會一律排前面（不公平）。拿「這篇長度 ÷ 全集平均長度」幫長文打折、短文加分，才能公平比較相關性。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>全文搜尋 = 幫幾十億篇文章建一本「超級索引頁」，查得快又排得準。</strong></p>
     <p><strong>4 個關卡：</strong>① 切詞把文章剁成詞 → ② 建索引頁（詞→哪幾篇）→ ③ 查詢做 AND/OR 對清單 → ④ 用 BM25 把最相關的排最前面。</p>

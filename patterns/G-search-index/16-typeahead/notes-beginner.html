@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -330,7 +331,87 @@ php -S localhost:8016 -t public
   那就是你<strong>沿著字典樹往下又走了一步</strong>，讀到更深節點上那塊更專一的榜。
   反覆點同一個建議幾次，看它怎麼一路爬到榜首——這就是<strong>頻率（熱度）決定排名</strong>。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那三關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>Trie</strong>（那棵按字母分層的字典樹，負責「走過去」）→ <strong>Suggester</strong>（在每個路口掛熱銷排行榜＝預存 Top-K，並負責頻率更新）→ <strong>Store</strong>（背後那本「詞→被搜幾次」的帳，重蓋樹時拿來排榜）。打字一來，就照「走過去 → 讀榜」跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>建字典樹：照著字一個一個往下接（Trie）</h3>
+    <p>第一關，把每個詞<strong>照字元一個一個往下走</strong>擺進樹裡。走到沒有的岔路就<strong>長一個新節點</strong>，走到底就在那個節點蓋章「這裡是一個完整的詞」。</p>
+<pre><code>function 插入(詞, 熱度) {
+    節點 = 樹根
+    for (詞裡的每一個字 之 字) {       // ★ 中文用「字元」為單位切，不是位元組
+        if (節點底下沒有 字 這條岔路)
+            節點.分岔[字] = 新節點()    // ← 沒路就長一條新的
+        節點 = 節點.分岔[字]            // 往下走一步
+    }
+    節點.是一個詞 = true               // 走到底：這裡是完整的詞
+    節點.熱度    = 熱度
+}</code></pre>
+    <p class="codecaption">「貓」「貓咪」「貓砂」都先走過同一個「貓」節點——<strong>共用開頭就共用同一段路</strong>，這就是 Trie 省空間的關鍵。打前綴時也是用同一招「照字往下走」，走到哪就代表你打了哪個前綴。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>每個路口預先掛好熱銷榜：由下往上合（Suggester）</h3>
+    <p>第二關是<strong>全題的靈魂</strong>：在<strong>每一個節點</strong>事先算好「從這往下走，最熱門的前 K 名」，貼在節點上。算法是<strong>由下往上合併</strong>——先算好子節點的榜，再把它們合起來取前 K 名：</p>
+<pre><code>function 算這個節點的榜(節點) {
+    候選 = []
+    if (節點.是一個詞) 候選.加入({ 節點.詞, 節點.熱度 })
+    for (節點的每個子節點 之 子) {
+        子榜 = 算這個節點的榜(子)        // ← 先把底下的榜算好（後序：先子後父）
+        候選.加入(子榜全部)
+    }
+    節點.榜 = 候選照熱度由高到低排序後.取前K名   // ★ 合併後只留前 K 名貼在節點上
+    return 節點.榜
+}</code></pre>
+    <p class="codecaption">⚠️ 注意是<strong>後序</strong>（先把子節點的榜都算好，再合出自己的）。每個節點只留 K 名（K 約 5~10），不會把整棵子樹都背在身上。建好後，那塊牌子就一直掛在路口等人來讀。</p>
+    <p class="pause">💭 停一下：為什麼要「由下往上」算，而不是每個節點各自從頭把子樹翻一遍？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為「由下往上」每個節點只需<strong>合併幾個子節點已經算好的小榜</strong>（各 K 名），算一次就好；如果每個節點都自己從頭翻整棵子樹，最熱門的短前綴（像「自」）會被重複翻無數次，慢到爆。這叫「<strong>算過的別重算</strong>」。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查詢：照前綴走過去、直接讀榜（Suggester）</h3>
+    <p>前面兩關都是<strong>事先準備</strong>。使用者真正打字時，做的事極簡單：照前綴走到那個節點，<strong>把貼在上面的榜直接讀出來</strong>就回。</p>
+<pre><code>function 給建議(前綴) {
+    節點 = 照前綴一個字一個字走到對應節點   // 走不到 → 沒有詞以此開頭，回空
+    if (節點 不存在) return []
+    return 節點.榜                          // ★ 直接讀預存的 Top-K，不現算、不排序
+}</code></pre>
+    <p class="codecaption">關鍵就在最後那行：<strong>不翻子樹、不排序，直接讀</strong>。所以無論底下有 100 個還是 100 萬個詞都一樣快——這就是前面說的 <strong>O(前綴長度)</strong>：只跟你打幾個字有關，跟總詞數無關。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>頻率更新：被選一次 → 熱度 +1 → 順手重算這條路上的榜（Suggester）</h3>
+    <p>你<strong>點了一個建議</strong>，等於它「被選一次」。它的熱度 +1，而且要讓下次查同前綴時<strong>排名馬上反映</strong>——所以只重算<strong>這個詞會影響到的那幾個榜</strong>：</p>
+<pre><code>function 被選中(詞) {
+    沿路收集 = 照詞一個字一個字走，把沿途節點記成一條鏈
+    if (走不到 或 終點不是一個詞) return null
+    終點.熱度 = 終點.熱度 + 1               // ← 熱度 +1
+    for (這條鏈 由下往上 之 節點)
+        算這個節點的榜(節點)               // ★ 只重算「這個詞的每個前綴」那幾塊榜
+    return 終點.熱度
+}</code></pre>
+    <p class="codecaption">為什麼只重算這一條鏈？因為「自動完成」變熱，只會影響「自」「自動」「自動完」…這幾個前綴的榜，<strong>其他路口完全沒被碰到</strong>，不用動。改完，再查「自」就會看到它往上爬了——這正是 demo 裡「點一下就爬榜」的真相。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 建字典樹（按字母分層）</td><td>Trie</td><td><code>插入()</code> 的「照字往下走」</td></tr>
+      <tr><td>② 每個前綴預貼熱門榜（Top-K）</td><td>Suggester</td><td><code>算這個節點的榜()</code>（由下往上合）</td></tr>
+      <tr><td>③ 打字秒回（走過去讀榜）</td><td>Suggester</td><td><code>給建議()</code> 直接讀 <code>節點.榜</code></td></tr>
+      <tr><td>（加碼）頻率改變排名</td><td>Suggester</td><td><code>被選中()</code> 熱度 +1 + 重算前綴鏈</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 駐記憶體 Trie」換成<strong>壓縮 Trie（FST/Radix Tree）放分片伺服器</strong>、把「就地重算」換成<strong>背後離線管線重建 + 串流補丁</strong>、把詞頻表搬到外部儲存，
+  但上面這幾段邏輯——<strong>「照前綴走過去」＋「節點預存 Top-K」</strong>——<strong>一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「英文字典」解釋，打前綴怎麼瞬間找到位置？</summary>
     詞照字典樹（Trie）按字母一層一層分下去擺好。打「自動」就像查字典：先到「自」區、再到「自動」，照著字往下走幾步就到那個節點。走到哪，就代表你打了哪個前綴。</details>
@@ -347,7 +428,7 @@ php -S localhost:8016 -t public
   <details class="qa"><summary>Q7（工程）：為什麼用 Trie 而不是直接拿「前綴→清單」的 hash 對照表？</summary>
     hash 對照表要把每個詞的「所有前綴」各存一份（「自動完成」要存「自」「自動」「自動完」…），記憶體爆炸。Trie 天然共用開頭、又能直接在節點掛 Top-K 榜，省空間又好查。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>自動完成 = 你打前幾個字，我秒猜出大家最常搜的那幾個。</strong></p>
     <p><strong>3 個關卡：</strong>① 把詞照<strong>字典樹</strong>按字母分層擺好 → ② 每個前綴節點<strong>事先貼好熱門榜（Top-K）</strong> → ③ 打字就<strong>走過去讀榜</strong>，秒回（速度跟總詞數無關）。</p>

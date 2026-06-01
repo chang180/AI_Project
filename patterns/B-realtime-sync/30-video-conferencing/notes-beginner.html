@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -340,7 +341,105 @@ php -S localhost:8030 -t public
     這個 demo <strong>不傳真的影像</strong>（PHP 環境跑不了真實的 WebRTC 媒體）。它模擬的是<strong>「牽線」和「轉播中心的決策」</strong>——
     轉發表怎麼建、依頻寬怎麼挑畫質、怎麼選主講者。這些「決策邏輯」正是面試真正在考的東西，而且是<strong>真的可以跑、邏輯為真</strong>的。真實系統會把同樣的決策接到 mediasoup / Janus 等正式的 SFU 引擎上。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：這題的核心其實全擠在<strong>一個小檔（Sfu.php）</strong>裡，剛好對應前面講的四關工作。
+  <strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 一個轉播中心小幫手</span>
+    這個 <strong>Sfu</strong> 小幫手身兼四職：<strong>幫人交換名片（信令中繼）</strong> → <strong>建一張「誰轉給誰」的轉發表</strong> → <strong>依每個人的頻寬挑畫質（選層）</strong> → <strong>挑出最大聲的當主講者</strong>。一個人忙完這四件，一場會議就轉起來了。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>信令中繼：幫你把名片轉交給對方</h3>
+    <p>第一關，幫兩個人「<strong>交換名片</strong>」。中心<strong>不看內容、不碰影像</strong>，純粹把你的名片放進對方的信箱，等對方來取走。</p>
+<pre><code>function 轉交名片(房間, 從誰, 給誰, 種類, 內容) {
+    if (從誰 或 給誰 不在這房間) 報錯;
+    // 把名片丟進「給誰」的信箱，等他上線來取
+    對方信箱[給誰].加入({ 從誰, 種類:'sdp'或'ice', 內容, 時間 })
+    return 已投遞;
+}
+
+function 取走信箱(房間, 我是誰) {
+    我的信件 = 信箱[我是誰]
+    信箱[我是誰] = 空的       // ← 取走即清空，模擬「投遞出去」
+    return 我的信件
+}</code></pre>
+    <p class="codecaption">這就是前面說的「<strong>交換名片、握手講好怎麼連</strong>」。SDP（我支援什麼格式）和 ICE（我可以從哪條路被連到）都是同一個轉交動作，只差「種類」欄不同。中心像公司收發室，<strong>只負責傳話，從不拆開影像</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>建轉發表：誰的影像要轉給誰（SFU 的大腦）</h3>
+    <p>每當有人加入或頻寬改變，中心就<strong>重建一張轉發表</strong>：房裡<strong>每個上傳者</strong>的影像，要<strong>轉給其他每個人</strong>看（不轉給自己）。</p>
+<pre><code>function 重建轉發表(房間) {
+    表 = 空的
+    每個 上傳者 in 房裡的人:
+        每個 觀看者 in 房裡的人:
+            if (上傳者 == 觀看者) 跳過       // ← 不轉發給自己
+            表.加入({
+                上傳者, 觀看者,
+                層: 依頻寬挑層(觀看者的頻寬)   // ← 每一列各挑各的畫質！
+            })
+    房間.轉發表 = 表
+}</code></pre>
+    <p class="codecaption">10 個人就會有很多列：「<strong>A 的影像 → 轉給 B（高）、轉給 C（低）…</strong>」。
+    重點：<strong>每一列可以是不同畫質</strong>，因為每個觀看者網路狀況不同。但不管表多長，<strong>每個人仍只上傳一份影像</strong>——這就是轉播中心（SFU）省力的精髓。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>依頻寬選層：網路差的人自動給糊一點的（simulcast）</h3>
+    <p>這是 simulcast 的心臟。每個人同時上傳<strong>高/中/低三層</strong>，中心幫每個觀看者挑「<strong>他頻寬扛得住的最高那層</strong>」。</p>
+<pre><code>三層的需求頻寬 = { 高:1500, 中:500, 低:150 }   // kbps（由高到低）
+
+function 依頻寬挑層(可用頻寬) {
+    // 白話：依訂閱者頻寬，由高層往低層試，挑「頻寬扛得住的最高那層」
+    if (可用頻寬 >= 1500) return '高';   // 頻寬夠 → 給高畫質
+    if (可用頻寬 >= 500)  return '中';   // 中等 → 給中畫質
+    return '低';                         // 再差也保底給低（總比全黑好）
+}</code></pre>
+    <p class="codecaption">就是這幾行 <code>if</code>：<strong>依訂閱者頻寬，頻寬 &gt; 高層門檻給高、&gt; 中層門檻給中、否則給低</strong>。
+    捷運上的人頻寬掉到 400 → 自動切「低」，畫面糊一點但不卡；網路一回復又自動升回「高」。
+    關鍵好處：<strong>一個弱網的人不會拖垮整場</strong>，他自己收糊的，別人照樣看高清。</p>
+    <p class="pause">💭 停一下：為什麼頻寬連「低」（150）都不到，還是要硬給他「低」，而不是乾脆不送？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為<strong>糊畫面也比全黑好</strong>。如果連最低層都不給，那個人的畫面整片黑，使用者會以為「壞掉了」。保底給最低層，至少看得到對方還在、嘴巴有在動，體驗差很多。所以挑層的最後一步永遠是「<strong>再差也回低層</strong>」。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>選主講者：誰最大聲就放大誰（active speaker）</h3>
+    <p>每個人的麥克風<strong>持續回報自己的音量</strong>，中心每次收到就重選一次主講者——<strong>挑當下音量最大的那個</strong>。</p>
+<pre><code>function 回報音量(房間, 我是誰, 音量) {
+    我的音量 = 夾在 0~1 之間(音量)        // 防呆：超過範圍先夾住
+    房間.主講者 = 選最大聲的(房間)
+}
+
+function 選最大聲的(房間) {
+    最佳 = null;  最大音量 = 0
+    每個 人 in 房裡的人:
+        if (這人的音量 > 最大音量) {
+            最大音量 = 這人的音量
+            最佳 = 這人
+        }
+    return 最佳        // ← 全部都是 0（沒人說話）→ 回 null
+}</code></pre>
+    <p class="codecaption">就是一個「<strong>挑最大值</strong>」的迴圈。誰音量最大就是主講者，通知大家把他的畫面放大（通常也優先給他高畫質）。
+    全場靜音時回 <code>null</code>＝「沒人說話」，畫面就不特別放大誰。這正是「智慧會議室鏡頭自動對準發言人」那個比喻。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪段程式</th><th>關鍵那段</th></tr>
+      <tr><td>① 交換名片（信令）</td><td>轉交名片 / 取走信箱</td><td>丟進對方信箱、取走即清空</td></tr>
+      <tr><td>② 轉播中心轉發</td><td>重建轉發表</td><td>每個上傳者 × 每個觀看者（不含自己）</td></tr>
+      <tr><td>③ 依頻寬選層（simulcast）</td><td>依頻寬挑層</td><td>≥1500 高 / ≥500 中 / 否則低</td></tr>
+      <tr><td>④ 主講者（active speaker）</td><td>選最大聲的</td><td>挑音量最大值的迴圈</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：這個 demo <strong>不傳真的影像</strong>，它模擬的是<strong>「決策」</strong>——轉發表怎麼建、依頻寬怎麼挑層、怎麼選主講者。
+  真實系統會把「JSON 檔 + 迴圈」換成 <strong>WebRTC + 正式的 SFU 媒體伺服器（mediasoup / Janus）</strong>來真的搬運影像，
+  但<strong>上面這幾段判斷邏輯（信令中繼、轉發表、選層、選主講者）一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「交換名片」的比喻，說說信令在做什麼？為什麼影像不走信令？</summary>
     信令＝開會前交換名片、握手講好怎麼連（我支援什麼格式、我的網路位址在哪），由信令伺服器幫忙傳話。影像不走信令，是因為信令只是開頭幾句話、量很小，而影像是持續的大流量，繞經中間會塞爆又變慢，所以影像盡量直送或走轉播中心。</details>
@@ -357,7 +456,7 @@ php -S localhost:8030 -t public
   <details class="qa"><summary>Q7（工程）：有人在防火牆後面連不上，STUN 和 TURN 各扮演什麼角色？</summary>
     STUN 先幫你「問自己在公網上長怎樣」，多數情況能藉此打洞直連。如果是對稱型 NAT 怎麼樣都打不通，就用 TURN 當中繼站，把所有影像經它轉一手——能連通但繞遠路、耗頻寬、稍慢，是最後手段。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>視訊會議 = 先「講好怎麼連」，再「找轉播中心幫大家轉影像」。</strong></p>
     <p><strong>4 個關卡：</strong>① 交換名片握手（信令 SDP/ICE）→ ② 找轉播中心 SFU 轉影像（每人只上傳一份）→ ③ 網路差的人自動收糊畫面（simulcast）→ ④ 正在說話的人自動放大（active speaker）。</p>

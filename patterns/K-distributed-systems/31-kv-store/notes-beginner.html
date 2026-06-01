@@ -72,6 +72,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -340,7 +341,106 @@ php -S localhost:8031 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把同一個 key 在「兩間互相看不到對方」的情況下各改一次，是不是就生出了 sibling？這就是 <strong>關卡 4 向量時鐘</strong>在運作。把一間倉庫關掉再 put，能不能成功？這就是 <strong>關卡 3 的 hinted handoff</strong> 在撐住「永不打烊」。</div>
 
-  <h2 id="quiz">12. 考考自己</h2>
+  <h2 id="code">12. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「前面那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：整個叢集核心就<strong>三個小檔</strong>，剛好對應前面講的機制。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>ConsistentHashRing</strong>（圓圈時鐘座位表＋順時針找倉庫＋算 preference list）→ <strong>VectorClock</strong>（比兩張版本便利貼、判斷誰新誰舊或衝突）→ <strong>Cluster</strong>（把上面兩個串起來：存問 W 間、取問 R 間、hinted handoff 暫存代收、read repair 順手補）。一次 put 或 get，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>圓圈時鐘：順時針找倉庫＋算出存哪 3 間（ConsistentHashRing）</h3>
+    <p>每間倉庫（含它的分身 vnode）都算出一個「鐘點座標」釘在圈上、<strong>由小到大排好</strong>。包裹要找家，就是「<strong>從自己的座標順時針走，遇到第一間倉庫</strong>」：</p>
+<pre><code>function 找這包裹的家(號碼牌) {
+    座標 = hash(號碼牌)                    // 包裹在圈上的鐘點
+    找出排好序的座標裡「第一個 &gt;= 座標」的點   // ← 順時針第一間
+    if (走到底還沒找到) 繞回圈上第 0 個點       // ← 圓圈是會繞回來的
+    return 那個點所屬的倉庫
+}</code></pre>
+    <p class="codecaption">關鍵就是「座標排好序 + 找第一個 ≥ 它的」＝<strong>順時針最近</strong>。座標排好序後用二分搜尋找，超快。每間倉庫放幾百個分身(vnode) 灑滿整圈，分配才平均。</p>
+    <p>而「存 3 份要存哪 3 間」＝<strong>preference list</strong>，就是從這個點繼續順時針數，<strong>取前 N 間「不同」倉庫</strong>（同一間倉庫的多個分身要跳過，確保 3 份落在 3 台真的不同機器）：</p>
+<pre><code>function 算preference_list(號碼牌, N) {
+    從順時針第一個點開始，一路往下走
+    每遇到一間「還沒收過的」倉庫就收進名單   // ← 跳過同一間的其它分身
+    收滿 N 間不同倉庫就停
+    return 名單   // 例：[A, B, C]
+}</code></pre>
+    <p class="codecaption">這就是前面說的「順時針連續的 3 間不同倉庫」。加一間新倉庫時，因為只動到圈上一小段，<strong>只有少數包裹的家會變</strong>——這就是一致性雜湊「加倉庫不大搬家」的由來。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>存包裹：問 W 間點頭，掛掉的走 hinted handoff（Cluster.put）</h3>
+    <p>存的時候，先算出 preference list 那 3 間，再<strong>逐一去送</strong>。倉庫活著就直接存、算一個 ack；倉庫掛了就<strong>找旁邊一間健康倉庫暫存代收</strong>並貼紙條（hinted handoff）。湊滿 <strong>W 個 ack</strong> 就跟客人說「成功」：</p>
+<pre><code>function put(號碼牌, 包裹) {
+    名單 = 算preference_list(號碼牌, N)   // 例：[A, B, C]
+    新便利貼 = 在舊版本上，把「協調者這間」改過次數 +1   // ← 讀-改-寫
+
+    ack = 0
+    foreach (倉庫 in 名單) {
+        if (倉庫活著) {
+            把包裹存進這間倉庫; ack++          // ← 正常存
+        } else {
+            找一間圈外健康倉庫，暫存代收 + 貼紙條「這份是要還給它的」
+            ack++                            // ← hinted handoff 也算一次 ack
+        }
+    }
+    return (ack &gt;= W) ? "存成功" : "存失敗"   // ← W quorum
+}</code></pre>
+    <p class="codecaption">注意那行「<strong>把協調者改過次數 +1</strong>」——這就是更新版本便利貼。還有「掛掉的倉庫也照算 ack」：因為包裹有暫存代收、事後會交還，所以「永遠存得進去」。等倉庫復活，掃所有紙條把屬於它的交還回去，副本數就補齊了。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>版本便利貼：比兩張紙條判斷誰新、還是衝突（VectorClock）</h3>
+    <p>這是<strong>全題最燒腦、也最核心</strong>的一段。比兩張便利貼 <code>{A:2, B:1}</code> 和 <code>{A:1, B:1}</code>，逐個欄位掃一遍，看「<strong>誰在某欄位比對方大</strong>」：</p>
+<pre><code>function 比兩張便利貼(甲, 乙) {
+    甲有贏的欄位 = false;  乙有贏的欄位 = false
+    foreach (倉庫 in 甲和乙出現過的所有欄位) {
+        if (甲[倉庫] &gt; 乙[倉庫]) 甲有贏的欄位 = true
+        if (乙[倉庫] &gt; 甲[倉庫]) 乙有贏的欄位 = true
+    }
+    if (兩邊都沒贏)        return 相同        // 同一版本
+    if (只有甲有贏)        return 甲比較新     // 甲罩得住乙 → 用甲、丟乙
+    if (只有乙有贏)        return 乙比較新     // 乙罩得住甲 → 用乙、丟甲
+    return 同時改的衝突                       // ← 互不相讓 = 各改各的 → 留兩份 sibling
+}</code></pre>
+    <p class="codecaption">白話就是：<strong>一張「包含」另一張（每欄都 ≥）＝那張比較新，丟舊的</strong>；<strong>互不包含（甲多改了某欄、乙也多改了某欄）＝同時改，誰也不能丟，兩份都留成 sibling</strong>。這正是前面「版本便利貼」比喻在程式裡的樣子。</p>
+    <p class="pause">💭 停一下：<code>{A:2,B:0}</code> 和 <code>{A:0,B:2}</code> 比起來是哪一種？</p>
+    <details class="qa"><summary>看答案</summary>
+      A 欄甲贏（2&gt;0）、B 欄乙贏（2&gt;0），<strong>兩邊都有贏的欄位 → 互不相讓 → 同時改的衝突</strong>。系統不會硬挑一個，而是<strong>兩份都留成 sibling</strong>，交給上層（像購物車取聯集）合併，誰加的東西都不丟。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>取包裹：問 R 間、調和版本、順手 read repair（Cluster.get）</h3>
+    <p>取的時候問 <strong>R 間</strong>健康倉庫，把它們回來的所有版本攤平，用上面的「比便利貼」做<strong>調和</strong>（丟掉被別人罩住的舊版，只留下互為衝突的 sibling）。然後<strong>順手把落後的副本補成最新</strong>（read repair）：</p>
+<pre><code>function get(號碼牌) {
+    問到 R 間健康倉庫的版本           // ← R quorum
+    調和：把所有版本兩兩比便利貼
+         － 被別人罩住的舊版 → 丟掉
+         － 互不相讓的 → 都留著(sibling)
+    foreach (剛問過的倉庫) {
+        if (這間的版本落後了)
+            把它默默覆寫成調和後的最新版   // ← read repair：一邊讀一邊補洞
+    }
+    return 調和後的版本(可能一個，也可能多個 sibling)
+}</code></pre>
+    <p class="codecaption">「調和」用的就是 §3 那個比便利貼的函式。<strong>read repair</strong> 就是那行「發現落後就默默覆寫」——讀的時候順手把不一致補平，副本之間慢慢就一致了（最終一致）。回傳<strong>多個 sibling 不是 bug</strong>，是老實告訴你「這兩份同時改的，你來合併」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 包裹放哪間倉庫 + vnode</td><td>ConsistentHashRing</td><td>順時針找第一間、繞圈</td></tr>
+      <tr><td>② 存 3 份是哪 3 間</td><td>ConsistentHashRing</td><td><code>算preference_list()</code>（跳過同間分身）</td></tr>
+      <tr><td>③ 存問 W 間 + hinted handoff</td><td>Cluster</td><td><code>put()</code>：掛掉就暫存代收</td></tr>
+      <tr><td>④ 同時改判斷衝突、留 sibling</td><td>VectorClock</td><td><code>比兩張便利貼()</code></td></tr>
+      <tr><td>取問 R 間 + read repair</td><td>Cluster</td><td><code>get()</code>：調和 + 補落後副本</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統是 <strong>DynamoDB / Cassandra</strong>，會把「JSON 檔 + 迴圈」換成真正的分散式叢集、gossip 心跳、LSM-tree 存硬碟、跨機房網路。
+  但<strong>一致性雜湊環、quorum（W+R&gt;N）、向量時鐘比便利貼這幾段判斷邏輯，一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">13. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「圓圈時鐘」解釋，為什麼加一間新倉庫不會引起大搬家？</summary>
     倉庫和包裹都排在一個圓圈上，包裹順時針找第一間倉庫當家。新加一間倉庫，只有「它前面那一小段」原本要跑去更遠倉庫的包裹要搬進來，其他包裹完全不動。對比「號碼 % 倉庫數」一改倉庫數就全部重算、要全搬。</details>
@@ -357,7 +457,7 @@ php -S localhost:8031 -t public
   <details class="qa"><summary>Q7（工程）：CAP 在這題怎麼用一句白話帶出來？</summary>
     停電（網路分區）時你的系統選哪種脾氣：AP=「繼續營業、資料短暫可能不一致、事後喬」（本題、Dynamo/Cassandra，換永不打烊）；CP=「寧可拒絕服務也要保證資料正確」（像銀行，用 Raft/Paxos）。一開場先確認要哪種。</details>
 
-  <h2 id="recap">13. 30 秒回顧</h2>
+  <h2 id="recap">14. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>分散式鍵值儲存 = 永不打烊、裝得下無限多包裹的連鎖寄物櫃。</strong></p>
     <p><strong>4 個關卡：</strong>① 圓圈時鐘決定包裹放哪間倉庫（加倉庫只搬一小段、分身讓負載平均）→ ② 每筆存 3 份(N) → ③ 存問 2 間、取問 2 間（W+R&gt;N 保證讀到新的）→ ④ 同時改用「版本便利貼」分辨衝突、留兩份(sibling)不丟資料。</p>

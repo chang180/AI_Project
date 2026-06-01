@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -325,7 +326,99 @@ php -S localhost:8005 -t public
   <div class="box"><span class="label">玩的時候想一下</span>連續叫車，看同一台車會不會被配給兩個人——這就是<strong>關卡 2 的搶票術（CAS）</strong>在運作。把司機移到比較遠的地方再叫車，看它是不是<strong>不再被挑到</strong>——這就是<strong>關卡 1 的地理篩選</strong>。
     <br><strong>誠實提醒：</strong>這個 demo 的 ETA 是用「直線距離 ÷ 平均車速」估的（不是真實路況導航），地理索引也是單機版 geohash。但「找附近、最近 K 台、搶票防重複指派、車輛狀態機」這些<strong>系統核心邏輯是真的能跑的</strong>。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心就<strong>三個小檔</strong>，剛好對應前面講的關卡。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>GeoIndex</strong>（地圖小幫手：用郵遞區號縮範圍 → 算實際距離找最近的車）→ <strong>Matcher</strong>（媒合小幫手：拿到一排近車後，逐台用「搶票術」搶一台）→ <strong>Store</strong>（保管小幫手：用一道鎖保證「搶確認＋改狀態」不會被打斷）。叫一次車，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>找附近：先用郵遞區號縮範圍（GeoIndex）</h3>
+    <p>第一關，從一大堆車裡撈出「<strong>離你最近、而且是空車</strong>」的幾台。重點是：<strong>只看空車</strong>、算實際距離、由近到遠排好。</p>
+<pre><code>function 找附近的車(我的緯度, 我的經度, 半徑) {
+    候選 = []
+    for (每一台車) {
+        if (這台車不是「空車」) continue;      // ← 載客中/離線的直接跳過
+        距離 = 算地球兩點距離(我, 這台車)        // haversine 球面距離
+        if (距離 &lt;= 半徑)
+            候選.加入({ 車, 距離 })
+    }
+    把候選「由近到遠」排好
+    return 取前面幾台
+}</code></pre>
+    <p class="codecaption">這就是前面「<strong>郵遞區號縮範圍</strong>」的精算那半段。為了好懂，demo 直接掃一遍所有車算距離；但它另外備了一支 <code>geohash()</code> 把座標編成「位置郵遞區號」（<strong>開頭一樣 = 地理相近</strong>），真實系統就是先用這個前綴<strong>秒撈出同一區</strong>的車當候選，再對這一小撮算實際距離——<strong>邏輯一模一樣</strong>，只是先粗篩再細算。</p>
+    <p>媒合引擎要的不是「全部附近的車」，而是「<strong>最近的 K 台</strong>」當候選清單：</p>
+<pre><code>function 最近K台可用車(我, K) {
+    候選 = 找附近的車(我, 放寬一點的半徑)   // 先大範圍撈
+    return 取前 K 台                       // 已照距離排好，挑最近的幾台
+}</code></pre>
+    <p class="codecaption">為什麼要「<strong>一串</strong>候選而不是只要最近那一台？因為最近那台可能<strong>剛好被隔壁的人搶走</strong>——手上有一排備胎，搶不到就換下一台，下一關就靠這個。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>搶車：搶最後一張票，只能一個人成功（Matcher）</h3>
+    <p>這是<strong>全題的心臟</strong>。拿到一排近車後，<strong>從最近的開始，逐台搶</strong>，搶到第一台就成交：</p>
+<pre><code>function 叫車(乘客, 我的位置) {
+    候選 = 最近K台可用車(我的位置, K)          // 第 1 關給的一排近車
+
+    for (每一台候選車 從近到遠) {
+        // ★ 關鍵這行：搶最後一張票
+        if (!原子搶車(這台車, 期望="空車", 改成="已配"))
+            continue;                        // ← 沒搶到（被別人先搶走）→ 換下一台
+
+        建立行程(乘客, 這台車, 距離, ETA...)    // 搶到了！這台歸我
+        return 行程
+    }
+    return null;                             // 一排候選都被搶光 → 附近暫無車
+}</code></pre>
+    <p class="codecaption">注意那行 <code>原子搶車(…)</code> 回傳 false（沒搶到）時，程式<strong>不報錯</strong>，而是 <code>continue</code> 默默<strong>換下一台候選</strong>再搶——乘客通常不會察覺，只是配到第二近的車。這正是前面說的「搶不到就換下一張票」。</p>
+    <p class="pause">💭 停一下：為什麼搶車要「逐台試」，而不是先挑出最近那台、確定它空車、再寫「配給你」？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為「<strong>確定它空車</strong>」和「<strong>寫配給你</strong>」中間有一個<strong>空檔</strong>——就在這一瞬間，隔壁的人可能把同一台搶走了，於是你又寫上去，<strong>一台車配給兩個人</strong>。解法是把「確認＋改」併成<strong>一個不可被打斷的動作</strong>（下一段的 CAS），失敗就換下一台。所以一定要「逐台試」配上「原子搶」。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>原子保證：把「確認＋改」鎖成一個動作（Store）</h3>
+    <p>上一關那行 <code>原子搶車(…)</code>，真正的魔法在這裡。它叫 <strong>CAS（條件更新）</strong>：<strong>只有當車「還是空車」時，才把它改成「已配」</strong>，而且整段在一道鎖裡完成，不會被別的請求插隊：</p>
+<pre><code>function 原子搶車(車號, 期望狀態, 新狀態) {
+    上鎖();                                  // ← 進互斥區，同時間只有一個請求能進來
+    if (這台車.狀態 == 期望狀態) {            // 還是「空車」嗎？
+        這台車.狀態 = 新狀態                  // 是 → 改成「已配」
+        搶到 = true
+    } else {
+        搶到 = false                         // 已被別人改走 → 沒搶到
+    }
+    解鎖();
+    return 搶到
+}</code></pre>
+    <p class="codecaption">關鍵是「<strong>確認還是空車</strong>」和「<strong>改成已配</strong>」這兩步被<strong>鎖在一起</strong>，中間插不進別人。兩個請求同時搶同一台，鎖讓他們<strong>排隊進來</strong>：第一個看到「空車」搶成功並改掉；第二個進來時已經<strong>不是空車</strong>，回 false。<strong>只能一個人成功</strong>——這就是「搶最後一張票」在程式裡的樣子。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>收尾：行程結束把車放回「空車」（Matcher）</h3>
+    <p>最後一道別忘了：行程做完，<strong>要把車的狀態改回「空車」</strong>，它才能再被下一個人搶到。</p>
+<pre><code>function 完成行程(行程編號) {
+    行程.狀態 = 已完成
+    原子搶車(司機, 期望="已配", 改成="空車")   // 把車釋放回可被媒合
+}</code></pre>
+    <p class="codecaption">忘了這一步，這台車就<strong>永遠卡在「已配」</strong>、再也不會出現在任何人的候選清單裡——等於白白少一台車。狀態機要<strong>有借有還</strong>：空車 →（搶到）已配 →（完成）空車。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 找附近的車（縮範圍＋精算）</td><td>GeoIndex</td><td><code>nearby()</code> / <code>nearestAvailable()</code></td></tr>
+      <tr><td>② 逐台搶、搶不到換下一台</td><td>Matcher</td><td><code>requestRide()</code> 的迴圈</td></tr>
+      <tr><td>③ 搶最後一張票（原子防重複）</td><td>Store</td><td><code>compareAndSetStatus()</code>（CAS）</td></tr>
+      <tr><td>④ 用完把車放回空車</td><td>Matcher</td><td><code>completeRide()</code></td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 整包掃一遍」換成「<strong>Redis GEO</strong> 找附近 + <strong>分散式鎖 / DB 原子條件更新</strong>搶車」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>：先用郵遞區號縮範圍找最近的車、再用「搶最後一張票」原子媒合防同車重複指派。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「郵遞區號」解釋，為什麼不用一台台量距離找附近的車？</summary>
     100 萬台車一台台量太慢。改用 geohash（位置郵遞區號）：把地圖切網格，附近的格子代碼開頭一樣。先用前綴<strong>粗篩</strong>出同區那一小撮車，再對這幾台<strong>細算</strong>實際距離。記得連旁邊 8 格一起撈，避免漏掉就在你身後、卻在隔壁格的車。</details>
@@ -342,7 +435,7 @@ php -S localhost:8005 -t public
   <details class="qa"><summary>Q7（工程）：行程中「位置」可以晚 1 秒，但「車的指派狀態」不能錯一次，這是什麼取捨？</summary>
     強一致 vs 最終一致。指派狀態牽涉「車有沒有被搶走」，錯了會有人撲空，必須<strong>強一致</strong>（用原子操作）。位置追蹤晚 1 秒看到車在哪沒人在意，可以<strong>最終一致</strong>——把嚴格的成本只花在真正需要的地方。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>RoboTaxi 叫車 = 在一張塞滿百萬台移動車的活地圖上，瞬間抓一台最近的空車，且保證不被搶兩次。</strong></p>
     <p><strong>3 個關卡：</strong>① 用網格（geohash）<strong>找附近的車</strong> → ② 用「搶最後一張票」的原子指派（CAS）<strong>搶一台</strong> → ③ 開一條不掛斷的電話（WebSocket）<strong>即時追蹤</strong>。</p>

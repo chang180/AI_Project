@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -317,7 +318,110 @@ php -S localhost:8034 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>觸發「擊穿」時，<strong>不開</strong>緩解 → 看資料庫被打幾次；<strong>開</strong>互斥鎖 → 是不是只剩 1 次（只放一人去補貨）？這就是 Part 1 那三個「怕」在你眼前活過來。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>SlotMap</strong>（管號碼牌的總部：算號碼 + 哪段號碼歸哪家店 + 加店搬號碼）→ <strong>CacheNode</strong>（一家分店：主店收貨、備胎抄一份、架滿了丟最沒人要的）→ <strong>Cluster</strong>（把上面兩個組起來，並擋穿透/擊穿/雪崩三大災難）。一筆查詢進來，就照這順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>算號碼牌：key 落在哪個 slot（SlotMap）</h3>
+    <p>第一關，把資料的名字（key）算成一個 <strong>0～16383 的號碼</strong>。就像連鎖店門口給每件商品發號碼牌——同一件永遠同一號。</p>
+<pre><code>// 固定 16384 個號碼（這就是 Redis Cluster 的招牌數字）
+總號碼數 = 16384
+
+function 算號碼(名字) {
+    號碼 = crc32(名字) % 16384   // ← 把名字打成一個亂數，再對 16384 取餘數
+    return 號碼                  // 同一個名字 → 永遠同一個號碼 → 永遠在同一家店
+}</code></pre>
+    <p class="codecaption">關鍵就這一行 <code>crc32(名字) % 16384</code>：<code>crc32</code> 把任意名字打成一個大數字（分佈很均勻），<code>% 16384</code> 把它收進 0～16383。<strong>同名同號</strong>是整套分店制度的地基——查資料才能「算完號碼直接走對的店」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>號碼歸哪家店 + 加店只搬一段（SlotMap）</h3>
+    <p>有了號碼，還要一張「<strong>哪段號碼歸哪家店</strong>」的對照表。查資料就是拿號碼去這張表上找區段：</p>
+<pre><code>function 號碼是哪家店(號碼) {
+    foreach (對照表 的每個區段 as 段) {
+        if (段.起 &lt;= 號碼 且 號碼 &lt;= 段.迄)
+            return 段.分店      // 落在這段 → 就是這家店
+    }
+}</code></pre>
+    <p>重點來了——<strong>加一家新分店時，怎麼「只搬一部分貨」</strong>？訣竅是只從現有各店的<strong>尾段</strong>勻幾段號碼給新店，其餘原封不動：</p>
+<pre><code>function 加分店(新店) {
+    目標 = 16384 ÷ (分店數 + 1)        // 新店該分到多少號碼（盡量平均）
+    foreach (現有各店 by 號碼多到少) {
+        勻出 = min(還缺多少, 這店尾段能讓出的量)
+        把這店尾段的「勻出」個號碼改派給 → 新店   // ← 只有這幾段要搬！
+        記下「這段從 X 店搬到 新店」              // 回報哪些號碼換了主
+    }
+}</code></pre>
+    <p class="codecaption">這就是 Part 1 說的<strong>重分片</strong>：因為位置綁在<strong>號碼</strong>不是「現在有幾家店」，加店只動「被勻走的那幾段號碼」，絕大多數貨都不用搬。對比「用機器數量取模」那種——一改機器數幾乎全部重洗。真實系統是 Redis Cluster 的 slot 搬移，<strong>邏輯一模一樣</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>架滿了丟最沒人要的：LRU / LFU（CacheNode）</h3>
+    <p>走到對的分店後，分店的小書架空間有限。<strong>放滿了又來新貨</strong>，就得先丟一個騰位置——丟誰？</p>
+<pre><code>function 該丟誰() {
+    // 1) 過期的先丟（保鮮期到了最該走）
+    if (有任何 key 已過期) return 那個過期的 key
+
+    // 2) 看策略挑「最沒價值」的：
+    if (策略 == LRU)  return 「最久沒人碰」的 key   // 比 lastAccess（最近用到的時間）最小
+    if (策略 == LFU)  return 「總共最少人用」的 key  // 比 freq（被讀的累計次數）最小
+}</code></pre>
+    <p class="codecaption">每次有人<strong>讀到</strong>一個 key，就更新它的兩個小數字：<code>lastAccess = 現在</code>（最近用到）、<code>freq += 1</code>（累計次數）。<strong>LRU</strong> 就是用 <code>lastAccess</code> 挑「最久沒被碰」的丟；<strong>LFU</strong> 用 <code>freq</code> 挑「整體最少人用」的丟。對回比喻：架滿了，就丟「最久沒人翻」或「最少人借」的那本書，留下熱門。</p>
+    <p class="pause">💭 停一下：LRU 為什麼「用到就更新 lastAccess」就能達成「丟最久沒人碰的」？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為每個 key 的 <code>lastAccess</code> 記的是「<strong>它上次被用到的時間</strong>」。有人用它就把這時間刷成「現在」——等於把它<strong>移到「最近用過」這一端</strong>。要淘汰時，挑 <code>lastAccess</code> <strong>最小</strong>的（時間最舊 = 最久沒人碰）砍掉就對了。白話就是「<strong>用到就移到最前面、淘汰時砍最後面那個</strong>」。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>擋三大災難：穿透 / 擊穿 / 雪崩（Cluster）</h3>
+    <p>這是<strong>全題的心臟</strong>。讀資料時的標準流程叫 <strong>cache-aside</strong>：先問架上，沒有才回源資料庫並放回架上。三大緩解全塞在這條讀路徑上：</p>
+<pre><code>function 讀(名字, 開關) {
+    值 = 從快取拿(名字)
+    if (值 存在) return 值                        // 命中，最快
+
+    // ── 穿透緩解：布隆過濾器先擋「一定不存在」的 ──
+    if (開關.布隆 且 布隆說一定沒有(名字))
+        return null                              // 連資料庫都不用打
+
+    // ── 擊穿緩解：互斥鎖，同一 key 同時只放一人回源 ──
+    if (開關.互斥鎖) {
+        搶鎖(名字)                                // 搶到的人才去補貨
+        值 = 再從快取拿一次(名字)                   // 別人可能已回填 → 撿現成
+        if (值 存在) { 放鎖(); return 值 }
+    }
+
+    值 = 打資料庫(名字)                            // 真的回源（這裡才碰 DB）
+    if (值 == null) {
+        // 穿透緩解：查無也快取一下下，別一直打 DB
+        if (開關.空值快取) 寫快取(名字, "__查無__", 30秒)
+    } else {
+        // 雪崩緩解：保鮮期加一點隨機，別讓大家同秒過期
+        if (開關.抖動) 保鮮期 += random(0, 保鮮期/2)
+        寫快取(名字, 值, 保鮮期)
+    }
+    放鎖(); return 值
+}</code></pre>
+    <p class="codecaption">三個開關各對應一個「怕」：<strong>布隆 + 空值快取</strong>擋<strong>穿透</strong>（不存在的 key 別一直打 DB）、<strong>互斥鎖</strong>擋<strong>擊穿</strong>（熱 key 過期瞬間只放一人去補貨、其餘撿現成）、<strong>保鮮期加抖動</strong>擋<strong>雪崩</strong>（一批 key 的過期時間散開、不擠同一秒）。demo 還會數「打了資料庫幾次」，讓你親眼看到開緩解前後差幾倍。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 算號碼 → 走對的店</td><td>SlotMap</td><td><code>crc32(key) % 16384</code> + <code>號碼是哪家店()</code></td></tr>
+      <tr><td>② 加減店只搬一段（重分片）</td><td>SlotMap</td><td><code>加分店()</code> 勻尾段號碼</td></tr>
+      <tr><td>③ 架滿了丟最沒人要的</td><td>CacheNode</td><td><code>該丟誰()</code>（LRU/LFU）</td></tr>
+      <tr><td>④ 擋穿透/擊穿/雪崩</td><td>Cluster</td><td><code>讀()</code> 裡的三個開關</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈過濾」換成 <strong>Redis Cluster</strong>（slot 用 crc16、主從複製、記憶體內 LRU/LFU、布隆/互斥鎖回源保護），
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>——16384 slot 路由、LRU/LFU 淘汰、穿透/擊穿/雪崩三大問題的緩解，邏輯完全一樣，只是換更快的工具。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「圖書館書架」解釋，快取到底在幹嘛、為什麼快？</summary>
     快取＝大門口「拿了就走」的小書架，放最熱門的書，讓客人不用每次都跑去裡面又慢又遠的大書庫（資料庫）。因為小書架在記憶體（像桌邊冰箱、秒級），大書庫在硬碟（像跑超市、幾十分鐘），差幾百到幾千倍。</details>
@@ -334,7 +438,7 @@ php -S localhost:8034 -t public
   <details class="qa"><summary>Q7（工程）：為什麼說「命中率」是快取系統的命脈？命中率崩了會怎樣？</summary>
     命中率＝架上「剛好有」的比例，命中就不用打資料庫。它像擋水的水壩高度：命中率 95% 表示只放 5% 流量到資料庫。一旦記憶體不足、一直淘汰 → 命中率崩 → 水壩破洞 → 海量請求灌爆資料庫，引發連鎖崩潰。所以「記憶體夠不夠裝熱資料」是生死問題。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>分散式快取 = 大門口的連鎖小書架：把熱門資料放近處，省去每次問慢資料庫。</strong></p>
     <p><strong>4 個關卡：</strong>① 把熱資料<strong>放近處</strong>（快取）→ ② 用<strong>號碼牌(slot)</strong>分到很多<strong>分店(分片)</strong> → ③ 加減店<strong>只搬被分走的號碼</strong>（重分片）→ ④ 架滿了<strong>丟最沒人要的</strong>（LRU/LFU）。</p>

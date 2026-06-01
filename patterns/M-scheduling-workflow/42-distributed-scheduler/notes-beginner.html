@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -330,7 +331,111 @@ php -S localhost:8042 -t public
   <div class="box"><span class="label">誠實小提醒</span>
     因為 PHP 沒有跨請求的常駐計時器，這個 demo 用「<strong>手動 tick 推進</strong>」來模擬時間走動。但其中最關鍵的<strong>搶鎖去重（claim + 號碼牌 + 租約到期）、misfire 補跑、分片指派</strong>都是<strong>真的可執行邏輯</strong>，不是假動畫——這些正是這題的考點。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心邏輯都在<strong>一個小檔</strong>（<code>Scheduler.php</code>）裡，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 四個小幫手</span>
+    雖然程式裝在同一個檔裡，但它其實分工成四個小幫手：<strong>tick（推時鐘的人，到點就發觸發單）</strong> → <strong>claim（門口寫名字搶工作的人）</strong> → <strong>complete（驗號碼牌、收工的人）</strong> → <strong>resolveMisfire（決定睡過頭要不要補的人）</strong>。再加一條<strong>分片</strong>規則決定「這個鬧鐘該交給哪台」。價格…喔不，是時間一推，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>tick：把時鐘往前推，到點就發觸發單</h3>
+    <p>PHP 沒有常駐計時器，所以這 demo 用「<strong>手動把邏輯時鐘 +1</strong>」來模擬時間走動。每推一步，就掃一遍所有鬧鐘問「<strong>到點了沒？</strong>」到點的就生一張觸發單（fire）。</p>
+<pre><code>function tick(推幾步) {
+    重複 推幾步 次 {
+        現在時間++                       // ← 邏輯時鐘往前走一格
+        for (每個鬧鐘 job) {
+            if (job.下次響時間 &gt; 現在時間) continue;   // 還沒到點，跳過
+            負責的worker = 依分片算出該誰掃這個 job
+            if (負責的worker 不在線) continue;          // 沒人掃 → 故意讓它落後（之後補跑）
+            // 到點了！可能因為之前沒人掃而落後好幾輪 → 算「錯過幾次」
+            錯過次數 = floor((現在 - 下次響時間) / 間隔) + 1
+            要發幾張 = resolveMisfire(job.補跑策略, 錯過次數)  // ← 見第 4 段
+            重複 要發幾張 次 { 生一張觸發單(狀態=pending) }
+            job.下次響時間 += 錯過次數 × 間隔               // 推到下一個未來的觸發點
+        }
+    }
+}</code></pre>
+    <p class="codecaption">核心就是那句 <code>if (下次響時間 &lt;= 現在時間)</code>——這正是 Part 1 關卡 2「看時間、挑出到點的」。真實系統不用手動 tick，而是讓掃描員常駐，<strong>每秒去資料庫撈 <code>next_run &lt;= now()</code> 的那幾筆</strong>，但「到點才觸發」這個判斷一模一樣。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>claim：誰先在門口寫名字，誰就做（防重複的核心）</h3>
+    <p>一張觸發單被很多台 worker 同時看到。這段就是 Part 1 講的「<strong>搶</strong>」：第一個把名字寫上去的人成功，其他人看到「已被搶走」就退下。</p>
+<pre><code>function claim(誰來搶, 想搶哪張) {
+    if (這個 worker 不在線) return 失敗;
+    找一張「可搶」的觸發單 fire：
+        可搶 = (還沒人搶 pending)
+            或 (有人搶了但租約已過期)        // ← 原主疑似當掉，可被接管
+    // 分片：預設只搶「指派給自己」的；接管當掉節點才跨片
+    if (這張不是指派給我的 且 不是在接管當掉的) continue 找下一張;
+
+    if (找不到可搶的) {
+        若指名的那張已被別人搶 → return "已被 XXX 認領（去重生效）";
+        return "沒有可認領的觸發";
+    }
+    // 搶成功！發一張號碼牌、設租約
+    號碼牌 = 全域流水號++                    // ← fencing token，只會越來越大
+    fire.認領者 = 誰來搶
+    fire.號碼牌 = 號碼牌
+    fire.租約到 = 現在 + 5                    // ← 5 個 tick 內要做完，否則視為當掉
+    fire.狀態 = claimed
+    return { ok:true, fire }
+}</code></pre>
+    <p class="codecaption">「搶鎖成功才執行，已被搶就跳過」就是這段：能不能搶看 <code>狀態==pending</code> 或<strong>租約過期</strong>；搶到就蓋上自己的名字、發號碼牌、設租約。連回比喻——<strong>廚房門口貼紙，第一個寫名字的人去煮，後到的看到名字就回房間</strong>。真實系統把這段換成資料庫的「原子條件更新」（只在「還沒人搶」時更新成功），<strong>邏輯一字不差</strong>。</p>
+    <p class="pause">💭 停一下：為什麼「租約過期」也算「可搶」？這跟防重複不是矛盾嗎？</p>
+    <details class="qa"><summary>看答案</summary>
+      不矛盾。租約是「<strong>我借這個工作到幾點</strong>」。如果原主搶到後一直沒回報完成、租約也過了，系統就判定它「<strong>八成當掉了</strong>」，才讓別人接手——否則任務會永遠卡死沒人做（變成漏掉）。為了不變成「兩台同時做」，接手時會發一張<strong>更大的號碼牌</strong>，這樣就算原主假死後復活，它拿的舊號碼牌也會被擋掉（見下一段 complete）。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>complete：驗號碼牌再收工，擋住殭屍復活（防重複的另一半）</h3>
+    <p>搶到只是開始，<strong>做完要回報</strong>。這時系統會<strong>驗號碼牌</strong>：只認「最新那張」，舊的（殭屍 worker 拿的）一律拒絕。</p>
+<pre><code>function complete(誰回報, 哪張單, 帶來的號碼牌) {
+    if (這張已經 done) return "已完成（去重：每次觸發只算一次）";
+    if (回報者 不是 認領者) return "你不是認領者";
+    if (帶來的號碼牌 != fire.最新號碼牌)
+        return "fencing token 過期（殭屍寫入被拒）";   // ← 擋住假死復活的舊節點
+    fire.狀態 = done
+    寫一筆執行紀錄(誰做的, 幾點做的, 號碼牌)
+}</code></pre>
+    <p class="codecaption">三道關卡：① 已 done 就跳過（同一次只算一次＝<strong>冪等去重</strong>）；② 不是認領者不准回報；③ <strong>號碼牌不是最新的就拒絕</strong>——這就是擋「殭屍復活搶著做」的關鍵。對應 Part 1「最怕的第 3 件事」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>resolveMisfire：睡過頭，要補一次 / 全補 / 還是跳過？</h3>
+    <p>第 1 段 tick 算出「錯過幾次」之後，就交給這個小判斷決定<strong>要生幾張觸發單</strong>。整個 misfire 策略就濃縮成這幾行：</p>
+<pre><code>function resolveMisfire(策略, 錯過次數) {
+    依策略：
+        skip      → (錯過 &gt; 1) ? 0 : 1   // 落後就跳過；剛好準時仍正常跑
+        fire-all  → 錯過次數              // 欠幾次補幾次，一張都不少
+        其他(fire-once) → 1               // 不管欠幾次，只補一張
+}</code></pre>
+    <p class="codecaption">對應 Part 1 關卡 4 的三選一：<strong>fire-once 補一次</strong>（寄日報）、<strong>skip 跳過</strong>（每分鐘清快取）、<strong>fire-all 全補</strong>（每小時結算，一筆都不能少）。同一段程式、換個策略字串，行為就不同。</p>
+    <p>還有一條<strong>分片</strong>規則，決定「這個鬧鐘該交給哪台 worker 掃」：</p>
+<pre><code>function 算負責的worker(job, 線上worker清單) {
+    if (沒人在線) return null;            // 沒人掃 → 故意落後，等之後 misfire 補
+    位置 = job 的雜湊值 % 線上worker數量   // ← 同一個 job 穩定落在同一台
+    return 線上worker清單[位置]
+}</code></pre>
+    <p class="codecaption">用「雜湊取模」把每個鬧鐘穩定分給某一台，<strong>分散掃描與執行的負載</strong>，也減少大家擠著搶同一張單。對應 Part 1 講的「分片」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個函式</th><th>關鍵那段</th></tr>
+      <tr><td>① 看時間、挑出到點的</td><td><code>tick()</code></td><td><code>if (下次響時間 &lt;= 現在時間)</code></td></tr>
+      <tr><td>② 搶著做、只一台中</td><td><code>claim()</code></td><td>搶到才發號碼牌 + 設租約</td></tr>
+      <tr><td>③ 擋殭屍復活、去重</td><td><code>complete()</code></td><td>驗「號碼牌是不是最新」</td></tr>
+      <tr><td>④ 睡過頭補跑</td><td><code>resolveMisfire()</code></td><td>fire-once / skip / fire-all</td></tr>
+      <tr><td>＋ 分散負載</td><td>算負責的 worker</td><td>雜湊 % 線上 worker 數</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 手動 tick + 迴圈掃描」換成「<strong>常駐掃描員 + 分散式鎖／leader 選舉 + 資料庫原子更新 + 心跳偵測當掉</strong>」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>：到點才觸發、搶到才執行、號碼牌擋殭屍、misfire 三選一、雜湊分片。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「宿舍鬧鐘」解釋，為什麼多台機器一起跑會有麻煩？</summary>
     宿舍 4 個人都設了同一個 7:00 鬧鐘，同時響；但「去煮早餐」只該一個人做，不然煮了 4 鍋粥。多台機器都看到同一個鬧鈴響了，但任務只能讓一台執行——這就是核心難題。</details>
@@ -347,7 +452,7 @@ php -S localhost:8042 -t public
   <details class="qa"><summary>Q7（工程）：為什麼要先「選一個 leader 掃描員」，而不是每台都掃？</summary>
     如果每台 scheduler 都掃整本鬧鐘簿，會重複產生一堆觸發單，雖然搶鎖會去重但很浪費。用 leader 選舉讓同一片只有一個在掃描；leader 掛了，租約過期後其他人自動補位。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>分散式排程器 = 一大群電腦共用的鬧鐘系統，在對的時間把對的任務剛好做一次。</strong></p>
     <p><strong>4 個關卡：</strong>① 登記鬧鐘 → ② 看時間挑出到點的 → ③ 多台搶、只一台中（claim 防重複）→ ④ 睡過頭依策略補跑（misfire）。</p>

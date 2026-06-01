@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -310,7 +311,97 @@ php -S localhost:8029 -t public
   <div class="box"><span class="label">玩的時候想一下</span>給同一個玩家提交一個<strong>更高的分數</strong>，看他的名次是不是<strong>立刻往前跳</strong>（這就是「加分即重排」）。再讓兩個玩家<strong>同分</strong>，看誰排前面（這就是 tie-break）。
     <br><span style="color:var(--text-dim)">（誠實提醒：demo 用陣列排序模擬 ZSET，語意正確、可跑，但沒做到真 Redis 的 O(log N)；換成真 Redis 時各方法可一對一對應 <code>ZADD / ZREVRANK / ZREVRANGE</code>。）</span></div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那三關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：這題核心只有<strong>一個小檔</strong>（<code>SortedSet.php</code>），它就是我們在模擬那支「<strong>永遠按分數排好的隊伍</strong>」。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🏟️ 一個檔 = 一個小幫手（球場管理員）</span>
+    <strong>SortedSet</strong>（球場管理員，掌管那支排好的隊伍）：它對外只開幾個動作——<strong>zadd</strong>（讓人入座／換座位）、<strong>topK</strong>（看前幾排）、<strong>around</strong>（報你的座位號＋看左右鄰居）。對內藏一個 <strong>order</strong>（重排座位的規則，含同分怎麼辦）。前面三關，全靠這幾個動作組起來。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>加分即重排：入座／換座位（zadd）</h3>
+    <p>玩家回報分數，第一關。把他<strong>放進隊伍</strong>或<strong>移到新位置</strong>，而且<strong>當場就排好</strong>，順便回他「現在第幾名」。</p>
+<pre><code>function zadd(玩家, 新分數) {
+    是新人 = 隊伍裡還沒有這個玩家
+    分數表[玩家] = 新分數          // ← 同名只留一筆：是「更新」不是「多一筆」
+    if (是新人)
+        座號[玩家] = 下一個流水號   // 第一次入座才配流水號（同分 tie-break 要用）
+    排好的名單 = 重排(隊伍)         // ← 更新完「當場重排」，這就是「加分即重排」
+    return 這個玩家在名單裡的名次   // 1 起算，順便回給玩家
+}</code></pre>
+    <p class="codecaption">兩個重點：①<strong>同名只留一筆</strong>——再次送出是「把座位移到新位置」，不是塞第二個你進場。②更新完<strong>立刻重排並回名次</strong>，所以玩家加完分馬上看到「我升到第幾名」。對應真 Redis 的 <code>ZADD</code>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>重排規則 + 同分怎麼辦（order，藏在裡面）</h3>
+    <p>「重排」到底怎麼排？分數高的在前，這很直覺。<strong>難的是「兩人同分」</strong>——總得有個穩定規則，不然名次會跳來跳去。</p>
+<pre><code>排序時，兩兩比較 a 和 b：
+    if (a 分數 != b 分數)
+        分數高的排前面           // ← 主要規則：高分在前
+    else
+        座號小的排前面           // ← 同分 tie-break：先入座（先達標）的人在前</code></pre>
+    <p class="codecaption">同分時拿「<strong>誰先入座</strong>」（流水號小）來決勝負，名次就<strong>穩定</strong>、不會無故跳動——這正是前面「tie-break：先達標的人優先」那段在程式裡的長相。真 Redis 同分時用成員字典序，demo 改用入座順序，語意一樣是「給同分一個確定的先後」。</p>
+    <p class="pause">💭 停一下：如果同分時<strong>不</strong>定一個穩定規則，會發生什麼事？</p>
+    <details class="qa"><summary>看答案</summary>
+      同分的兩個人名次會<strong>每次查都跳來跳去</strong>（這次你 100 名、下次他 100 名），玩家會覺得「我明明沒動，名次怎麼一直變？」。定一條 tie-break 規則（先入座者在前），同分的相對順序就固定了。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查前 K 名：走到最前面數幾個（topK）</h3>
+    <p>冠軍榜要顯示「前 100 名」。因為隊伍<strong>本來就排好了</strong>，這超簡單——從最前面數 K 個就好。</p>
+<pre><code>function topK(k) {
+    排好的名單 = 重排(隊伍)
+    從第 1 名開始，取出前 k 個：
+        每個包成 { 名次, 玩家, 分數 }
+    return 這串
+}</code></pre>
+    <p class="codecaption">就是「<strong>走到第一排，往後數 k 個</strong>」。對應真 Redis 的 <code>ZREVRANGE(0, k-1)</code>（從高分那頭取前 K）。大家看的都是同一份，所以真實系統會把它<strong>暫存共用</strong>，不用每個人重算。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>我的名次 ± 鄰居：報座位號＋看左右（around）</h3>
+    <p>玩家最在意自己：「我第幾名？前後坐了誰？」做法兩步——先找到我的位置，再把<strong>左右各 n 個</strong>切出來。</p>
+<pre><code>function around(玩家, n) {
+    排好的名單 = 重排(隊伍)
+    我的位置 = 玩家在名單裡的索引      // ← 等同先做一次 ZREVRANK「我第幾名」
+    起 = max(最前面, 我的位置 - n)
+    迄 = min(最後面, 我的位置 + n)      // ← 邊界夾住，免得超出名單頭尾
+    window = 從「起」到「迄」這一小段（每個標上名次，並標記哪個是「我」）
+    return { 名次: 我的位置+1, 總人數, window }
+}</code></pre>
+    <p class="codecaption">這就是 demo 測試頁「<strong>你在日榜第 1234 名（共 982 萬人）</strong>＋上下鄰居表」的來源。對應「先 <code>ZREVRANK</code> 查我第幾名，再取 r±n 那一小段」。注意那兩行 <code>max / min</code>：你是第 1 名時就沒有「上面」，得把邊界夾住，不然會撈到隊伍外面。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">5</span>分窗榜：三支隊伍 = 三個檔（不同 key）</h3>
+    <p>日榜、週榜、總榜怎麼分開？很單純：<strong>一個 board 名字 = 一個獨立的 SortedSet＝一個獨立的檔</strong>。</p>
+<pre><code>new SortedSet(資料夾, "daily")   // → 存成 zset_daily.json
+new SortedSet(資料夾, "weekly")  // → 存成 zset_weekly.json
+new SortedSet(資料夾, "all")     // → 存成 zset_all.json
+// 三支隊伍各排各的、互不干擾；跨日重置 = 直接換一支新的</code></pre>
+    <p class="codecaption">三個榜是<strong>三份完全獨立</strong>的排好隊伍。所以「跨日重置」只要<strong>開一支新的 daily 隊伍</strong>，不用一個個刪舊資料。真 Redis 裡這就是<strong>三個不同的 ZSET key</strong>（如 <code>lb:daily</code> / <code>lb:weekly</code> / <code>lb:all</code>），道理一模一樣。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個動作</th><th>真 Redis 對應</th></tr>
+      <tr><td>① 加分即重排（順便回名次）</td><td><code>zadd()</code></td><td><code>ZADD</code></td></tr>
+      <tr><td>同分誰排前面（tie-break）</td><td><code>order()</code> 裡的 else</td><td>同分用成員字典序</td></tr>
+      <tr><td>② 查前 K 名</td><td><code>topK()</code></td><td><code>ZREVRANGE 0 k-1</code></td></tr>
+      <tr><td>③ 我第幾名＋上下鄰居</td><td><code>around()</code></td><td><code>ZREVRANK</code> + 取 r±n 段</td></tr>
+      <tr><td>分窗榜（日/週/總）</td><td>不同 board = 不同檔</td><td>不同 ZSET key</td></tr>
+    </table>
+  </div>
+
+  <div class="fear"><span class="label">❓ 為什麼不直接用 SQL <code>ORDER BY 分數 + COUNT(*)</code> 就好？</span>
+    可以，但<strong>太慢</strong>。每查一次「我第幾名」就要 <code>SELECT COUNT(*) WHERE 分數 &gt; 我的分數</code>——這是把<strong>全部人掃一遍數一次</strong>，每次 <strong>O(N)</strong>；查 Top-K 也得對全表排序。百萬玩家、每秒上千次查，資料庫直接累垮（就是第 2 節「每次重數全班」那個慘劇）。排行榜要的是「<strong>隊伍永遠排好、查名次只翻幾頁</strong>」，這正是 ZSET 在做的事。</div>
+
+  <p>👉 重點：上面那幾段是 demo 為了零依賴、好讀，用「PHP 陣列 + 每次重排」寫的（所以退化成 O(N log N)，只適合教學）。
+  真實系統會把它換成 <strong>Redis ZSET</strong>——內部用 <strong>skiplist（跳表）</strong>，<code>ZADD</code> / 查名次 / 取鄰居 / 取 Top-K 全是 <strong>O(log N)</strong>，百萬人也只是翻幾頁。
+  但<strong>「zadd 更新即重排、zrevrank 報名次、Top-K、我的名次±鄰居、同分 tie-break、分窗榜各一支」這套邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「體育場座位」的比喻，說說排行榜在幹嘛？</summary>
     排行榜像一個座位按成績排的體育場：成績最高坐第一排。任何人成績一變，大家自動往前/往後挪，永遠保持有序。所以查「前幾名」「我第幾排」都很快。</details>
@@ -327,7 +418,7 @@ php -S localhost:8029 -t public
   <details class="qa"><summary>Q7（工程）：到了千萬玩家，「精確第幾名」太貴，可以怎麼取捨？</summary>
     改用「近似名次／分桶」：統計各分數區間多少人，回「你贏過 87% 的玩家」而非精確第幾名。玩家其實只在意前幾 %，這樣計算更便宜、也比較好分散到多台機器。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>遊戲排行榜 = 一支「永遠按分數排好的隊伍」（Redis ZSET），像會自動排座次的體育場。</strong></p>
     <p><strong>3 個關卡：</strong>① 加分就重排 → ② 查前 K 名（走到最前面數幾個）→ ③ 查自己第幾名 + 上下鄰居。全靠「隊伍永遠排好」變得超快（O(log N)，不是每次重數的 O(N)）。</p>

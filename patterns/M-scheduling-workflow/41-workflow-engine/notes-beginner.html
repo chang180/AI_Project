@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -338,7 +339,112 @@ php -S localhost:8041 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把同一鍋<strong>重放</strong>一次，看已完成的步驟會不會「再做一次」（不會——它從帳本讀結果跳過）。這就是 <strong>durable execution</strong> 的精髓。把 ship 弄失敗，看善後是不是<strong>倒著</strong>把前面做的收回來——這就是 <strong>saga 補償</strong>。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：整顆引擎其實就<strong>一個檔</strong>（<code>WorkflowEngine.php</code>），裡面剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 四個小幫手分工</span>
+    這顆引擎裡住了四個小幫手，照這個順序合作：<strong>挑菜員 readySteps()</strong>（看食譜挑出「前置都做完、可以動手」的步驟）→ <strong>記帳＋回放員 replay()</strong>（每步都記進帳本，重開時照帳本快轉回進度）→ <strong>重試＋善後員 tick()/runSaga()</strong>（失敗先退幾步再試，真的不行就倒著收拾）→ <strong>審批門房 signal()</strong>（遇到要簽核的就停在門口，等放行訊號才開門）。</div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>挑菜員：相依排程，挑出「可以動手」的步驟（readySteps）</h3>
+    <p>食譜步驟有先後（備料完才能炒）。引擎每一輪先問：<strong>哪些步驟「前置都做完了、自己還沒做」？</strong>那些就是這輪可以動手的。</p>
+<pre><code>function 挑出可動手的步驟(食譜, 目前狀態) {
+    可動手 = []
+    for (每個步驟 in 食譜) {
+        if (這步驟已經做過 或 正在等)  continue;      // 只看還沒做的
+        前置都完成 = true
+        for (每個前置 in 這步驟.前置清單)
+            if (前置 還沒 DONE) { 前置都完成 = false; break; }  // 有一個沒做完就不行
+        if (前置都完成) 可動手.加入(這步驟)            // ← 前置全綠燈才放行
+    }
+    return 可動手
+}</code></pre>
+    <p class="codecaption">這就是 <strong>DAG（有先後的食譜）</strong>的心臟：不是照順序硬跑，而是每輪挑出「相依都滿足」的步驟往前推。沒前置的（像 reserve、charge_prep）一開始就能<strong>一起</strong>動手；approve 要等它倆都好才輪到。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>記帳＋回放員：重放不重跑（replay）</h3>
+    <p>這是<strong>全題的靈魂</strong>。引擎從不把「現在做到哪」存成一個會被覆蓋的變數，而是<strong>每件發生的事都寫進一本只加不改的帳本</strong>（events.ndjson）。要知道「現在狀態」，就<strong>把帳本從頭讀一遍、累加出來</strong>：</p>
+<pre><code>function 回放() {
+    狀態 = 所有步驟都「還沒做」                  // 從空白開始
+    for (每筆事件 in 讀整本帳本())               // ← 不執行任何步驟！只是讀帳本
+        狀態 = 套用這筆事件(狀態, 事件)
+    return 狀態
+}
+
+function 套用這筆事件(狀態, 事件) {
+    if (事件 == 某步驟完成) {
+        狀態[該步驟] = DONE，並記下它的結果           // 直接拿帳本裡記的結果
+        // ↑ 重點：這是「從帳本讀回來」，不是真的重跑那一步
+    }
+    if (事件 == 某步驟失敗)     狀態[該步驟] = FAILED
+    if (事件 == 流程已善後完)   狀態.整個流程 = 終止
+    ...
+    return 狀態
+}</code></pre>
+    <p class="codecaption">關鍵就在 <code>回放()</code> 那行註解：它<strong>只讀帳本、不重跑任何步驟</strong>。所以「斷電重開」時，呼叫一次回放就快轉回中斷點，已經做過的「扣款」絕不會被做第二次——這就是 <strong>durable execution（有存檔的執行）</strong>。</p>
+    <p class="pause">💭 停一下：為什麼要「重讀帳本算狀態」，而不是直接存一個「目前進度 = 第幾步」的變數就好？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為一個變數只記得「<strong>結果</strong>」，記不得「<strong>怎麼走到這的</strong>」，而且更新它的瞬間若當機就可能存到一半、壞掉。帳本是<strong>只加不改</strong>的：每件事都老老實實追加一行，狀態永遠能由「把帳本讀一遍」重算出來——可重現、可稽核、當機也不怕半套。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>重試＋善後員：先退一步再試，真不行就倒著收拾（tick / runSaga）</h3>
+    <p>挑出可動手的步驟後，<strong>task 型</strong>就動手做。萬一失敗，不是馬上放棄：先<strong>退避（等一下下次再試）</strong>，連試幾次都不行，才<strong>反向善後</strong>。</p>
+<pre><code>// tick() 裡，對一個失敗的步驟：
+嘗試次數 = 上次的次數 + 1
+if (這步驟失敗了) {
+    if (嘗試次數 &lt; 上限3) {
+        等待 = 100 × 2^(嘗試次數-1)         // ← 指數退避：100、200、400 毫秒，越退越久
+        記一筆「將重試」進帳本                // 下一輪 tick 再試這步
+    } else {
+        記一筆「這步徹底失敗」進帳本
+        執行善後(失敗的步驟)                 // ← 救不回來 → 啟動 saga
+    }
+}
+
+function 執行善後(失敗步驟) {
+    for (已完成步驟 in 反過來排(完成順序)) {   // ← 倒著來！後做的先收
+        執行它的反悔動作                       // 出貨→取消出貨、扣款→退款、預留→釋放庫存
+        記一筆「已補償這步」進帳本
+    }
+    記一筆「整個流程失敗、已善後」進帳本
+}</code></pre>
+    <p class="codecaption">兩個重點：<strong>退避</strong>讓暫時性故障有機會自己好（別狂敲），上限到了才放棄；<strong>saga 補償</strong>是<strong>倒著</strong>把已經做的一件件收回來（做菜做壞了，從最後一步反向收拾廚房）。因為長流程跨好幾個服務、跨好幾天，沒法用一次資料庫回滾，只能靠這種反向補償。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>審批門房：停在門口等放行訊號（tick 的 BLOCKED + signal）</h3>
+    <p>有些步驟（風控審批）要<strong>人</strong>點頭。引擎跑到這種步驟<strong>不會傻等</strong>，而是把它標成 <code>BLOCKED</code>、狀態落盤後就<strong>放掉資源去做別的</strong>，直到外部送來放行訊號（signal）。</p>
+<pre><code>// tick() 裡，遇到審批型步驟：
+if (步驟.型別 == 審批) {
+    記一筆「進入等待 BLOCKED」進帳本
+    break;                       // ← 停！整個流程暫停，這輪不再往下，等 signal
+}
+
+// signal()：外部（主管按了核准）送來放行
+function 放行(步驟) {
+    if (該步驟 不是 BLOCKED)  return 報錯「現在不是在等審批」;
+    記一筆「已核准」進帳本
+    記一筆「該步驟完成」進帳本        // ← 喚醒：下一輪 tick 就能繼續往後推
+}</code></pre>
+    <p class="codecaption">精髓是「<strong>等待免費</strong>」：暫停時狀態已落盤、不佔執行緒，所以等三天、中間還重開過都沒關係。放行訊號一來，補兩筆事件進帳本，流程就從原地醒來繼續跑。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個小幫手</th><th>關鍵那段</th></tr>
+      <tr><td>① 有先後的食譜（DAG）排程</td><td>readySteps()</td><td>「前置都 DONE 才放行」那兩個迴圈</td></tr>
+      <tr><td>② 記帳存檔、重放不重做</td><td>replay() / 套用事件</td><td>「只讀帳本、直接拿記下的結果」</td></tr>
+      <tr><td>③ 失敗重試 + 反向善後</td><td>tick() / runSaga()</td><td>指數退避的 if、倒序補償迴圈</td></tr>
+      <tr><td>④ 審批暫停 + 放行喚醒</td><td>tick() 的 break / signal()</td><td>遇審批 <code>break</code>、放行補兩筆事件</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「一個 PHP 檔 + 一本 NDJSON 帳本 + 手動按 tick」換成 <strong>Temporal</strong>（程式碼即流程、帳本叫 event history）或 <strong>Airflow</strong>（DAG 排程器 + worker 叢集），帳本換成可水平擴展的歷史服務、tick 換成 task queue + 計時器服務。
+  但<strong>上面這四段邏輯——DAG 挑 ready、事件溯源重放不重跑、重試退避、saga 反向補償——一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「停電炒菜」解釋，為什麼普通程式跑長流程會出問題？</summary>
     普通程式沒記「做到哪一步」，停電重開只能從頭來，於是「扣款」這種花錢的動作被做兩次。工作流引擎靠每步記帳、重開重放帳本，已做的跳過不重做。</details>
@@ -355,7 +461,7 @@ php -S localhost:8041 -t public
   <details class="qa"><summary>Q7（工程）：100 萬個流程同時在飛，為什麼真正稀缺的是「狀態容量」而不是 CPU？</summary>
     因為它們大多在等待（審批/計時/外部），等待時不佔執行緒，幾乎不耗 CPU。但每個流程的帳本狀態都得可靠保存、不能丟，所以瓶頸在「持久化狀態的容量與一致性」，整個設計圍繞「狀態落盤 + 事件喚醒」。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>工作流引擎 = 一個「有存檔、會收拾善後」的食譜執行管家。</strong></p>
     <p><strong>4 個關卡：</strong>① 把流程畫成有先後的<strong>食譜（DAG）</strong> → ② 每步做完就<strong>記帳存檔，重放不重做（durable execution）</strong> → ③ 失敗先重試、不行就<strong>反向善後（saga）</strong> → ④ 遇審批就<strong>暫停等放行訊號（signal）</strong>。</p>

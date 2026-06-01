@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -325,7 +326,94 @@ php -S localhost:8011 -t public
     但<strong>排程算下次時間、延遲佇列、任務狀態機、冪等去重、失敗重試</strong>這些系統邏輯<strong>都是真的在跑</strong>。
     想接真的 AI，只要把那個假呼叫換成真的 API，其他完全不用改。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面三關。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>Scheduler</strong>（盯時間的鬧鐘管理員：到期就丟進佇列）→ <strong>TaskQueue</strong>（那本「排隊清單 + 物流狀態表」，順便發唯一條碼擋重複）→ <strong>Worker</strong>（真正動手叫 AI 的工人，失敗就重試）。任務的一生，就照這個順序跑一遍。</div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>排程：時間到才放行（Scheduler）</h3>
+    <p>排程器每「滴答」一次（tick），就把所有「<strong>下次該跑的時間已經 ≤ 現在</strong>」的任務撈出來，丟進佇列。就像鬧鐘管理員問一句「有誰時間到了？」。</p>
+<pre><code>function tick(現在時間) {
+    for (每個任務) {
+        if (任務.下次該跑時間 &gt; 現在時間) continue;   // ← 還沒到 → 跳過，動都不用動
+
+        // 到期了！發一張「唯一條碼」＝ 任務編號 @ 這個觸發時間點
+        條碼 = 任務.編號 + "@" + 任務.下次該跑時間
+        佇列.入列(任務.編號, 條碼)                      // ← 丟進延遲佇列（限時投遞倉庫）
+
+        if (任務是週期型) {
+            下次 = 下次該跑時間 + 間隔
+            while (下次 &lt;= 現在時間) 下次 += 間隔        // ← 對齊到未來，當機補跑時不瘋狂連跑
+            任務.下次該跑時間 = 下次                     // 像鬧鐘響完自動設好明天的
+        } else {
+            任務.狀態 = 已派發                           // 一次性任務：跑過就不再排
+        }
+    }
+}</code></pre>
+    <p class="codecaption">兩個重點：① <code>if (下次該跑時間 &gt; 現在) continue</code> 就是「<strong>時間沒到就放著</strong>」的限時投遞精神；② 週期任務那段 <code>while</code> 是<strong>對齊到未來</strong>——萬一系統當機 3 天才修好，「每天 7 點」的任務<strong>不會一口氣補跑 3 次</strong>，只跳到下一個未來時間點。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>冪等 + 狀態機：同一條碼只入列一次（TaskQueue）</h3>
+    <p>任務入列前，先驗那張「唯一條碼」。同一個條碼已經存在 → <strong>直接擋掉</strong>，這就是「演唱會門票掃過一次就不讓再進場」。</p>
+<pre><code>function 入列(任務編號, 條碼) {
+    if (已經有同一條碼的紀錄) return false;        // ← 冪等！同一觸發絕不排兩次
+
+    新建一筆執行紀錄 {
+        條碼, 狀態 = QUEUED（待辦）, 試了第幾次 = 0
+    }
+    return true;
+}</code></pre>
+    <p class="codecaption">就這一句 <code>if (已經有同一條碼) return</code>，把「排程器重複掃描、佇列重複投遞」造成的<strong>重複叫 AI</strong> 擋在門外。真實系統更穩：把這欄「條碼」設成資料庫的<strong>唯一索引</strong>，靠 DB 的「不准重複」從根本擋住。</p>
+    <p>而「<strong>狀態機</strong>」就是這幾個會推進的狀態，每筆執行紀錄任何時刻都<strong>剛好停在一格</strong>，只能照箭頭走、不能跳：</p>
+<pre><code>QUEUED（待辦）──工人取出──▶ RUNNING（執行中）
+   RUNNING ──成功──▶ DONE（完成）
+   RUNNING ──失敗但還能再試──▶ RETRY ──▶ 回 QUEUED（重新排隊）
+   RUNNING ──失敗且重試用盡──▶ FAILED（投死信回收桶 / 通知你）</code></pre>
+    <p class="codecaption">這張圖就是前面「網購包裹物流狀態」的工程版。<code>markRunning / markDone / markFailed</code> 各自負責把紀錄推到下一格。</p>
+    <p class="pause">💭 停一下：條碼檢查放在「入列前」而不是「工人做完後」，差在哪？</p>
+    <details class="qa"><summary>看答案</summary>
+      放在入列前，重複的觸發<strong>連佇列都進不去</strong>，工人根本不會看到它，也就<strong>不會多叫一次 AI</strong>（省錢又不會多發通知）。若等做完才去重，AI 早就被叫了兩次，錢也花了——擋得越前面越省。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>執行 + 重試：做不成就退一步再試（Worker）</h3>
+    <p>工人從佇列拿出待辦的任務，推進狀態、呼叫 AI。成功就標完成、發通知；失敗就看「<strong>還有沒有重試額度</strong>」決定退回重排還是判死。</p>
+<pre><code>function 跑一輪() {
+    for (每個 QUEUED 的任務) {
+        這次是第幾次 = 上次次數 + 1
+        標記為 RUNNING（執行中）
+        try {
+            結果 = 呼叫AI(任務.提示)        // ← 真實系統這行接 OpenAI / Anthropic API
+            標記為 DONE（完成）
+            發通知(結果)                    // 至少送一次（寧可重送不漏送）
+        } catch (失敗) {
+            if (這次 &lt; 最多重試次數)
+                標記為 QUEUED（退回重排，真實系統會「退避」隔久一點再試）
+            else
+                標記為 FAILED（重試用盡 → 丟死信回收桶 / 通知你）
+        }
+    }
+}</code></pre>
+    <p class="codecaption">注意「呼叫AI」那行：demo 是<strong>假呼叫</strong>（依提示產生固定文字、可勾選模擬失敗），但取出、狀態轉移、重試、發通知<strong>全是真邏輯</strong>。想接真 AI，只要把那一行換成真的 API，其他<strong>一字不用改</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 排程（時間到才動手）</td><td>Scheduler</td><td><code>tick()</code> 的 <code>if (下次時間 &gt; 現在) continue</code></td></tr>
+      <tr><td>② 狀態一路推進</td><td>TaskQueue</td><td>QUEUED→RUNNING→DONE/RETRY/FAILED</td></tr>
+      <tr><td>③ 同一件事只做一次</td><td>TaskQueue</td><td>入列前的「條碼」檢查（冪等）</td></tr>
+      <tr><td>＋ 做不成就重試</td><td>Worker</td><td><code>catch</code> 裡「還能不能再試」</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 每分鐘掃一次」換成「分片資料庫 + <strong>延遲佇列</strong>（SQS DelaySeconds / Redis ZSET，score＝到期時間戳）+ 一群 worker」，
+  但<strong>上面這幾段判斷邏輯（排程對齊、狀態機、冪等去重、重試）一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「鬧鐘」的比喻，解釋為什麼需要排程系統？</summary>
     想 7 點起床你會設鬧鐘，而不是整晚盯著時鐘。排程系統就是那個鬧鐘：你登記好時間就能放手去睡，時間到它主動叫你。差別在「誰來盯時間」——交給系統，你（或你的 App）就不必一直開著一直盯。</details>
@@ -342,7 +430,7 @@ php -S localhost:8011 -t public
   <details class="qa"><summary>Q7（工程）：分散式下難保「剛好做一次」，務實怎麼做？</summary>
     用「至少做一次（寧可重來）＋ 唯一條碼去重」，效果上等於「剛好一次」。佇列重投、掃描器搶著掃、工人逾時復活都可能造成重複，但唯一條碼配上資料庫「不准重複」就能擋住。這是本題最重要的一句話。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>ChatGPT 排程任務 = 一個會「定時 / 週期幫你做事」的 AI 秘書。</strong></p>
     <p><strong>3 個關卡：</strong>① 像鬧鐘一樣<strong>排程</strong>（延遲佇列：時間到才放行）→ ② 工人接手、任務<strong>狀態一路推進</strong>（待辦→執行中→完成）→ ③ 用「唯一條碼」<strong>確保同一件事只做一次</strong>（冪等＋重試）。</p>

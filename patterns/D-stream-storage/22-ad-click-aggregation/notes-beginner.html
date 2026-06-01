@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -321,7 +322,67 @@ php -S localhost:8022 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把同一筆點擊（同一個 click_id）餵兩次，看「去重後」的數字會不會變多——不會，這就是 <strong>exactly-once 去重</strong>在運作。再把同一個 IP 連點很多下，看它怎麼被<strong>防作弊關</strong>踢出帳單。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那條漏斗到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的三件大事。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>ClickIngest</strong>（驗票員＝去重，認出重複的票號）→ <strong>FraudFilter</strong>（保全＝防作弊，看行為踢掉機器人）→ <strong>Aggregator</strong>（收銀機＝結算，每小時清點一次）。一筆點擊進來，就照這個順序闖三關。</div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>去重：同一張票只准進一次（ClickIngest）</h3>
+    <p>第一關，先問一句「<strong>這張票我收過了嗎？</strong>」。手上有一本「已進場名單」（看過的票號），重複的直接擋掉。</p>
+<pre><code>function 收下(點擊) {
+    票號 = 點擊.click_id
+    if (看過名單 裡已經有 票號)
+        return 丟掉;            // ← 重複的票 → 擋下，不重複計費
+    看過名單[票號] = true        // 首次出現才記下來、放行
+    return 接受;
+}</code></pre>
+    <p class="codecaption">就這一句 <code>if</code>，把上游「寧可重送也不漏送」造成的重複擋在門外。不管同一筆點擊被送來幾次，<strong>只有第一次會過</strong>——這就是把「至少一次」收斂成 <strong>exactly-once（剛好一次計費）</strong>。對應前面「演唱會驗票」那個比喻。</p>
+    <p class="pause">💭 停一下：那本「看過名單」如果永遠留著，會出什麼問題？</p>
+    <details class="qa"><summary>看答案</summary>
+      會無限長大，把記憶體撐爆（一天就 2 億筆）。所以真實系統會給它設<strong>保存期限（TTL）</strong>，只留最近幾小時——但要留得比「上游最晚可能重送的時間」還長，否則遲到的重複會漏抓、多算錢。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>防作弊：短時間爆量就踢掉（FraudFilter）</h3>
+    <p>過了去重的點擊都「不重複」了，但裡面藏著機器人狂點。這一關<strong>看行為</strong>：同一個 IP 在一小段時間內點太多下，就判作弊。</p>
+<pre><code>function 是不是正常的(點擊) {
+    近期 = 這個 IP 在「最近 10 秒」內的點擊（舊的丟掉）  // ← 滑動視窗
+    if (近期筆數 &gt;= 門檻 5)
+        return 作弊;            // ← 短時間爆量 → 剔除，不計費
+    記下這次點擊時間
+    return 正常;
+}</code></pre>
+    <p class="codecaption">注意：這裡的「最近 10 秒」是會<strong>跟著時間往前滑</strong>的滑動視窗（拿來抓行為，不是拿來算錢）。一旦同 IP 在窗內達門檻就剔除。對應「店員看出來這人一分鐘衝進來 300 次」的比喻。<strong>去重 ≠ 防作弊</strong>：去重擋一模一樣的票號，這關擋的是票號各不相同、但行為很可疑的洪水點擊。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>結算：把時間切成整段，分段加總（Aggregator）</h3>
+    <p>最後剩下「乾淨、可收錢」的點擊。這關把它們<strong>按時間分段</strong>加起來。關鍵就一行：算出這筆點擊屬於<strong>哪一段</strong>。</p>
+<pre><code>function 歸到哪一段(點擊時間 ts) {
+    return (ts ÷ 視窗長度) 取整 × 視窗長度   // 例：視窗 60 秒，ts=14:00:37 → 落到 14:00:00 那段
+}
+function 累加(點擊) {
+    這一段 = 歸到哪一段(點擊.ts)
+    帳本[廣告][這一段] += 1               // ← 同段同廣告，累加成一個數字
+}</code></pre>
+    <p class="codecaption">這就是 <strong>tumbling window（翻滾視窗）</strong>：時間被切成固定長度、<strong>不重疊</strong>的整段，一筆點擊只會落進它發生的那一段（對應「每小時清點一次收銀機」）。而且是用<strong>事件時間（點擊真正發生的 ts）</strong>歸段，所以就算事件亂序、晚到，也會落到正確的那一段。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>② 去重（exactly-once）</td><td>ClickIngest</td><td><code>收下()</code> 裡「看過名單」的 if</td></tr>
+      <tr><td>③ 防作弊</td><td>FraudFilter</td><td><code>是不是正常的()</code> 的爆量門檻</td></tr>
+      <tr><td>④ 分段結算</td><td>Aggregator</td><td><code>歸到哪一段()</code> 的取整公式</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「記憶體名單 + 迴圈」換成 <strong>Kafka（輸送帶）+ Flink（串流引擎，含 keyed-state / watermark）+ Redis/RocksDB（去重狀態）+ ClickHouse（報表庫）</strong>，
+  但<strong>上面這三段判斷邏輯一字都不用改</strong>：去重還是「看過就丟」、防作弊還是「窗內爆量就踢」、結算還是「ts 取整歸段累加」。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「同一封信收兩次」解釋，為什麼點擊計數不是單純 COUNT(*)？</summary>
     因為傳輸層為了不漏掉，會把同一筆點擊重送兩三次（像同一封確認信寄兩三次）。直接 COUNT 會把重複也算進去 → 多收錢。所以要先去重，同一筆只算一次。</details>
@@ -338,7 +399,7 @@ php -S localhost:8022 -t public
   <details class="qa"><summary>Q7（工程）：「看過的票號」名單為什麼要設保存期限，期限要設多長？</summary>
     不設會無限長大撐爆記憶體。但要設得比「上游最晚可能重送的時間」還長，否則一筆遲到的重複送來時名單已清掉它，就會被當成新的多算一次。這是省記憶體 vs 算對錢的取捨。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>廣告點擊聚合 = 一台超精準、防作弊的點擊收費機。</strong></p>
     <p><strong>4 個關卡：</strong>① 收下點擊立刻放行 → ② 去重（重複票擋掉，做到 exactly-once）→ ③ 防作弊（機器人灌的不算）→ ④ 分段結算（每小時一筆帳，tumbling window）。</p>

@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -337,7 +338,92 @@ php -S localhost:8036 -t public
     這個 demo 是<strong>單機模擬</strong>：用一個狀態檔＋檔案鎖，模擬「一個被複製、絕不說謊的管理員」，<strong>沒有</strong>真正的多台節點投票。
     但租約、防護令牌、watch、選主、服務發現的<strong>邏輯都是真的、可實際執行</strong>，特別是「舊號碼牌被擋」這個最重要的考點。要變成真叢集，把底層換成 etcd/ZooKeeper 即可，上層玩法不變。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：整個協調服務其實就<strong>一個小檔</strong>（CoordService），裡面剛好對應前面講的幾關。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 一位管理員，桌上幾本小冊子</span>
+    這位<strong>管理員（CoordService）</strong>做事有個鐵律：<strong>每次動作都先把「狀態本」整本鎖起來、改完再放開</strong>（這就是模擬「絕不說謊、一次只認一個答案」）。下面四段，就是他最常做的四件事。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>借鑰匙：發一張「只增不減」的號碼牌（acquire）</h3>
+    <p>機器來借鎖，管理員先看「<strong>這把鎖現在有沒有人、有沒有過期</strong>」。空了或過期了才借出，<strong>順手把全域號碼計數器 +1</strong>，那張新號碼牌就是防護令牌：</p>
+<pre><code>function 借鑰匙(哪把鎖, 我是誰, 時限) {
+    現在 = 此刻時間
+    那把鎖 = 鑰匙簿[哪把鎖]
+
+    if (那把鎖 還有人 且 還沒到期)
+        return 失敗（被別人借走了）       // ← 一次只給一個人
+
+    號碼牌 = ++全域號碼計數器             // ← 只會往上加，永不重複
+    鑰匙簿[哪把鎖] = { 我是誰, 到期 = 現在 + 時限, 號碼牌 }
+    通知盯著這把鎖的人("acquired")        // ← watch：一借走就叫醒在等的人
+    return { 號碼牌, 到期時間 }
+}</code></pre>
+    <p class="codecaption">對應比喻：<strong>唯一一把廁所鑰匙</strong>（沒人才借得到）＋<strong>借鑰匙設時限</strong>（到期自動收回）＋<strong>遞增號碼牌</strong>（<code>++計數器</code> 只增不減）。注意「續租／心跳」就是同一支函式：同一個人再來，只把<strong>到期時間往後延</strong>，號碼牌不變。</p>
+    <p class="pause">💭 停一下：為什麼一定要「<code>++</code>（先加再用）」而不是隨便給個號碼？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為防護令牌的保命關鍵是「<strong>只增不減</strong>」——只要新借的號碼永遠比舊的大，過期的人就<strong>永遠</strong>追不上。隨機號碼會破壞「比大小就安全」這個前提，門口就擋不掉舊的人了。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>⭐ 門口擋舊號碼：fencing 的心臟（fenceWrite）</h3>
+    <p>這是<strong>全題最重要</strong>的一段。每份下游資源都<strong>記住「我見過的最大號碼」</strong>，來動它的人得亮號碼牌，<strong>比這個小就一律拒絕</strong>：</p>
+<pre><code>function 寫資源(哪份資源, 號碼牌, 內容) {
+    見過的最大 = 門口簿[哪份資源]   // 沒記過就當 0
+
+    if (號碼牌 &lt;= 見過的最大)
+        return 拒絕（你的太舊了）      // ← 恍神醒來的舊持有者，擋！
+
+    門口簿[哪份資源] = 號碼牌         // 收大號 → 更新門口記憶
+    真的寫入(內容)
+    return 接受
+}</code></pre>
+    <p class="codecaption">場景：33 號的人恍神太久、鑰匙被收回給了 34 號，門口記憶已是 34。33 號回神拿著<strong>舊號碼</strong>來寫 → <code>33 &lt;= 34</code> → 被擋。這就是「<strong>下游記 max 號碼，來的號碼 &lt;= max 就拒</strong>」。門口<strong>不用信時鐘、不用知道誰借了鎖</strong>，只要<strong>比大小</strong>就安全。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>選組長：其實就是「來借同一把鎖」（campaign）</h3>
+    <p>選主聽起來很玄，其實<strong>沒有新東西</strong>：誰搶到某把「選舉鎖」，誰就是組長；那張號碼牌就當組長的<strong>任期編號（epoch）</strong>：</p>
+<pre><code>function 競選組長(哪場選舉, 候選人, 時限) {
+    結果 = 借鑰匙("election/" + 哪場選舉, 候選人, 時限)  // ← 就是上面那支
+    if (結果.成功)
+        return { 你是組長, 任期編號 = 結果.號碼牌 }
+    else
+        return { 你不是, 現任組長 = 結果.borrower }      // 落選 → 改去 watch
+}</code></pre>
+    <p class="codecaption">妙在這裡：組長掉線（不續租）→ 選舉鎖<strong>租約到期自動收回</strong> → 別人一借就接任，<strong>任期編號自動跟著 +1</strong>。所以「換組長」這件麻煩事，被租約＋遞增號碼牌<strong>順便就解掉了</strong>，一行新邏輯都不用寫。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>線上通訊錄：登記要綁租約（register / discover）</h3>
+    <p>服務發現也站在同一套機制上：<strong>登記＝借一個會過期的位子，要靠心跳續命</strong>；查的時候，<strong>過期的早被自動清掉</strong>，撈到的永遠是活人：</p>
+<pre><code>function 登記(服務名, 我是誰, 地址, 時限) {
+    通訊錄[服務名][我是誰] = { 地址, 到期 = 現在 + 時限 }  // 漏心跳就過期
+    通知盯著這個服務的人("up")
+}
+
+function 查誰活著(服務名) {
+    （管理員每次動作前都會先清掉所有過期的登記）        // ← lazy 自動下架
+    return 通訊錄[服務名] 裡還沒過期的那些
+}</code></pre>
+    <p class="codecaption">關鍵在「<strong>每次操作前先清過期</strong>」這個共用步驟：鎖過期、登記過期，都在這一步被掃掉，並順手 <strong>watch 通知</strong>盯著的人（鎖被放掉、某實例下線）。所以「誰下線了」不用誰去巡邏——<strong>到期沒續租，名單自己消失</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪支函式</th><th>關鍵那段</th></tr>
+      <tr><td>① 借鑰匙（一次一人）＋ ② 設時限</td><td>acquire</td><td>沒人才借、<code>++號碼計數器</code></td></tr>
+      <tr><td>③ 門口擋舊號碼（最重要）</td><td>fenceWrite</td><td><code>號碼牌 &lt;= 見過的最大 → 拒</code></td></tr>
+      <tr><td>選組長（用鎖實作）</td><td>campaign</td><td>借「選舉鎖」，號碼牌＝任期編號</td></tr>
+      <tr><td>④ 線上通訊錄（誰還活著）</td><td>register / discover</td><td>登記綁租約、查時自動清過期</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：這個 demo 用「一個狀態檔＋檔案鎖」模擬「一位絕不說謊的管理員」。真實系統會把它換成 <strong>etcd / ZooKeeper</strong>——底層改用 <strong>Raft 共識把狀態複製到奇數台、過半同意才算數</strong>，
+  但<strong>上面這幾段判斷邏輯（租約到期回收、號碼牌只增不減、門口比大小擋舊的、watch 一變就通知、用鎖選主）一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「廁所鑰匙」解釋什麼是分散式鎖。</summary>
     辦公室只有一間廁所、一把鑰匙，誰拿到誰才能進、一次一人，別人排隊等。很多台機器要動同一份資料時也一樣，需要一把大家都認的「鑰匙」保證同時只有一個人在動，避免資料撞壞。</details>
@@ -354,7 +440,7 @@ php -S localhost:8036 -t public
   <details class="qa"><summary>Q7（工程）：拿不到鎖時，為什麼不要「一直猛問有沒有空」？該怎麼做？</summary>
     一直猛問（自旋輪詢）浪費資源，而且大家同時搶會擠成一團（驚群）。正解是「盯著（watch）」前一位，等他放手時被自動叫醒；甚至排成一隊，每人只盯前一位，輪到才動。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>分散式鎖 = 很多台機器共用的「廁所鑰匙」，一次只給一個人；協調服務 = 那個絕不發錯的超可靠管理員。</strong></p>
     <p><strong>4 個關卡：</strong>① 借鑰匙（一次一人）→ ② 借鑰匙有時限（到期自動收回，不怕卡死）→ ③ <strong>每次借附遞增號碼牌，門口比大小擋掉過期的人（最重要）</strong> → ④ 同個管理員順便維護「誰還活著」的通訊錄。</p>

@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -338,7 +339,101 @@ php -S localhost:8037 -t public
   <div class="box warn"><span class="label">誠實提醒</span>
     這個 demo <strong>不連真網路</strong>，用程式內建的「假網路圖」做確定性爬取，方便你觀察。但 BFS 待爬清單、bloom 去重（含認錯後二次確認）、politeness、依網站分片、重抓排程這些<strong>核心邏輯都是真的可執行</strong>——要換成真網路，只要把「查假網路圖」換成「對網址發 HTTP GET、解析 HTML 抽連結」，其餘不變。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心其實就<strong>幾段小邏輯</strong>，剛好對應前面講的關卡。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>Crawler</strong>（順著連結爬的剪報機器人本體：管待爬清單、禮貌、分片）＋ <strong>BloomFilter</strong>（超省空間的「打勾備忘」＝去重小卡）。
+    一個網址進來，就照「<strong>分片入列 → 輪到它 → 禮貌檢查 → 抓取抽連結 → 去重後再入列</strong>」跑一圈。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>待爬清單：一圈圈往外加好友（BFS frontier）</h3>
+    <p>整題的心跳就是這個迴圈：<strong>從清單前面拿一個、抓它、把它頁上的新連結排到清單後面</strong>。「先進先出」就讓爬法自動變成一圈圈往外的 BFS。</p>
+<pre><code>function 爬一步() {
+    網址 = 待爬清單.從前面拿一個()      // 先進先出 → 自然就是 BFS
+    if (沒東西可拿) return 爬完了
+    頁面 = 抓取(網址)                  // 下載這頁、讀出內容
+    for (連結 in 頁面.所有外連) {       // 把這頁提到的每個連結…
+        if (太深) 跳過                 // ← 防陷阱：限制最大深度
+        if (去重.看過了嗎(連結)) 跳過    // ← 沒看過的才要
+        去重.記下(連結)
+        待爬清單.排到後面(連結)         // ← 新發現排到隊尾，下一圈才輪到
+    }
+}</code></pre>
+    <p class="codecaption">關鍵是「<strong>新連結排到隊尾</strong>」：這層的連結會先被處理完，下一層才開始——這就是「先把眼前這層好友加完，再加朋友的朋友」的 BFS。demo 用一個陣列當佇列；真實系統把它換成<strong>排隊系統（Kafka）＋ 溢寫硬碟</strong>，邏輯一樣。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>去重：指紋設位元，可能爬過再精查（BloomFilter）</h3>
+    <p>每個新連結都要先問「<strong>爬過沒？</strong>」。但完整名冊太大裝不下，所以用 bloom filter：把網址<strong>算出幾個「指紋位置」，在一張小卡上把那幾個位元設成 1</strong>。查的時候，看那幾個位元<strong>是不是全都是 1</strong>。</p>
+<pre><code>function 記下(網址) {                  // = bloom 的 add
+    for (位置 in 指紋位置(網址))         // 同一網址算出固定的幾個位置
+        小卡[位置] = 1                  // 把那幾個位元設成 1
+}
+function 可能爬過嗎(網址) {             // = bloom 的 mightContain
+    for (位置 in 指紋位置(網址))
+        if (小卡[位置] == 0)
+            return 一定沒爬過            // ← 有一位是 0 → 鐵定沒加過（不會漏抓）
+    return 可能爬過                    // ← 全是 1 → 可能爬過（但也可能是別人剛好把這幾位設成 1 = 認錯）
+}</code></pre>
+    <p class="codecaption">「<strong>指紋位置</strong>」怎麼算？用兩個雜湊（crc32＋FNV）湊出 k 個位置（double hashing），同一個網址永遠算到同一組位置，所以記過的查得到。</p>
+    <p>但 bloom 說「可能爬過」<strong>偶爾會認錯</strong>（別的網址剛好把同樣那幾位也設成 1）。怕漏爬？很簡單——bloom 說「可能」時，<strong>再去翻一次真正的精確名冊</strong>確認：</p>
+<pre><code>function 看過了嗎(網址) {
+    if (!可能爬過嗎(網址)) return 否     // bloom 說「一定沒」→ 直接當新網址（不會錯）
+    return 精確名冊.有這個網址嗎(網址)   // bloom 說「可能」→ 再精查一次擋掉認錯
+}</code></pre>
+    <p class="codecaption">這就是<strong>「省空間的近似先擋，命中再精查」</strong>：bloom 用 1.2 GB 擋掉絕大多數，只有它說「可能」時才去碰那本貴的精確名冊——又省空間、又幾乎不漏爬。</p>
+    <p class="pause">💭 停一下：為什麼 bloom 說「一定沒爬過」可以<strong>完全相信</strong>、不用再精查，但說「可能爬過」就得再查一次？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為記下一個網址時，會把它的那幾個位元<strong>全設成 1</strong>。所以只要有<strong>任一位是 0</strong>，就代表這網址鐵定沒被記下過（沒有偽陰性）→ 一定沒爬過，完全可信。反過來「全是 1」可能是這網址真的記過，<strong>也可能是別的網址剛好把這幾位都設成 1</strong>（偽陽性／認錯）——分不出來，所以要再翻精確名冊確認。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>禮貌：別狂敲同個網站的門（per-domain crawl-delay）</h3>
+    <p>輪到一個網址時，抓之前先看一句：「<strong>這個網站，我上次抓是多久前？</strong>」太近就先別抓，把它<strong>延後重排</strong>。</p>
+<pre><code>網站 = 取出網址的網站名(網址)            // 例：news.example
+上次抓 = 各網站狀態[網站].上次抓取時間
+if (上次抓存在 且 現在 - 上次抓 &lt; crawl-delay) {
+    待爬清單.排到後面(網址, 標記=延後)    // ← 太密！先讓它回隊尾等等再說
+    return 這步「延後」
+}
+// 間隔夠了 → 真的抓
+各網站狀態[網站].上次抓取時間 = 現在      // 記下「我這次敲門的時間」
+頁面 = 抓取(網址)</code></pre>
+    <p class="codecaption">關鍵是<strong>每個網站各記一個「上次敲門時間」</strong>，同一站兩次抓取必須隔 ≥ crawl-delay，否則延後。就像當有禮貌的訪客：按一下門鈴、等一會兒，<strong>不對著門鈴猛按不放</strong>。真實系統還會先讀網站門口的 robots.txt 拿到它指定的 crawl-delay，邏輯一樣。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>分片：同一個網站交給同一台機器（依 domain 分 frontier）</h3>
+    <p>第 3 關那個「上次敲門時間」只有在<strong>同網站集中管</strong>時才有用。所以待爬清單<strong>依網站雜湊分成 N 份（shard）</strong>，<strong>同一個網站永遠落在同一份</strong>：</p>
+<pre><code>function 該去哪個分片(網址) {
+    網站 = 取出網址的網站名(網址)
+    return 雜湊(網站) % 分片數            // ← 用「網站」算，不是用整個網址！
+}
+// 入列時用它決定 shard：同網站 → 同 shard
+分片編號 = 該去哪個分片(網址)
+待爬清單[分片編號].排到後面(網址)</code></pre>
+    <p class="codecaption">用「<strong>網站</strong>」而不是「整個網址」來算分片，是整段的靈魂——這樣 news.example 的所有頁都進同一個 shard，那台機器才管得住「我剛敲過 news.example，要隔幾秒」。就像郵局<strong>依地址分郵差</strong>，同社區的信永遠同一個郵差送，不會三個郵差擠在同一個門口。</p>
+    <p class="pause">💭 停一下：如果改成「用<strong>整個網址</strong>算分片」（而不是只用網站名），禮貌會發生什麼事？</p>
+    <details class="qa"><summary>看答案</summary>
+      同一個網站的不同網址會被雜湊到<strong>不同 shard、散到不同機器</strong>。於是每台機器各自記著「我這份的上次敲門時間」，彼此不知道對方剛敲過——結果好幾台機器<strong>同一秒一起去敲同一個網站</strong>，crawl-delay 完全失效，網站被打趴、IP 被封。所以一定要用「網站」算分片，把同站的禮貌狀態<strong>集中在同一處</strong>。</details>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 待爬清單一圈圈爬</td><td>Crawler</td><td><code>爬一步()</code>：拿一個 → 抓 → 新連結排到隊尾</td></tr>
+      <tr><td>② 去重不鬼打牆</td><td>BloomFilter</td><td><code>看過了嗎()</code>：bloom 先擋、命中再精查</td></tr>
+      <tr><td>③ 對網站講禮貌</td><td>Crawler</td><td>抓之前的 <code>crawl-delay</code> 檢查</td></tr>
+      <tr><td>④ 依網站分片</td><td>Crawler</td><td><code>該去哪個分片()</code>：用網站名雜湊</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統是一整群機器組成的<strong>分散式爬蟲叢集</strong>，會把「陣列佇列 + JSON 檔 + 假網路圖」換成「<strong>Kafka 排隊 + 分散式 KV/DB + 真的對網址發 HTTP GET 抓 HTML</strong>」，
+  但上面這幾段<strong>BFS、bloom 去重、politeness、依網站分片</strong>的判斷邏輯<strong>一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「加好友」的比喻解釋，為什麼只給幾個種子網址就能爬遍整個網路？</summary>
     每個網頁的連結就像一個人的好友清單。從幾個種子（朋友）出發，看他們連到的頁（好友），再看那些頁連到的頁（朋友的朋友）……只要這張網是連通的，一層層往外就能走遍。種子是起點，不是全部。先把這層爬完再下一層，就是 BFS。</details>
@@ -355,7 +450,7 @@ php -S localhost:8037 -t public
   <details class="qa"><summary>Q7（工程）：頁面簿為什麼要存「內容指紋」？重抓時有什麼用？</summary>
     重抓回來時，拿新內容的指紋跟舊的比對，就能知道「這頁真的變了嗎」。沒變就不用重新存、也能據此調整下次重抓的間隔，攤平重抓流量、省儲存。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>網頁爬蟲 = 順著連結一直加好友的剪報機器人。</strong></p>
     <p><strong>4 個關卡：</strong>① 從種子出發、把連結加進<strong>待爬清單</strong>一層層爬（BFS）→ ② 用 <strong>bloom filter 去重</strong>不鬼打牆 → ③ 對每個網站講<strong>禮貌</strong>（robots ＋ crawl-delay）→ ④ 依網站<strong>分片</strong>給很多台機器。</p>

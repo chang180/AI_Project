@@ -80,6 +80,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -355,7 +356,113 @@ php -S localhost:8038 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>把某一頁多加幾個「連到它」的連結，再重算 PageRank，看它的人氣分是不是上升、排名是不是往前——這就是<strong>「被越多頁連入越可信」</strong>在運作。把 β 調到很大，看是不是高人氣頁開始霸榜——這就是<strong>排序取捨</strong>。</div>
 
-  <h2 id="quiz">14. 考考自己</h2>
+  <h2 id="code">14. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>兩個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 兩個檔 = 兩個小幫手</span>
+    <strong>ShardedIndex</strong>（圖書館總櫃台：管那一堆分館索引、撒查詢、收答案、融合排序、記快取）→
+    <strong>PageRank</strong>（人氣評分員：在「誰連誰」的大網上反覆算，算出每頁的江湖地位）。
+    平時 PageRank 先把人氣分算好存著；你一查詢，總櫃台就撒給各分館、收齊、配上人氣分排好給你。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>倒排索引分片：文件分進哪個分館（ShardedIndex）</h3>
+    <p>索引大到一台放不下，所以每篇文件進來時，先用編號算出「<strong>該歸到哪個分館</strong>」，只在那個分館記它的「字 → 出現幾次」。</p>
+<pre><code>function 分到哪片(文件編號) {
+    return crc32(文件編號) % 分片數     // ← 用雜湊均勻打散到 4 個分館
+}
+
+function 加文件(標題, 內文, 連到哪些頁) {
+    編號 = 拿一個新編號
+    片號 = 分到哪片(編號)
+    詞們 = 切詞(標題 + 內文)            // 小寫、去標點、去 the/is 這種虛字
+    各分館[片號].每頁字數[編號] = 詞們的數量
+    foreach (詞 → 次數 in 統計(詞們))
+        各分館[片號].索引[詞][編號] = 次數   // ← 倒排：字 → 哪頁出現幾次
+    清掉查詢快取                        // 內容變了，舊答案作廢
+}</code></pre>
+    <p class="codecaption">關鍵就是 <code>crc32(編號) % 分片數</code> 這招：同一個編號永遠算到同一個分館，文件就被<strong>均勻打散</strong>到各分館，每館只扛自己那批。
+    這正是「<strong>索引切成很多本、各放一個分館</strong>」那一關。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>scatter-gather：同時問遍所有分館再合併（ShardedIndex）</h3>
+    <p>查詢進來，總櫃台<strong>撒</strong>給每個分館各自算相關性（BM25），再把大家的答案<strong>收齊</strong>合在一起。</p>
+<pre><code>function 查詢(字, ...) {
+    // ── scatter：問遍每一個分館 ──
+    foreach (片號 in 所有分館) {
+        這片答案 = 在這片的索引上算 BM25(字)   // ← 各館只翻自己的書
+        每片撈幾筆[片號] = 這片答案的筆數       // 看各館各貢獻多少（demo 會顯示）
+        foreach (頁 → 分數 in 這片答案)
+            全部收集[頁] = 分數                // ── gather：直接收進大袋子 ──
+    }
+    // 接著進入「融合排序」（下一段）
+}</code></pre>
+    <p class="codecaption">就是前面說的「<strong>同時打電話問 1000 個分館 → 收齊彙整</strong>」。
+    demo 為了好懂用一個 <code>for</code> 迴圈「依序」問每個分館；真實系統是<strong>平行</strong>把查詢送到分散在不同機器的分館——<strong>邏輯一模一樣</strong>，只是 demo 在一台機器上模擬。</p>
+    <p class="pause">💭 停一下：BM25 裡有一項「這個字夠不夠罕見」，為什麼<strong>不能</strong>讓各分館用自己手上的資料各算各的？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為各館各算的話，同一個字在不同館會有<strong>不同的罕見度標準</strong>，合併時就像「不同單位的成績硬湊著比」，會排錯。
+      所以程式裡刻意先算一份<strong>全域罕見度</strong>（跨所有分館的 df / 平均字數）發給各館共用——這樣各館算出來的分數才能放在一起公平比較。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>PageRank 冪次迭代：反覆算到人氣分穩定（PageRank）</h3>
+    <p>這是<strong>離線先算好</strong>的人氣分。一句話講原理：<strong>一頁的分數 = 連到它的那些頁，各分一點點給它；反覆算很多輪，直到分數不再大變動就停。</strong></p>
+<pre><code>每頁先給一樣的分數 = 1 / 總頁數          // 大家先平分
+重複很多輪 {
+    foreach (頁 p) {
+        新分數[p] = 基礎分
+        foreach (連到 p 的頁 q)
+            新分數[p] += q的分數 / q連出去的頁數   // ← q 把自己的分平均分給它連到的每頁
+    }
+    變動量 = 所有頁「新分數 − 舊分數」的總和
+    舊分數 = 新分數
+    if (變動量 &lt; 很小的門檻) break          // ← 穩定了 → 收斂，停！
+}</code></pre>
+    <p class="codecaption">「<strong>q 把自己的分數平均分給它連到的每頁</strong>」就是「A 連到 B＝A 轉發 B、把份量分一點給 B」。
+    一輪一輪互相更新，被越多「有份量的頁」連入的頁分數就越爬越高，最後<strong>穩定下來</strong>不再大動——這個反覆逼近的過程就叫<strong>冪次迭代</strong>。
+    那個 <code>基礎分</code> 是給「隨機跳到任一頁」留的小機率（阻尼），避免有些頁分數歸零。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>融合排序 + 查詢快取：相關×人氣排好、答案存著下次秒回（ShardedIndex）</h3>
+    <p>收齊各分館的答案後，最後一步把<strong>相關性</strong>和<strong>人氣</strong>兩個分數加權相加，排好順序；而且整個查詢結果會<strong>存進快取</strong>，同樣的問題下次直接回。</p>
+<pre><code>function 查詢(字, α, β) {
+    鑰匙 = hash(排序後的字 + op + α + β)
+    if (快取有這把鑰匙) return 快取[鑰匙]   // ← 查詢快取：命中就跳過整個 scatter-gather
+
+    全部收集 = scatter-gather(...)          // 前面第 2 段
+    最高相關 = 全部收集裡最大的 BM25
+    最高人氣 = 所有頁裡最大的 PageRank
+    foreach (頁 in 全部收集) {
+        相關分 = 頁的BM25  / 最高相關        // 各自正規化到 0~1，才能公平相加
+        人氣分 = 頁的人氣  / 最高人氣
+        最終分[頁] = α × 相關分 + β × 人氣分  // ← 融合！α 偏相關、β 偏人氣
+    }
+    依最終分由高到低排序
+    快取[鑰匙] = 結果                        // ← 存起來，下次同問題秒回
+    return 結果
+}</code></pre>
+    <p class="codecaption"><code>α × 相關 + β × 人氣</code> 就是那個「<strong>相關 vs 人氣的旋鈕</strong>」：β 調大→權威大站往前；α 調大→更純比相關。
+    兩個分數要先<strong>各自除以最大值正規化到 0~1</strong>，否則一個是個位數、一個是 0.0001，加起來人氣會被淹沒。
+    最後把 <code>(字+α+β)</code> 當鑰匙存結果——這就是前面「<strong>熱門答案先存著、同問題直接給</strong>」那一關，省掉最貴的整段運算。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>② 建索引 + 切片</td><td>ShardedIndex</td><td><code>分到哪片()</code>（crc32 % 分片數）</td></tr>
+      <tr><td>③ 問遍分館再合併</td><td>ShardedIndex</td><td><code>查詢()</code> 裡的 scatter / gather 迴圈</td></tr>
+      <tr><td>人氣分（PageRank）</td><td>PageRank</td><td>「反覆算到收斂」的 for 迴圈</td></tr>
+      <tr><td>④ 融合排序 + 快取</td><td>ShardedIndex</td><td><code>α×相關 + β×人氣</code> + 鑰匙存快取</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈問各片」換成「<strong>分散在上千台機器的分片 + 平行 scatter-gather + 分散式批次算 PageRank</strong>」（業界就是 Google／Elasticsearch 那一套），
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>——分片、scatter-gather、PageRank 冪次迭代、α/β 融合排序，全都是同一套。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">15. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「書末索引」解釋，搜尋引擎為什麼能秒回，而不是現翻 500 億頁？</summary>
     因為它事先建好了「倒排索引」——像書末那張「字 → 在哪幾頁」的表。查詢時直接查這張表，不用掃過全部網頁。預先算好，換查詢飛快。</details>
@@ -372,7 +479,7 @@ php -S localhost:8038 -t public
   <details class="qa"><summary>Q7（工程）：熱門查詢的「結果快取」為什麼是最划算的優化？</summary>
     因為查詢高度集中，少數熱門詞佔了大半流量。一旦命中快取，就整條 scatter-gather 全跳過——不用問上千片、不用算分排序，直接回上次答案。用一點記憶體換掉最貴的運算。</details>
 
-  <h2 id="recap">15. 30 秒回顧</h2>
+  <h2 id="recap">16. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>網頁搜尋 = 超大型圖書館的查詢櫃台。</strong>（是第 ㉖ 題站內搜尋的「整個網際網路」放大版）</p>
     <p><strong>4 個關卡：</strong>① 爬回網頁 → ② 建「書末索引」（字 → 哪些頁）→ ③ 查詢時問遍所有分片再合併（scatter-gather）→ ④ 用「相關(BM25) + 人氣(PageRank)」融合排序。</p>

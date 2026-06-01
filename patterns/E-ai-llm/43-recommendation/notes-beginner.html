@@ -74,6 +74,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -348,7 +349,114 @@ php -S localhost:8043 -t public
     對 u1 看召回撈出來「一籃」，再看排序後「順序變了」——這就是<strong>兩階段</strong>在運作（海選 → 決賽）。
     換成新名字看它推熱門，這就是<strong>冷啟動保底</strong>。</div>
 
-  <h2 id="quiz">14. 考考自己</h2>
+  <h2 id="code">14. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那兩階段到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心邏輯全擠在<strong>一個小檔</strong>（<code>Recommender.php</code>）裡，剛好對應前面講的「先海選、再決賽」。
+  <strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 一個檔 = 一個書店店員的大腦</span>
+    <strong>Recommender</strong>（會看人端菜的店員）裡面分四個小動作：
+    <strong>協同過濾召回</strong>（跟你口味像的人也買了啥）＋ <strong>embedding 召回</strong>（找氣味相近的）→ 合併成一籃 →
+    <strong>排序打分</strong>（端菜前再瞄你一眼，挑 Top-N）；如果你是<strong>新客人</strong>，就直接走 <strong>熱門保底</strong>。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>協同過濾召回：跟你口味像的人也買了啥</h3>
+    <p>第一條召回路。先想一個關鍵問題：怎麼知道「兩個商品很像」？答案是——<strong>如果兩個商品常被「同一批人」買，那它們就很像</strong>（買登山鞋的人也常買登山杖 → 鞋和杖就「相似」）。</p>
+    <p>怎麼把「常被同一批人買」變成一個數字？用 <strong>cosine（餘弦相似度）</strong>。把每個商品想成一個「<strong>誰買過它</strong>」的向量（一串座標），<strong>cosine 就是在量「兩個向量的方向有多接近」——方向越接近，分數越靠近 1，代表這兩個商品的「客群」越重疊、越相似</strong>。</p>
+<pre><code>function 算商品相似度() {
+    // 每個商品 → 一個「誰買過它、買得多用力」的向量
+    for (每筆互動 事件) {
+        權重 = (買=5, 點=2, 看=1)              // 買比看強烈得多
+        向量[商品][使用者] = 取最大(舊值, 權重)
+    }
+    // 兩兩商品算 cosine：方向越接近 = 客群越重疊 = 越相似
+    for (商品 a, 商品 b) {
+        相似度[a][b] = cosine(向量[a], 向量[b])  // 0~1，越大越像
+    }
+}</code></pre>
+    <p class="codecaption">cosine 白話版：<code>分子 = 兩向量「同一個人」項相乘加總</code>、<code>分母 = 各自長度相乘</code>，再相除。共同買家越多、方向越一致，分數越接近 1。重點不是公式，是那句話——<strong>「兩個向量方向多接近 = 多相似」</strong>。</p>
+    <p>有了相似表，召回就很順：<strong>看你買過什麼，把「跟它們最像的商品」撈進籃子</strong>，你越愛的來源商品（買 &gt; 點 &gt; 看）撈出的候選分數越高。</p>
+<pre><code>function 協同過濾召回(你互動過的商品) {
+    籃子 = {}
+    for (你互動過的每個商品 src, 你對它的權重 w) {
+        for (跟 src 相似的商品 other, 相似度 s) {
+            籃子[other] += w × s        // ← 越愛的來源 × 越像 = 越高的召回分
+        }
+    }
+    回傳 籃子（依分數由高到低排）
+}</code></pre>
+    <p class="codecaption">這就是比喻裡的<strong>「你跟阿明口味好像，他超愛這個，你應該也會喜歡」</strong>——只是「口味像」用 cosine 量出來了。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>embedding 召回：找氣味相近的商品（ANN）</h3>
+    <p>第二條召回路，補協同過濾的弱點（新商品沒人買過、撈不到）。做法：給每個商品一組「<strong>氣味座標</strong>」（embedding），再把<strong>你互動過的商品座標加權平均</strong>，得到一個「<strong>你的口味座標</strong>」，然後在地圖上找<strong>離你口味最近的商品</strong>。</p>
+<pre><code>function embedding召回(你互動過的商品) {
+    你的口味座標 = 0
+    for (你互動過的每個商品 item, 權重 w)
+        你的口味座標 += w × 座標[item]      // 加權平均成「你的口味」
+
+    籃子 = {}
+    for (每個商品 item) {
+        // 內積 = 量「商品座標」和「你的口味座標」方向接不接近（同 cosine 精神）
+        籃子[item] = 內積(座標[item], 你的口味座標)
+    }
+    回傳 籃子（依分數由高到低排）
+}</code></pre>
+    <p class="codecaption">demo 為了好懂，這個「找最近的」是<strong>把全部商品掃一遍</strong>（暴力法）。真實系統商品有幾百萬個，掃不完——所以換成 <strong>ANN（近似最近鄰）索引</strong>（如 HNSW），不保證找到「絕對最近」，但能在近似 O(log N) 的時間撈出「<strong>差不多最近</strong>」的幾個。<strong>「在氣味地圖上找離你最近」這個邏輯一模一樣，只是換更快的找法。</strong></p>
+    <p>👉 兩路召回各撈一籃後，<strong>合併</strong>（同一商品取較高分）、<strong>去掉你已經互動過的</strong>，就送進排序。這就是「兩路一起跑、合併去重」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>排序：端菜前再瞄你一眼，打分挑 Top-N</h3>
+    <p>籃子裡現在有一堆候選了。排序這關<strong>對每個候選綜合一堆線索（特徵）打一個總分</strong>，由高到低取前 N 個。這就是「店員端菜前再瞄你一眼」。</p>
+<pre><code>function 排序(你, 你互動過的商品, 候選籃子) {
+    for (候選籃子裡的每個商品) {
+        f1 = 召回分（正規化 0~1）          // 召回時撈得多用力
+        f2 = 它跟你互動過商品的相似度       // 合不合你口味
+        f3 = 熱門度（正規化）              // 多紅
+        f4 = 新鮮度（越新越高）            // 多新
+        總分 = 0.45×f1 + 0.30×f2 + 0.15×f3 + 0.10×f4   // ← 加權打分
+    }
+    依總分排序，取前 N 個
+}</code></pre>
+    <p class="codecaption">看那行<strong>加權總分</strong>：每個特徵乘一個權重再相加。demo 用<strong>固定的權重</strong>（召回分最重 0.45、口味次之 0.30…）；真實系統把這串權重換成一個<strong>訓練出來的排序模型</strong>（學「你會不會點」的機率），還會多餵幾十上百個特徵（現在幾點、你用手機還電腦…）。<strong>但「對候選逐一算特徵 → 打分 → 取 Top-N」這個邏輯不變。</strong></p>
+    <p class="pause">💭 停一下：為什麼「召回分」要先正規化成 0~1，再丟進加權總分？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為四個特徵的「天生大小」差很多（召回分可能上百、新鮮度只有 0~1）。不先拉到同一個尺度，<strong>數字天生大的會無腦壓過其他特徵</strong>，權重就形同虛設。正規化後大家都在 0~1，那串權重（0.45/0.30/…）才真的說了算。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>冷啟動：新客人直接端「最暢銷的」（熱門 fallback）</h3>
+    <p>最前面還有一道岔路。如果這個 user <strong>什麼都沒互動過</strong>，上面兩路召回全都是空的（沒有「你買過的」可當線索）——這時<strong>不要硬算</strong>，直接走熱門保底。</p>
+<pre><code>function 推薦(你, n) {
+    你互動過的商品 = 查紀錄(你)
+    if (你互動過的商品 是空的) {           // ← 冷啟動：對你一無所知
+        回傳 熱門商品(n)                   // 直接端「店裡最暢銷的」
+    }
+    ... 否則才跑 召回 → 合併 → 排序 ...
+}
+
+function 熱門商品(n) {
+    所有商品依「熱門度」由高到低排，取前 n 個   // 不需個人化
+}</code></pre>
+    <p class="codecaption">就這一個 <code>if</code>，把「對你一無所知」這條岔路接到<strong>熱門保底</strong>。比喻裡店員面對第一次上門的客人，先端「店裡最暢銷的幾本」——命中率最高的猜測，總比亂推好。等你點了第一下，就有線索切回個人化了。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個函式</th><th>關鍵那段</th></tr>
+      <tr><td>召回路 A：跟你像的人也買了啥</td><td><code>協同過濾召回()</code></td><td>cosine 相似表 + <code>w × s</code> 累加</td></tr>
+      <tr><td>召回路 B：找氣味相近的</td><td><code>embedding召回()</code></td><td>你的口味座標 + 內積找最近</td></tr>
+      <tr><td>排序：精挑 Top-N</td><td><code>排序()</code></td><td>四特徵加權總分那行</td></tr>
+      <tr><td>冷啟動保底</td><td><code>推薦()</code> 開頭</td><td>「互動是空的」那個 if</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「迴圈算 cosine + 暴力掃座標 + 固定權重」換成「<strong>離線訓練的 embedding + ANN 索引（HNSW）+ 排序模型</strong>」，
+  但<strong>「先用便宜的方法召回一籃、再用貴的方法排序取 Top-N」這個兩階段邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">15. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「書店店員」比喻，解釋推薦系統為什麼要分兩階段？</summary>
     200 萬本書沒法本本仔細評（太慢）。店員先<strong>粗抓一疊你可能愛的（召回）</strong>，再<strong>從這疊精挑端給你（排序）</strong>。先海選、再決賽——貴的功只花在少數候選身上。</details>
@@ -365,7 +473,7 @@ php -S localhost:8043 -t public
   <details class="qa"><summary>Q7（工程）：為什麼資料要分成互動簿、相似簿、座標簿、特徵簿好幾本？</summary>
     因為它們個性不同：互動是<strong>狂寫</strong>的流水帳、相似/座標是<strong>離線算一次</strong>的成品、特徵是<strong>線上狂查</strong>的小抄。分開放才能各用最合適的存法與擴展方式，並落實「線上只查不算」。</details>
 
-  <h2 id="recap">15. 30 秒回顧</h2>
+  <h2 id="recap">16. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>推薦系統 = 會看人端菜的書店店員：先海選（召回）、再決賽（排序）。</strong></p>
     <p><strong>3 個關卡：</strong>① <strong>召回</strong>粗抓一籃（跟你像的人買了啥 + 氣味相近的商品）→ ② <strong>排序</strong>精挑 Top-N → ③ 你的點擊<strong>回饋</strong>讓它更懂你。新用戶先推<strong>熱門保底</strong>（冷啟動）。</p>
