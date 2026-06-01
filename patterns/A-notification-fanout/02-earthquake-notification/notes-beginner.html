@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>② 地震預警系統 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅰️ 通知/Fan-out 扇出</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>② 地震預警系統 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">A 通知/Fan-out</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼地震「可以」被預警？</a></li>
+      <li><a href="#steps">把系統拆成 3 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你是一個 <strong>5000 萬人 LINE 群組</strong>的管理員。突然偵測到「地震來了！」，你必須在<strong>幾秒鐘內</strong>，
+  只通知<strong>住在危險區域的人</strong>，叫他們「快躲！還有 15 秒」。</p>
+  <p>地震預警系統就是在做這件事。它的難，難在三點：群組有幾千萬人、只能通知對的人、而且<strong>你在跟地震波賽跑</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    地震預警 = <strong>跟地震賽跑的精準群組廣播</strong>：偵測 → 算出要通知誰 → 同時通知幾百萬人，全程要在幾秒內完成。
+  </div>
+
+  <h2 id="why">2. 為什麼地震「可以」被預警？</h2>
+  <p>很多人第一個疑問是：「地震都發生了，怎麼可能『預先』警告？」關鍵在一個你早就懂的生活經驗——</p>
+  <div class="analogy">
+    <span class="label">⚡ 閃電與雷聲</span>
+    打雷時，你會<strong>先看到閃電（快）</strong>，過幾秒才<strong>聽到雷聲（慢）</strong>。
+    地震也發出兩種波：<strong>P 波</strong>跑得快但溫和（像閃電）、<strong>S 波</strong>跑得慢但具破壞性（像雷聲）。
+  </div>
+  <p>震央附近的地震儀會<strong>先偵測到溫和的 P 波</strong>，馬上判斷「地震了！」，然後用<strong>光速的網路訊息</strong>
+  通知遠方的城市——趕在那個會搖垮房子的 S 波（雷聲）走到你家<em>之前</em>。</p>
+  <p>所以預警的本質是：<strong>用「光速的訊息」超車「地震波」</strong>。系統要做的，就是把「偵測＋通知」的總時間，壓到比地震波傳過來還短。</p>
+  <p class="pause">💭 停一下：為什麼住得離震央<strong>越遠</strong>的人，反而有<strong>越多</strong>逃命時間？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為訊息走光速（瞬間到），地震波走每秒幾公里（很慢）。離震央越遠，地震波要花越久才到你家，而訊息早就到了——所以「訊息超車地震波」的領先幅度就越大。離震央太近的人（正下方）則幾乎來不及，這叫「預警盲區」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 3 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 3 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>偵測：「地震發生了！」</h3>
+    <p>有人要先喊出「地震來了」。這通常由<strong>官方測震網</strong>（像中央氣象署、美國 USGS）負責——它們有滿地的地震儀，
+    幾秒內就能估出<strong>震央在哪、規模多大</strong>。</p>
+    <div class="analogy"><span class="label">🏫 比喻</span>就像學校的<strong>火災警報器</strong>：偵測器負責「發現火」並拉響鈴；我們的系統可以只負責「鈴響之後，通知對的人」。</div>
+    <p>👉 面試時先問一句：「<strong>偵測是我們做，還是別人給我們事件？</strong>」答案會大大改變題目範圍。多數情況我們只負責後面兩關。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>篩選：到底要通知「誰」？</h3>
+    <p>地震只影響震央附近一圈人。問題是：<strong>怎麼從 5000 萬人裡，幾毫秒內挑出「住在這圈裡」的人？</strong></p>
+    <div class="analogy">
+      <span class="label">📮 比喻：找附近的人，先看郵遞區號</span>
+      你要找「住我家附近的人」，<strong>不會</strong>把全國電話簿從頭到尾、一個一個量距離（太慢）。
+      你會先看<strong>郵遞區號 / 地址前幾個字</strong>，先框出同區的人，再細看。
+    </div>
+    <p>系統用的工具叫 <strong>geohash</strong>：把地球切成一格一格的小網格，每格一個短代碼，<strong>位置相近的代碼開頭一樣</strong>。
+    於是篩選變兩步：</p>
+    <ul>
+      <li><strong>粗篩</strong>：用「震央附近那幾格」的代碼前綴，快速撈出候選的人。</li>
+      <li><strong>細篩</strong>：再對這小群候選人，精算「離震央幾公里」，留下真正在範圍內的。</li>
+    </ul>
+    <p>⚠️ 小細節：人可能住在格子的<strong>邊緣</strong>，所以要連<strong>旁邊 8 格</strong>一起撈，免得漏掉邊界上的鄰居。<strong>寧可多撈，不可漏人。</strong></p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>通知：同時送給幾百萬人（fan-out）</h3>
+    <p>名單有了，現在要<strong>同時</strong>把警報送到幾百萬支手機。一台機器一個一個送，送到天亮地震都結束了。</p>
+    <div class="analogy">
+      <span class="label">🧑‍🏫 比喻：老師通知全班</span>
+      老師要通知全班 30 人，不會自己一個一個打電話（慢）。而是分給幾個<strong>小組長分頭傳</strong>（同時進行）。
+      系統也一樣：把名單切成很多份，丟給<strong>一大群「推播工人」同時送</strong>。
+    </div>
+    <p>這個「一個事件 → 炸開成幾百萬則通知」的動作，就叫 <strong>fan-out（扇出）</strong>。
+    而且地震一發生就要<strong>主動推</strong>給大家（你不會自己打開 App 去「拉」地震消息），所以是「事件一來就立刻展開」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① <strong>偵測</strong>地震 → ② 用郵遞區號式的網格<strong>挑出附近的人</strong> → ③ 一群工人<strong>同時推播</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「慢」</span>
+    每慢 1 秒，破壞性的地震波就多走約 <strong>3.5 公里</strong>。所以<strong>「快」壓倒一切</strong>：
+    寧可先用少量資料趕快發警報，晚一點再用更完整資料發「修正」或「取消」。<em>速度 &gt; 完美。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「漏掉人」</span>
+    漏通知一個人，可能就是一條命。所以系統<strong>寧可重複送</strong>（叫 at-least-once，至少送一次）。
+    那重複送會不會吵到你？用「<strong>同一個警報只響一次</strong>」的去重機制處理（叫冪等）。<em>寧可吵，不可漏。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「吵錯人」</span>
+    如果常常誤報、沒事也響，大家會直接<strong>把警報關掉</strong>——等到真地震時就沒人理了，反而更危險（這叫「<strong>誤報疲勞</strong>」）。
+    所以「<strong>範圍外的人不要打擾</strong>」跟「不能漏掉」一樣是硬規定。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="地震預警系統架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🌐 <strong>感測器</strong>（地震儀）感到震動 →</li>
+    <li>🧠 <strong>偵測服務</strong>判斷「地震了，震央在這、規模多大」→</li>
+    <li>📢 把消息貼到一個<strong>高優先級的公告欄</strong>（Kafka，地震消息永遠插隊最前面）→</li>
+    <li>🗺️ <strong>地理篩選</strong>查網格索引，算出「要通知的人名單」→</li>
+    <li>📨 名單分成好幾份，丟給一群<strong>推播工人</strong>同時送 →</li>
+    <li>📱 警報抵達<strong>你的手機</strong>（送不到的會重試，真的失敗就丟「回收桶」事後檢討）。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>P 波 / S 波</td><td>地震的「閃電（快）」與「雷聲（慢、會破壞）」</td></tr>
+    <tr><td>geohash</td><td>位置的「郵遞區號」：把地圖切成網格，每格一個代碼</td></tr>
+    <tr><td>fan-out（扇出）</td><td>一個事件 → 同時通知超多人</td></tr>
+    <tr><td>haversine</td><td>算地球上兩點實際距離的公式（細篩用）</td></tr>
+    <tr><td>at-least-once</td><td>「至少送一次」：寧可重送也不漏送</td></tr>
+    <tr><td>冪等 / 去重</td><td>同一個警報只算一次，不會重複響</td></tr>
+    <tr><td>佇列 (Queue)</td><td>排隊的待辦清單，工人從前面一個個拿來做</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>DLQ（死信佇列）</td><td>「怎麼送都送不到」的訊息丟進的回收桶，事後檢討用</td></tr>
+    <tr><td>優先級 / 背壓</td><td>地震訊息插隊到最前面，普通通知讓路</td></tr>
+    <tr><td>水平擴展</td><td>不夠快就「多找幾台機器一起做」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>要照顧多少裝置</td><td>全國 ~5000 萬支手機</td><td>篩選不能慢慢一個個查</td></tr>
+    <tr><td>一次地震影響多少人</td><td>都會區可達 500 萬～1000 萬</td><td>要能「同時」通知這麼多人</td></tr>
+    <tr><td>有多少時間</td><td>離震央 70 公里 ≈ 只有 20 秒，扣掉偵測剩 ~10 秒</td><td>全部動作要在 10 秒內做完</td></tr>
+    <tr><td>要多快的推播速度</td><td>1000 萬人 ÷ 10 秒 = <strong>每秒 100 萬則</strong></td><td>一台機器不可能，要一大群一起送</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🏟️ 關鍵洞察：演唱會散場</span>
+    這系統<strong>平常幾乎沒事（0 流量）</strong>，地震瞬間爆量——像<strong>空蕩蕩的體育館，演唱會散場那一刻幾萬人同時擠出口</strong>。
+    所以重點不是「平均多忙」，而是<strong>「能不能在那一瞬間，突然放大到百萬級」</strong>。
+  </div>
+  <p class="pause">💭 停一下：如果平時流量幾乎是 0，為什麼不能「地震發生才開機器」？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為開機器、暖機要時間（幾十秒到幾分鐘），但地震只給你 10 秒。所以要<strong>平時就留一小撮機器待命（小火種），地震時瞬間放大</strong>，不能從零開始臨時抱佛腳。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」：</p>
+  <pre><code>① 偵測服務通報地震（最重要）
+   POST /quake-events
+   給我：{ 震央經緯度, 規模, 影響半徑, 偵測時間 }
+   我回：202「收到了！」← 立刻回，不讓你等</code></pre>
+  <p class="codecaption">為什麼「立刻回 202」？因為通報的人不該卡在那邊等我們慢慢通知幾百萬人。先收下，後面<strong>非同步</strong>慢慢展開。就像餐廳收單後給你號碼牌，不會讓你站在櫃台等餐。</p>
+  <pre><code>② 修正 / 取消（用同一個地震編號）
+   PATCH /quake-events/{編號}   → 規模改了、降級
+   DELETE /quake-events/{編號}  → 誤報，發取消通知</code></pre>
+  <p class="codecaption">用「同一個編號」很關鍵：這樣修正就是<strong>蓋掉</strong>原本那筆，而不是變成第二次地震（這就是「冪等」——同個編號做幾次結果都一樣）。</p>
+  <pre><code>③ 使用者註冊裝置 + 位置（平常就做好）
+   POST /devices
+   給我：{ 推播 token, 經緯度, 想用哪些管道(push/簡訊) }</code></pre>
+  <p class="codecaption">送到手機的內容長這樣：<code>{ 強度:"5強", 還有幾秒:18, 該做什麼:"就地掩護" }</code>。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：三本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題只要三本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📱</span>裝置簿（誰、在哪、怎麼通知）</h3>
+    <p>每支手機一列：<code>裝置ID、推播token、經緯度、<strong>geohash</strong>、想用的管道</code>。</p>
+    <div class="analogy"><span class="label">為什麼多存一欄 geohash？</span>
+      把每個人的「郵遞區號」<strong>事先算好寫進去</strong>，地震來時才能用前綴秒查附近的人。
+      如果地震當下才一個個算，就來不及了——這叫「<strong>預先算好，換查詢飛快</strong>」。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🌋</span>地震簿（哪次地震）</h3>
+    <p>每次地震一列：<code>地震編號（主鍵）、震央、規模、影響半徑、狀態(新/修正/取消)</code>。
+    用「地震編號」當主鍵，修正/取消才能精準蓋掉同一筆。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">✅</span>投遞簿（送了沒）</h3>
+    <p>記「哪次地震、送給哪支手機、送到了沒、重試幾次」。
+    用 <code>(地震編號 + 裝置ID)</code> 當鑰匙——同一組只算一次，就能做到「<strong>重送也不會讓你手機響兩下</strong>」。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>篩選：5000 萬人一個個算距離</td><td>用網格索引（郵遞區號法）先粗篩再細篩</td></tr>
+    <tr><td>地震消息被一堆普通通知卡在後面排隊</td><td>給地震一條<strong>專屬 VIP 通道</strong>，永遠插隊最前面</td></tr>
+    <tr><td>一台推播工人送不完千萬則</td><td>把名單切片，<strong>多請一大群工人</strong>同時送（水平擴展）</td></tr>
+    <tr><td>蘋果/Google 的推播服務對你限速</td><td>用<strong>多個帳號/多管道</strong>分流 + 批次送</td></tr>
+    <tr><td>平時 0 流量，地震要瞬間爆量</td><td>平時留<strong>小火種</strong>待命，能秒級放大（別從零開機）</td></tr>
+    <tr><td>地震可能直接<strong>震垮你的機房</strong></td><td>機器放<strong>好幾個不同地點</strong>，一個垮了還有別的</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 快 vs 準</span>
+    等更多地震儀資料 → 判斷更準，但更慢。地震<strong>選快</strong>：先用少量資料發警報，再用後續資料發「修正」。</div>
+  <div class="fear"><span class="label">⚖️ 主動推 vs 等人來拉</span>
+    一般 App 可以「等你打開才載入」（拉）。但地震<strong>一定要主動推</strong>——沒人會自己打開 App 去「查有沒有地震」。</div>
+  <div class="fear"><span class="label">⚖️ 網格畫多大？</span>
+    格子太大 → 撈出太多人、細篩慢；太小 → 邊界容易漏、要撈更多鄰格。取一個剛好蓋住典型影響範圍的大小，並一律多撈周圍 8 格保險。</div>
+  <details class="qa"><summary>💭 追問：使用者在「移動中」（開車、搭高鐵）怎麼辦？</summary>
+    手機定時回報新位置（心跳）更新索引；或推播時用「粗一點的網格」容忍一些位置誤差，寧可多通知幾個人。</details>
+  <details class="qa"><summary>💭 追問：平常不發生地震，這系統怎麼測試？</summary>
+    用「演練」——定期<strong>重放歷史地震事件</strong>或灌入假事件，量「從偵測到手機響」要幾秒，確保真地震時來得及。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「篩選 + 通知」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8002 -t public
+# 然後瀏覽器打開 http://localhost:8002</code></pre>
+  <ol>
+    <li>先按「<strong>載入示範裝置</strong>」（等於在地圖上放幾個人）。</li>
+    <li>設定<strong>震央位置</strong>和<strong>影響半徑</strong> → 按「觸發地震」。</li>
+    <li>觀察：<strong>誰在範圍內</strong>、各自<strong>離震央幾公里</strong>、警報<strong>送達狀態</strong>（有些會模擬失敗→重試）。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把半徑調小，是不是有些人就「不會被通知」了？這就是<strong>關卡 2 的地理篩選</strong>在運作。把同一次地震連觸發兩次，看投遞簿會不會讓人「響兩下」——這就是<strong>冪等去重</strong>。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「閃電與雷聲」解釋，為什麼地震能被預警？</summary>
+    地震有快而溫和的 P 波（閃電）和慢而破壞的 S 波（雷聲）。震央附近的儀器先抓到 P 波就判定地震，再用光速的網路訊息通知遠方，趕在 S 波（雷聲）抵達前讓人避難。訊息超車地震波。</details>
+  <details class="qa"><summary>Q2：為什麼不能「一個一個量距離」找出受影響的人？該怎麼做？</summary>
+    5000 萬人逐一算距離太慢。改用 geohash（位置郵遞區號）先粗篩出附近網格的人，再對這一小群細篩精算距離。記得連旁邊 8 格一起撈，避免漏掉邊界的人。</details>
+  <details class="qa"><summary>Q3：fan-out 是什麼？用班級的比喻說說看。</summary>
+    fan-out = 一個事件同時通知超多人。像老師通知全班不自己一個個打，而是分組長分頭傳；系統把名單切片，交給一大群推播工人同時送。</details>
+  <details class="qa"><summary>Q4：為什麼「寧可重送也不漏送」？重送會吵人怎麼辦？</summary>
+    漏掉一個人可能出人命，所以選「至少送一次」。為了不吵人，用「冪等／去重」讓同一個警報在你手機只響一次。</details>
+  <details class="qa"><summary>Q5（工程）：偵測服務通報地震，為什麼我們要「立刻回 202」？</summary>
+    因為通報的人不該卡著等我們把幾百萬則通知送完。先收下、給個「收到」，後面非同步慢慢展開。像餐廳收單給號碼牌，不讓你站在櫃台等。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼裝置簿要「事先存好 geohash」這一欄？</summary>
+    地震當下才一個個算位置代碼會來不及。平時就把每個人的「郵遞區號」算好寫進去，地震時直接用前綴秒查附近的人——預先算好，換查詢飛快。</details>
+  <details class="qa"><summary>Q7（工程）：平時流量幾乎 0，為什麼不能「地震才開機器」？</summary>
+    開機器、暖機要幾十秒到幾分鐘，但地震只給 10 秒。要平時留小火種待命、瞬間放大，不能從零臨時開。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>地震預警 = 跟地震賽跑的精準群組廣播。</strong></p>
+    <p><strong>3 個關卡：</strong>① 偵測地震 → ② 用網格（geohash）挑出附近的人 → ③ 一群工人同時推播（fan-out）。</p>
+    <p><strong>3 個怕：</strong>怕慢（速度壓倒一切）、怕漏（寧可重送＋去重）、怕吵錯人（誤報疲勞會害死人）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估「演唱會散場」般的爆量 → 用「點餐單(API)」溝通、收到地震先回 202 → 三本筆記本（裝置/地震/投遞）＋預存 geohash → 找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>② 地震預警系統 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>
