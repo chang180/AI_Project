@@ -1,8 +1,20 @@
-# 系統設計面試 · 14 題實戰
+# 系統設計面試 · 60 題實戰（fork）
 
-依**共通模式**分 5 組，每題包含：HTML 筆記（9 段式）+ Excalidraw 架構圖 + PHP demo。全繁體中文。
+> **本 repository 為 fork，非原創專案。** 題庫內容、筆記、架構圖與 PHP demo 皆來自上游 [**ryus2002/AI_Project**](https://github.com/ryus2002/AI_Project)。若覺得有用，請到上游按 ⭐ 支持原作者。
 
-> 入口：用瀏覽器開啟 [`index.html`](index.html)
+| | 連結 |
+|---|---|
+| **上游（原著）** | https://github.com/ryus2002/AI_Project |
+| **本 fork** | https://github.com/chang180/AI_Project |
+| **GitHub Pages（本 fork）** | https://chang180.github.io/AI_Project/ |
+
+本 fork 額外做了：GitHub Pages 靜態佈署、站內連結修正、`ROADMAP.html` 等瀏覽體驗調整；**不包含對題庫內容的宣稱或再授權。**
+
+---
+
+依**共通模式**分 13 組，每題包含：HTML 筆記（9 段式）+ 內嵌 SVG / Excalidraw 架構圖 + PHP demo。全繁體中文。
+
+> 入口：用瀏覽器開啟 [`index.html`](index.html)，或線上 https://chang180.github.io/AI_Project/
 
 ## 分組總覽
 
@@ -46,10 +58,12 @@ patterns/
 - PHP 8.4（demo 用，`php -S localhost:8000` 啟動內建伺服器）
 - 純前端筆記，瀏覽器直接開 `.html` 即可
 
-## 多台開發
+## 取得原始碼
 
 ```bash
+# 上游（原著，建議 star / 追蹤）
 git clone https://github.com/ryus2002/AI_Project.git
-git pull   # 開工前
-git push   # 收工後
+
+# 本 fork
+git clone https://github.com/chang180/AI_Project.git
 ```
