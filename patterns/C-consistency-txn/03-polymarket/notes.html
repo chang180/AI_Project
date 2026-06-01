@@ -121,7 +121,8 @@ events (事件日誌，append-only，可重放/審計)
   <div class="box"><span class="label">為何分開</span><code>accounts/positions</code> 是<strong>可變且強一致</strong>的資金真相；<code>trades/events</code> 是<strong>不可變</strong>的歷史。撮合在記憶體中跑，落地靠事件日誌；帳本過帳走 DB 交易。三者職責分離。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 交易者 ──下單──▶ API/風控(凍結保證金) ──▶ 撮合引擎(單執行緒 order book)
                         │                          │
                         │                          ├─▶ 事件日誌(append-only)

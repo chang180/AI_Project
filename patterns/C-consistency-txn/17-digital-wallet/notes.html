@@ -127,7 +127,8 @@ idempotency_keys (冪等去重)
   <div class="box"><span class="label">為何雙分錄</span>每筆轉帳寫成<strong>成對</strong>的分錄：一筆 <em>debit</em>（誰出錢）、一筆 <em>credit</em>（誰收錢），金額相等、方向相反，<strong>系統總額恆守恆</strong>（Σ全帳 = 0 或常數）。錢不會憑空生出或消失，對帳時只要驗證借貸平衡即可抓出任何漏洞。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code>            ┌──────────┐   冪等鍵
  使用者 ─付款▶│ 支付 API  │──查/寫──▶ 冪等鍵庫(去重)
             └────┬─────┘

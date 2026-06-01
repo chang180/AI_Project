@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 908 548" width="908" height="548" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="908" height="548" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">推薦系統 — 兩階段：召回→排序（主流程=藍 回應=綠 基建=黃）</tspan>
+</text>
+<text x="40" y="80" font-size="16" fill="#e8590c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">── 離線（批次訓練 / 算特徵）──</tspan>
+</text>
+<rect x="40" y="110" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">user 互動事件</tspan>
+<tspan x="120" dy="18.75">(曝光/點擊/購買)</tspan>
+</text>
+<rect x="260" y="110" width="170" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="345" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="345" dy="0">離線訓練</tspan>
+<tspan x="345" dy="18.75">item-item 相似度</tspan>
+<tspan x="345" dy="18.75">+ embedding</tspan>
+</text>
+<rect x="490" y="110" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="575" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="575" dy="0">特徵存儲</tspan>
+<tspan x="575" dy="18.75">Feature Store</tspan>
+<tspan x="575" dy="18.75">(相似度/向量/特徵)</tspan>
+</text>
+<rect x="490" y="200" width="170" height="56" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="575" y="214" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="575" dy="0">ANN 索引 (HNSW/IVF)</tspan>
+</text>
+<text x="40" y="300" font-size="16" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">── 線上（一次推薦請求）──</tspan>
+</text>
+<rect x="40" y="330" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="352" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">推薦請求 (user)</tspan>
+</text>
+<rect x="250" y="320" width="190" height="84" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="345" y="332" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="345" dy="0">① 召回 Recall</tspan>
+<tspan x="345" dy="18.75">協同過濾 (CF)</tspan>
+<tspan x="345" dy="18.75">+ Embedding ANN</tspan>
+<tspan x="345" dy="18.75">→ 數百候選</tspan>
+</text>
+<rect x="500" y="320" width="190" height="84" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="595" y="332" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="595" dy="0">② 排序 Ranking</tspan>
+<tspan x="595" dy="18.75">多特徵打分</tspan>
+<tspan x="595" dy="18.75">(相似度/熱門/新鮮)</tspan>
+<tspan x="595" dy="18.75">→ 精排</tspan>
+</text>
+<rect x="750" y="330" width="150" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="825" y="352" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="825" dy="0">Top-N 推薦清單</tspan>
+</text>
+<rect x="250" y="460" width="190" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="345" y="472" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="345" dy="0">冷啟動 fallback</tspan>
+<tspan x="345" dy="18.75">熱門 item (popularity)</tspan>
+</text>
+<polyline points="202,142 258,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="432,142 488,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="575,174 575,198" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,362 248,362" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="442,362 498,362" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="692,362 748,362" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="575,256 575,318" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="585" y="270" font-size="13" fill="#e8590c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="585" dy="0">線上讀特徵/相似度/向量</tspan>
+</text>
+<polyline points="130,394 130,492" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="130,492 250,492" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="140" y="430" font-size="13" fill="#e8590c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="140" dy="0">新 user 無互動</tspan>
+</text>
+<polyline points="440,492 690,492 750,394" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

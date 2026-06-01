@@ -128,7 +128,8 @@ renditions （每支影片的各解析度產物）
   <div class="box"><span class="label">為何 DB 不存影片</span>影片是 PB 級二進位大物件，放 DB 會炸。<strong>物件儲存負責 bytes、DB 只負責「指標與狀態」</strong>；DB 一筆中繼資料 ~KB，CDN 與物件儲存負責真正的流量。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 上傳端 ──分塊/預簽章直傳──▶ Upload Service ──▶ 物件儲存(原片)
                                   │ complete
                                   ▼

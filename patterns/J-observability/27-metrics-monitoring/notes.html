@@ -113,7 +113,8 @@ sample（樣本）= (timestamp 毫秒, float value)，append 到所屬 series
   <div class="box"><span class="label">為何是「name + 排序後 labels」當 key</span><code>{a="1",b="2"}</code> 與 <code>{b="2",a="1"}</code> 必須對到<strong>同一條 series</strong>。實作上把 labels 依 key 排序再序列化成穩定字串當索引鍵；真實 Prometheus 用倒排索引（label→series 集合）加速「依 label 篩選」的查詢。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> Targets(/metrics) ──┐
  Targets(/metrics) ──┤   Service Discovery（k8s/consul/檔案）
  Targets(/metrics) ──┘            │ 提供 target 清單

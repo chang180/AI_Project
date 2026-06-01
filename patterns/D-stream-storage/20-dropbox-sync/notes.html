@@ -132,7 +132,8 @@ chunks（內容定址索引；blob 本體在物件儲存）
   <div class="box"><span class="label">為何 metadata 與 blob 分離</span>metadata 小、操作頻繁、需交易與索引 → 放分片式關聯庫；blob 大、不可變、需極高耐久 → 放物件儲存。兩者特性相反，分開才能各自最佳化與擴展。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code>          ┌──────────┐  ①check ②PUT chunk ③commit
  寫(上傳)──▶│ 同步服務  │──▶ 分塊/去重 ──▶ Blob 物件儲存(S3)
           └──────────┘        │                 ▲

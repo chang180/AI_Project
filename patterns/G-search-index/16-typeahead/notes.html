@@ -114,7 +114,8 @@ term_frequency (聚合結果，離線批次算)
   </div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 讀(敲鍵) ──▶ Suggest Service ──▶ Trie + 前綴 Top-K 快取（駐記憶體）
                     │                         ▲
                     │ 被選中/被搜尋事件         │ 載入最新索引

@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉟ 共識演算法 Raft · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉟ 共識演算法 Raft：讓一群機器對「一份有序日誌」達成一致</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag time">建議 55 分鐘</span>
+    <span class="tag">Design Consensus with Raft</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>複製狀態機（Replicated State Machine）</strong>」：只要讓每個節點都套用<strong>相同順序的同一份日誌</strong>，它們的狀態就會一致。
+    共識協定要解的就是「<em>在節點會當機、訊息會遺失/延遲的情況下，如何讓多數節點對日誌的每一格內容達成一致</em>」。
+    Raft 把這件事拆成 <strong>leader 選舉</strong>、<strong>日誌複製</strong>、<strong>安全性</strong> 三塊，用「強 leader + 隨機選舉逾時」換來比 Paxos 好懂得多的設計。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（為何要共識）</a></li>
+      <li><a href="#estimate">角色與規模</a></li>
+      <li><a href="#api">API / RPC 設計</a></li>
+      <li><a href="#data">資料模型（term、log、commitIndex、投票）</a></li>
+      <li><a href="#arch">高階架構（複製狀態機）</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清（為何要共識）</h2>
+  <h3>問題情境</h3>
+  <p>單一資料庫好理解，但<strong>單點會掛</strong>。要高可用就得複製到多台；一旦複製，就會遇到「<strong>多份副本對同一筆寫入的順序與內容不一致</strong>」的問題（尤其網路延遲、節點當機時）。共識演算法就是解這件事的核心原語，常見用途：</p>
+  <ul>
+    <li><strong>複製狀態機</strong>：所有節點套用同一份有序 log → 得到相同狀態（KV store、設定中心如 etcd/ZooKeeper、資料庫的複寫協調）。</li>
+    <li><strong>leader 選舉 / 鎖 / 成員資格</strong>：誰是 primary、分散式鎖、服務發現。</li>
+    <li><strong>原子提交的協調</strong>：跨分片交易的 commit 決策。</li>
+  </ul>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>對外像「<strong>一台不會掛的可線性化（linearizable）KV/日誌</strong>」：client 送指令，被有序地複製並套用。</li>
+    <li>節點當機/重啟/網路分區後，叢集仍能繼續服務（只要<strong>多數存活</strong>）。</li>
+    <li>已被「<strong>commit</strong>」的指令永不丟失、永不被改寫。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>安全性（Safety）</strong>：任何時刻最多一個 leader 能提交；已 commit 的 log 在所有後續 leader 上都存在（leader completeness）。</li>
+    <li><strong>活性（Liveness）</strong>：只要多數存活且網路最終穩定，叢集終能選出 leader 並繼續推進。</li>
+    <li><strong>容錯</strong>：N 個節點容忍 <code>⌊N/2⌋</code> 個故障（3 容 1、5 容 2）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「要<strong>強一致（線性化）</strong>還是最終一致？」共識（Raft/Paxos）是為<strong>強一致</strong>而生，代價是寫入要等多數確認（CP 系統，分區時少數派不可寫）。若業務能接受最終一致，用 Dynamo 式無 leader 複製（AP）反而更便宜——別把共識亂套到不需要的地方。
+  </div>
+
+  <h2 id="estimate">2. 角色與規模</h2>
+  <p>Raft 任一時刻每個節點處於三種角色之一：</p>
+  <table>
+    <tr><th>角色</th><th>職責</th><th>轉換</th></tr>
+    <tr><td><strong>Follower</strong></td><td>被動：回應 leader 的 AppendEntries、回應 candidate 的 RequestVote。</td><td>選舉逾時沒收到心跳 → 變 candidate</td></tr>
+    <tr><td><strong>Candidate</strong></td><td>發起選舉：term+1、投自己、向他人要票。</td><td>得多數票 → leader；收到更高 term 或新 leader → follower</td></tr>
+    <tr><td><strong>Leader</strong></td><td>唯一接受 client 寫入；append log 並複製、發心跳、推進 commitIndex。</td><td>收到更高 term → 立即降為 follower</td></tr>
+  </table>
+  <table>
+    <tr><th>指標</th><th>典型值</th><th>說明</th></tr>
+    <tr><td>叢集大小</td><td><strong>奇數 3 或 5</strong></td><td>3 容 1、5 容 2；偶數不划算（4 也只容 1，多數門檻卻變高）</td></tr>
+    <tr><td>選舉逾時</td><td>150~300ms（隨機化）</td><td>隨機避免同時逾時造成分票；必須 ≫ 心跳間隔</td></tr>
+    <tr><td>心跳間隔</td><td>~50ms</td><td>leader 持續發空的 AppendEntries 壓制其他人發起選舉</td></tr>
+    <tr><td>寫入延遲</td><td>1 個 RTT 到多數</td><td>commit 需等多數副本確認（不是全部）</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>共識的吞吐天花板是「<strong>單一 leader 串行 append + 等多數確認</strong>」。所以 Raft 不是拿來扛海量 QPS 的，而是拿來協調「<strong>少量但必須強一致</strong>」的關鍵狀態（設定、成員、鎖、分片 metadata）。</div>
+
+  <h2 id="api">3. API / RPC 設計</h2>
+  <p>對外（client → leader）很簡單；內部靠兩個 RPC 撐起整個協定。</p>
+  <pre><code># 對外：client 只跟 leader 互動（找錯人會被導回 leader）
+POST /propose   { "command": "x=1" }   → 等該 entry 被 commit 後回 200
+GET  /read?key=x                        → 線性化讀（走 leader / lease read）
+
+# 內部 RPC 一：RequestVote（candidate → 其他節點）
+RequestVote {
+  term, candidateId,
+  lastLogIndex, lastLogTerm        # ← 供「選舉限制」判斷候選人 log 是否夠新
+} → { term, voteGranted }
+
+# 內部 RPC 二：AppendEntries（leader → followers；entries 為空時即心跳）
+AppendEntries {
+  term, leaderId,
+  prevLogIndex, prevLogTerm,       # ← 一致性檢查：前一格必須相符
+  entries[],                       # ← 要複製的新 log（{term, command}）
+  leaderCommit                     # ← leader 的 commitIndex，供 follower 跟進
+} → { term, success }              # success=false → leader 回退 nextIndex 重試</code></pre>
+
+  <h2 id="data">4. 資料模型（term、log、commitIndex、投票）</h2>
+  <pre><code># 每個節點的持久化狀態（重啟後必須還在）
+currentTerm   int            # 見過的最大 term（邏輯時間，單調遞增）
+votedFor      nodeId | null  # 本 term 投票給誰（每 term 最多投一人）
+log[]         [{ term, command }, ...]   # 1-based；index + term 唯一決定一格內容
+
+# 每個節點的揮發狀態
+commitIndex   int   # 已知被「多數複製」的最高 index（可安全 apply）
+lastApplied   int   # 已套用到狀態機的最高 index（lastApplied ≤ commitIndex）
+
+# 僅 leader 維護（對每個 follower 各一份）
+nextIndex[follower]   int   # 下一個要送給該 follower 的 index（樂觀起點，失敗回退）
+matchIndex[follower]  int   # 已知該 follower 與 leader 相符的最高 index（算多數用）</code></pre>
+  <div class="box"><span class="label">為何 term 是關鍵</span><strong>term（任期）</strong>是 Raft 的邏輯時鐘。每次選舉 term+1；訊息都帶 term。規則「<strong>看到更高 term 就更新自己的 term 並退回 follower</strong>」一句話就解決了「過時的 leader/candidate」問題——舊 leader 復活後一發現 term 落後就乖乖退位。<strong>Log Matching 性質</strong>：若兩節點的 log 在某 index 的 term 相同，則該 index 之前的所有 entry 都相同（由 AppendEntries 一致性檢查維持）。</div>
+
+  <h2 id="arch">5. 高階架構（複製狀態機）</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>   client                ┌──────────── Raft 叢集（奇數 3/5）────────────┐
+  command  ──▶  ┌─────────┐  AppendEntries  ┌──────────┐  ┌──────────┐
+                │  LEADER  │ ───────────────▶│ Follower │  │ Follower │
+                │ append   │ ◀─── ack ───────│          │  │          │
+                │ log[idx] │                 └────┬─────┘  └────┬─────┘
+                └────┬─────┘                      │             │
+        多數 ack →commit│                          ▼             ▼
+                      ▼                    apply 相同有序 log  apply 相同有序 log
+              apply 到狀態機(KV)  ───────▶   各節點狀態機結果一致（RSM）</code></pre>
+  <ol>
+    <li><strong>所有寫入經 leader</strong>：client command 只交給 leader，leader append 到自己的 log。</li>
+    <li><strong>複製</strong>：leader 透過 AppendEntries 把 entry 推給 followers，做一致性檢查。</li>
+    <li><strong>提交</strong>：當某 index 被複製到<strong>多數</strong>，leader 推進 commitIndex。</li>
+    <li><strong>套用</strong>：各節點把 commit 過的 entry 依序 apply 到狀態機 → 因為「相同有序 log」，得到「相同狀態」。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>① Leader Election（選舉）</h3>
+  <ul>
+    <li><strong>觸發</strong>：follower 在「選舉逾時」內沒收到 leader 心跳 → 升 candidate、<code>currentTerm+1</code>、投自己、向所有節點發 RequestVote。</li>
+    <li><strong>隨機化逾時</strong>：每個節點的選舉逾時是一段區間內的隨機值 → 避免所有人同時逾時造成<strong>分票（split vote）</strong>。分票了就再隨機等、再開一輪，通常一兩輪就收斂。</li>
+    <li><strong>當選</strong>：拿到<strong>多數票</strong>（含自己）即成為 leader，立刻發心跳壓制其他候選人。每個節點每 term 最多投一票（<code>votedFor</code>），所以同一 term 不可能有兩個 leader。</li>
+  </ul>
+
+  <h3>② 選舉限制（Election Restriction，安全性核心）</h3>
+  <div class="box warn"><span class="label">最容易考錯的規則</span>
+    投票者<strong>只投給「log 至少和自己一樣新」的候選人</strong>。「夠新」的定義：先比 <code>lastLogTerm</code>，較大者較新；平手再比 <code>lastLogIndex</code>，較長者較新。<br>
+    這條限制保證「<strong>log 落後的人不可能當選</strong>」，進而保證新 leader 一定擁有「所有已 commit 的 entry」——這就是 <strong>Leader Completeness</strong>，是 Raft 不丟已提交資料的根本。
+  </div>
+
+  <h3>③ Log Replication（日誌複製）</h3>
+  <ul>
+    <li>leader 對每個 follower 帶 <code>prevLogIndex / prevLogTerm</code> 發 AppendEntries 做<strong>一致性檢查</strong>：follower 在 <code>prevLogIndex</code> 那格的 term 必須等於 <code>prevLogTerm</code>，否則拒絕。</li>
+    <li>拒絕 → leader 把該 follower 的 <code>nextIndex</code> <strong>回退</strong>一格再試，直到找到雙方相符的點；之後 follower <strong>截斷</strong>衝突部分並覆蓋成 leader 的 entry。這保證最終所有 log 收斂成一致。</li>
+    <li>成功 → leader 更新該 follower 的 <code>matchIndex</code>，用來判斷某 index 是否已達多數。</li>
+  </ul>
+
+  <h3>④ Commit 規則（多數 + 當前 term）</h3>
+  <div class="box warn"><span class="label">另一個經典陷阱</span>
+    leader 只在「某 index 被複製到<strong>多數</strong> <u>且</u> 該 entry 的 term <strong>等於當前 term</strong>」時才推進 commitIndex。<br>
+    <strong>為何不能直接 commit 舊 term 的 entry？</strong>因為「複製到多數」對<em>舊 term</em> entry 並不安全——它有可能在後續被另一個 leader 覆蓋（論文 Figure 8 的反例）。Raft 的作法：新 leader<strong>不直接</strong> commit 前任的 entry，而是透過 commit「<strong>自己當前 term 的一個 entry</strong>」來<em>間接</em>把它前面的舊 entry 一併帶上 commit。
+  </div>
+
+  <h3>⑤ 安全性整理（Safety）</h3>
+  <ul>
+    <li><strong>Term 規則</strong>：任何訊息帶的 term 比自己大 → 立即更新 term 並退回 follower（淘汰過時的 leader/candidate）。</li>
+    <li><strong>Election Safety</strong>：每 term 最多一個 leader（多數票 + 每 term 一票）。</li>
+    <li><strong>Leader Append-Only</strong>：leader 從不刪改自己的 log，只追加。</li>
+    <li><strong>Log Matching</strong>：相同 index+term ⇒ 該格之前全部相同。</li>
+    <li><strong>Leader Completeness</strong>：已 commit 的 entry 存在於所有更高 term 的 leader（靠選舉限制）。</li>
+    <li><strong>State Machine Safety</strong>：若某節點已在 index i apply 了某 entry，則沒有別的節點會在 index i apply 不同 entry。</li>
+  </ul>
+
+  <h3>⑥ 成員變更（Membership Change，概觀）</h3>
+  <p>叢集要動態加減節點時，不能「新舊配置」同時各自湊出一個多數而選出兩個 leader。Raft 用 <strong>joint consensus（聯合共識，C<sub>old,new</sub>）</strong>：先進入「新舊配置都要多數」的過渡狀態，commit 後再切到純新配置，過程中不會出現兩個獨立多數。實務上 etcd 等多採「<strong>一次只增減一個節點</strong>」的簡化版，更易推理。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>成因</th><th>對策</th></tr>
+    <tr><td><strong>leader 寫入單點</strong></td><td>所有寫入串行經 leader + 等多數</td><td>批次（batch）/管線（pipeline）AppendEntries；資料<strong>分片</strong>，每片一個獨立 Raft group（multi-Raft，如 TiKV/CockroachDB）</td></tr>
+    <tr><td><strong>讀也走 leader 很貴</strong></td><td>線性化讀預設要經 leader 確認自己仍是 leader</td><td><strong>lease read / read index</strong>：leader 在租約內可直接本地讀，免每次跑一輪共識；可容忍 stale 則讀 follower</td></tr>
+    <tr><td><strong>log 無限長</strong></td><td>entry 一直累積，重啟重放慢、佔空間</td><td><strong>snapshot（日誌壓縮）</strong>：把狀態機快照存下、丟棄快照前的 log；落後太多的 follower 直接傳 snapshot 追上</td></tr>
+    <tr><td><strong>選舉風暴 / 抖動</strong></td><td>逾時設太短、網路抖動頻繁改選</td><td>合理的選舉逾時、pre-vote（先試探有沒有勝算再真正 term+1）、避免無謂改選</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>Raft vs Paxos</strong>：等價的安全保證，但 Raft 以「<strong>強 leader + 隨機選舉 + 清楚的角色狀態機</strong>」大幅降低理解與實作門檻；Multi-Paxos 更彈性但難講清楚。面試講 Raft 通常更討喜。</li>
+    <li><strong>強一致的代價</strong>：寫入要 1 個 RTT 到多數、且是 CP 系統——<strong>網路分區時少數派那側無法寫入</strong>（犧牲可用性換一致性）。業務若不需要線性化，別硬上共識。</li>
+    <li><strong>奇數節點</strong>：容錯是 <code>⌊N/2⌋</code>。3→容1、5→容2；用偶數（如 4）只是徒增成本不增容錯。跨機房放節點要小心「多數恰好落在同一機房」反而降可用。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>「為何已 commit 的不會丟？」→ 選舉限制保證新 leader 一定有它（leader completeness）。</li>
+        <li>「為何不能 commit 舊 term entry？」→ Figure 8 覆蓋反例，故須靠 commit 當前 term entry 間接帶上。</li>
+        <li>「腦裂怎辦？」→ 每 term 一票 + 多數決，最多一個 leader；舊 leader 一見更高 term 即退位。</li>
+        <li>「線性化讀怎麼做不退化效能？」→ lease read / read index。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 把 Raft 的<strong>核心規則</strong>做成可實際操作、可觀察的模擬，埠 <code>8035</code>：</p>
+  <ul>
+    <li><code>src/RaftCluster.php</code>　模擬 3~5 節點，每節點有 <code>currentTerm / votedFor / log[] / commitIndex / lastApplied / role / 選舉計時器</code>，狀態持久化到 <code>data/cluster.json</code>（flock）。實作了選舉（投票限制）、複製（AppendEntries 一致性檢查 + nextIndex 回退 + 衝突截斷）、commit（多數 + 當前 term）、apply 到 KV 狀態機、kill/revive 與重新選舉。</li>
+    <li><code>public/index.php</code>　路由 <code>/api/tick</code>、<code>/api/command</code>、<code>/api/node</code>、<code>/api/state</code>、<code>/api/reset</code>，外加測試頁（每節點 role/term/log/commitIndex 面板 + tick/提交/kill/revive 按鈕）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8035 -t public
+# 流程：reset → tick 數次選出 leader → 提交 x=1 / cnt++ 看複製+commit
+#       → kill 掉 leader → 再 tick 看重新選出新 leader，已 commit 的 log 不丟</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    因 PHP 無跨請求常駐進程與背景計時器，demo 採「<strong>單一 process 內模擬 N 節點 + 手動 tick 驅動邏輯時鐘</strong>」的<strong>確定性模擬</strong>：RPC 是 process 內函式呼叫、選舉逾時用邏輯時鐘確定性錯開（非真實隨機背景計時器），且 leader 對 follower 的多輪 <code>nextIndex</code> 回退在一次呼叫內收斂。但<strong>選舉、投票限制/選舉限制、日誌複製與一致性檢查/回退、commit（多數+當前 term）、term 規則與安全性等 Raft 規則皆為真實且正確的實作</strong>，這正是面試考點。詳見 <code>demo/README.md</code>。
+  </div>
+
+  <footer>㉟ 共識演算法 Raft · K 分散式系統 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

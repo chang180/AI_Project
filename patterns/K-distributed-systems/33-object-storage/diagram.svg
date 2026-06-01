@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 948 444" width="948" height="444" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="948" height="444" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">物件儲存 S3 — 高階架構（上傳=藍 下載=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="100" width="150" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="118" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client 上傳</tspan>
+<tspan x="115" dy="18.75">(multipart)</tspan>
+</text>
+<rect x="240" y="100" width="150" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="315" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">API 前端</tspan>
+</text>
+<rect x="440" y="100" width="170" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="525" y="112" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="525" dy="0">Metadata 服務</tspan>
+<tspan x="525" dy="18.75">bucket/key→manifest</tspan>
+</text>
+<rect x="440" y="210" width="170" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="525" y="222" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="525" dy="0">一致性雜湊放置</tspan>
+<tspan x="525" dy="18.75">副本R / 抹除碼k+m</tspan>
+</text>
+<rect x="700" y="60" width="150" height="52" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="775" y="76" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="775" dy="0">節點 A  data d0</tspan>
+</text>
+<rect x="700" y="128" width="150" height="52" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="775" y="144" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="775" dy="0">節點 F  data d1</tspan>
+</text>
+<rect x="700" y="196" width="150" height="52" rx="8" fill="#ffd8a8" stroke="#e8590c" stroke-width="2"/>
+<text x="775" y="212" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="775" dy="0">節點 B  parity p</tspan>
+</text>
+<rect x="40" y="360" width="150" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="115" y="378" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client 下載</tspan>
+<tspan x="115" dy="18.75">(預簽 URL)</tspan>
+</text>
+<rect x="240" y="360" width="170" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="325" y="372" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="325" dy="0">讀 manifest</tspan>
+<tspan x="325" dy="18.75">取分片組裝</tspan>
+</text>
+<rect x="460" y="360" width="180" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="550" y="372" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="550" dy="0">節點失效→</tspan>
+<tspan x="550" dy="18.75">parity 還原 d0</tspan>
+</text>
+<text x="700" y="268" font-size="13" fill="#868e96" text-anchor="start" dominant-baseline="hanging">
+<tspan x="700" dy="0">p = d0 XOR d1</tspan>
+<tspan x="700" dy="16.25">缺 d0 → d0 = d1 XOR p</tspan>
+<tspan x="700" dy="16.25">EC 1.5x vs 副本 3x</tspan>
+</text>
+<polyline points="192,130 238,130" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="392,130 438,130" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="525,160 525,208" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="612,232 698,92" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="612,240 698,154" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="612,248 698,222" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,390 238,390" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="412,390 458,390" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="660,380 720,230" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

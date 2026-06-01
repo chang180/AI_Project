@@ -114,7 +114,8 @@ feed_cache  (每使用者的預算 feed，推模型寫入處 → Redis 列表)
   <div class="box"><span class="label">為何 feed 只存 id</span>貼文內容是<strong>單一真相來源（posts 庫）</strong>；feed 快取只存 post_id 列表，讀時再批次回填內容（hydrate）。這樣同一貼文不會在千萬份 feed 裡複製內文，省儲存、且改貼文只改一處。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 發文(寫) ─▶ Post Service ─▶ 貼文庫(posts)
                  │
                  ▼  查作者是否名人？

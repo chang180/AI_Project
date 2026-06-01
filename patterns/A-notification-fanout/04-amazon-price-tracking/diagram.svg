@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 688 598" width="688" height="598" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="688" height="598" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">Amazon 價格追蹤 — 高階架構（擷取=藍 通知=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="100" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">外部價格來源</tspan>
+</text>
+<rect x="260" y="100" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="350" y="113" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="350" dy="0">價格擷取器</tspan>
+<tspan x="350" dy="18.75">分層輪詢/CDC</tspan>
+</text>
+<rect x="500" y="100" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="585" y="113" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="585" dy="0">價格事件匯流排</tspan>
+<tspan x="585" dy="18.75">Kafka</tspan>
+</text>
+<rect x="500" y="240" width="170" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="585" y="253" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="585" dy="0">變更偵測</tspan>
+<tspan x="585" dy="18.75">沒變即丟棄</tspan>
+</text>
+<rect x="260" y="240" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="350" y="253" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="350" dy="0">規則匹配引擎</tspan>
+<tspan x="350" dy="18.75">(條件命中)</tspan>
+</text>
+<rect x="40" y="240" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="125" y="253" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="125" dy="0">反向索引 ZSET</tspan>
+<tspan x="125" dy="17.5">price→watchers</tspan>
+</text>
+<rect x="260" y="380" width="180" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="350" y="393" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="350" dy="0">去抖狀態機</tspan>
+<tspan x="350" dy="17.5">ARMED/COOLDOWN</tspan>
+</text>
+<rect x="500" y="380" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="585" y="400" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="585" dy="0">通知佇列</tspan>
+</text>
+<rect x="500" y="510" width="170" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="585" y="523" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="585" dy="0">投遞服務</tspan>
+<tspan x="585" dy="18.75">Email/Push</tspan>
+</text>
+<rect x="260" y="510" width="170" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="345" y="530" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="345" dy="0">使用者</tspan>
+</text>
+<polyline points="202,132 256,132" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="442,132 498,132" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="585,166 585,238" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="498,272 442,272" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="258,272 212,272" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="350,306 350,378" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="442,412 498,412" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="585,446 585,508" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="498,542 434,542" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

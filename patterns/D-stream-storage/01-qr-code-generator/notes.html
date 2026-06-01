@@ -111,7 +111,8 @@ scan_counters (聚合結果)
   <div class="box"><span class="label">為何分開</span>掃描事件是 append-only 的高頻寫，放主庫會拖垮它；獨立到 Kafka + 時序/列式儲存（如 ClickHouse），主庫只保留可變的對映。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code>            ┌─────────┐
  寫 ───────▶│  API GW  │──▶ Create Service ──▶ 短碼產生器(KGS) ──▶ Metadata DB(分片)
             └─────────┘                                              │

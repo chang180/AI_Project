@@ -126,7 +126,8 @@ task_runs（每次觸發一筆，狀態機，高頻寫）
   <div class="box"><span class="label">為何 task 與 run 分開</span>task 是少量可變定義；run 是高頻 append 的執行紀錄。分開後 run 可走獨立表 / 時序庫，且<strong>冪等鍵建在 run 上</strong>，靠 DB 唯一約束從根本擋住重複觸發。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 建立 ─▶ Task API ─▶ 任務 DB(next_run_at 索引)
                             ▲  │
                             │  ▼

@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 878 474" width="878" height="474" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+</defs>
+<rect x="16" y="0" width="878" height="474" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">OAuth 2.0 授權碼流程 — 主流程=藍 回應=綠 基建=黃</tspan>
+</text>
+<rect x="40" y="110" width="170" height="70" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="125" y="132" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="125" dy="0">使用者 + Client</tspan>
+</text>
+<rect x="430" y="90" width="200" height="110" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="530" y="108" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="530" dy="0">Authorization Server</tspan>
+<tspan x="530" dy="20">/authorize  /token</tspan>
+<tspan x="530" dy="20">/revoke</tspan>
+</text>
+<rect x="690" y="60" width="180" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="780" y="72" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="780" dy="0">auth_codes 表</tspan>
+<tspan x="780" dy="17.5">(一次性 短TTL)</tspan>
+</text>
+<rect x="690" y="150" width="180" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="780" y="162" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="780" dy="0">refresh 表 + 撤銷名單</tspan>
+</text>
+<rect x="430" y="380" width="200" height="70" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="530" y="398" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="530" dy="0">Resource Server</tspan>
+<tspan x="530" dy="20">本地驗 JWT (零DB查詢)</tspan>
+</text>
+<polyline points="212,130 426,130" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="230" y="104" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="230" dy="0">① GET /authorize (登入+同意)</tspan>
+</text>
+<polyline points="426,165 212,165" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="240" y="168" font-size="14" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="240" dy="0">② 302 回授權碼 code</tspan>
+</text>
+<polyline points="212,215 426,245" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="210" y="220" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="210" dy="0">③ POST /token (code+secret)</tspan>
+</text>
+<polyline points="426,255 212,225" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="215" y="256" font-size="14" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="215" dy="0">④ access(JWT)+refresh</tspan>
+</text>
+<polyline points="125,182 125,414" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="125,414 425,414" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="135" y="300" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="135" dy="0">⑤ GET /api/me  Bearer &lt;JWT&gt;</tspan>
+</text>
+<polyline points="630,415 700,415" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="644" y="388" font-size="14" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="644" dy="0">⑥ 200 / 401</tspan>
+</text>
+<polyline points="632,120 688,100" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="632,170 688,180" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

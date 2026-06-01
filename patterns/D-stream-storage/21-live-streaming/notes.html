@@ -128,7 +128,8 @@ viewer_presence （在線狀態，TTL 過期自動退出）
   <div class="box"><span class="label">為何直播不像 VOD 永久保存</span>VOD 的 manifest 是<strong>完整、固定、可預轉碼</strong>的；直播的 manifest 是<strong>滑動視窗、不斷變動、邊產生邊丟棄</strong>的。直播只需 live edge 附近數秒的 segment 即可服務觀眾，過期 segment 立刻清掉（除非另開錄製）。這就是「<em>無法預轉碼</em>」的根本原因 — 內容此刻才產生。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 主播 ──RTMP/SRT/WebRTC 推流──▶ 攝入(Ingest) ──▶ 即時轉碼(多碼率) ──▶ 打包(HLS 切片)
                                                                       │ 更新滑動視窗 manifest
                                                                       ▼

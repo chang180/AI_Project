@@ -16,3 +16,4 @@
 | 11 | ChatGPT Tasks | 排程/週期任務、async workflow、狀態機 |
 | 13 | Agoda AI 客服 | RAG 知識庫、Agent 工具呼叫、自動退款交易安全 |
 | 14 | LLM 推論 API | continuous batching、GPU 排程、吞吐優化 |
+| 43 | 推薦系統（召回 + 排序） | 兩階段架構、協同過濾、embedding ANN 召回、特徵排序、冷啟動 |

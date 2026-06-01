@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉝ 物件儲存 S3 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉝ 物件儲存 S3：海量、不可變、扁平命名空間的儲存底座</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag time">建議 48 分鐘</span>
+    <span class="tag">Design an Object Storage System (S3)</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把任意大小的位元組（blob）可靠地存到一群普通機器上，並用扁平的 bucket/key 取回</strong>」。
+    面試真正考的不是「存檔案」，而是 <em>耐久度（11 個 9）怎麼來</em>：分片 + <strong>副本或抹除碼</strong>、<strong>一致性雜湊放置</strong>、
+    <strong>metadata 與資料分離</strong>、以及 <strong>multipart、預簽 URL</strong> 這些 S3 招牌特性。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計（S3 風格）</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>PUT/GET/DELETE 物件</strong>：用 <code>bucket/key</code> 存取任意位元組（圖片、影片、備份、日誌）。</li>
+    <li><strong>扁平命名空間</strong>：沒有真正的目錄樹，<code>key</code> 就是一整段字串（<code>a/b/c.jpg</code> 只是看起來像路徑，用 prefix 列舉模擬「資料夾」）。</li>
+    <li><strong>物件不可變（immutable）</strong>：物件一旦寫入不就地修改；「改」= 用同 key 覆寫成新版本。</li>
+    <li><strong>分段上傳 multipart</strong>：大檔切成多個 part 並行上傳，最後 complete 組裝。</li>
+    <li><strong>預簽 URL</strong>：給未登入的第三方一個有時效的簽名連結直接上傳/下載，不暴露金鑰。</li>
+    <li>版本控制、生命週期（自動轉冷儲存/過期刪除）、bucket 政策（可選進階）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>耐久度極高</strong>：S3 標榜 99.999999999%（11 個 9）——這是整題的靈魂，靠冗餘（副本/抹除碼）+ 跨故障域放置。</li>
+    <li><strong>高可用</strong>：99.99%；單節點/單機架/單 AZ 故障不影響讀寫。</li>
+    <li><strong>海量、近乎無限擴展</strong>：EB 級總量、兆級物件數，水平加機器即可長。</li>
+    <li><strong>讀多於寫、吞吐導向</strong>：大物件重吞吐（MB/s）、小物件重 IOPS 與 metadata QPS。</li>
+    <li><strong>一致性</strong>：S3 現為「<em>新寫入後 read-after-write 強一致</em>」；早期是最終一致——這是經典追問點。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「物件可變嗎？要支援部分更新（range write）嗎？」——物件儲存的關鍵假設是<strong>不可變 + 整顆覆寫</strong>，這讓分片、冗餘、快取都好做。若對方要 random write，那是<em>區塊儲存（EBS）或檔案系統</em>，是另一題。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>物件數</td><td>10 億用戶 × 平均 1000 物件</td><td>~1 兆物件 → metadata 是巨量 KV</td></tr>
+    <tr><td>平均物件大小</td><td>混合大小，均值 ~1 MB</td><td>原始資料 ~1 EB</td></tr>
+    <tr><td>冗餘後實佔</td><td>抹除碼 RS(10,4) ≈ 1.4x</td><td>~1.4 EB（若用 3 副本則 3 EB）</td></tr>
+    <tr><td>寫入</td><td>1000 萬上傳/分</td><td>~167k 寫 QPS（峰值更高）</td></tr>
+    <tr><td>metadata 每筆</td><td>~1 KB（key、size、etag、分片放置）</td><td>1 兆 × 1KB ≈ <strong>1 PB metadata</strong> → 必須分片</td></tr>
+    <tr><td>分片大小</td><td>一個物件切成固定大小 chunk（如 4–64 MB）</td><td>大物件 = 多 chunk，每 chunk 各自冗餘放置</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>兩個獨立的擴展問題：<strong>資料平面</strong>（EB 級位元組，靠分片 + 冗餘放在便宜磁碟）與 <strong>metadata 平面</strong>（兆級小 KV，靠分片式強一致 KV）。把它們<strong>分開</strong>是物件儲存的核心架構決定。</div>
+
+  <h2 id="api">3. API 設計（S3 風格）</h2>
+  <pre><code># 建立 bucket
+PUT /{bucket}
+
+# 單次上傳（小物件）
+PUT /{bucket}/{key}        Body: &lt;bytes&gt;   → 200 ETag: "&lt;md5&gt;"
+
+# 下載
+GET /{bucket}/{key}        → 200 &lt;bytes&gt;（含 ETag、Content-Length）
+
+# 列舉（扁平 + prefix 模擬資料夾）
+GET /{bucket}?prefix=photos/&delimiter=/&max-keys=1000
+
+# 分段上傳 multipart（大物件）
+POST /{bucket}/{key}?uploads                  → { uploadId }
+PUT  /{bucket}/{key}?partNumber=N&uploadId=.. → 200 ETag(該 part)
+POST /{bucket}/{key}?uploadId=..  (complete)  → 組裝；回整體 ETag
+
+# 預簽 URL（無金鑰、有時效）
+GET  /{bucket}/{key}?X-Expires=...&X-Signature=hmac(...)
+
+# 刪除
+DELETE /{bucket}/{key}
+</code></pre>
+  <div class="box"><span class="label">multipart ETag 細節</span>單次上傳的 ETag = <code>md5(內容)</code>；multipart 的 ETag = <code>md5(各 part md5 的 binary 串接)-&lt;part 數&gt;</code>（後綴 part 數）。所以看 ETag 結尾有沒有 <code>-N</code> 就知道是不是分段上傳的——這是 S3 真實行為，Demo 也照做。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>bucket
+  name          PRIMARY KEY
+  owner, region, created_at, policy
+
+object_manifest  (metadata 服務，分片式強一致 KV：key = bucket/key)
+  bucket, key
+  size, etag, crc32
+  strategy      'REPLICA' | 'EC'
+  parts[]       { partNumber, etag(md5), size }
+  placement     -- 分片/副本落在哪些儲存節點
+    REPLICA: [ {replica, node, blockId} x R ]
+    EC:      { k, m, blocks:[ {shard, role:data|parity, node, blockId} ] }
+  version_id, created_at
+
+儲存節點上的 block（資料平面，append-only、不可變）
+  blockId → bytes（一個副本或一個抹除碼分片）</code></pre>
+  <div class="box"><span class="label">為何 manifest 與 block 分離</span>metadata 小、需強一致與高 QPS 查詢 → 放分片式 KV（如 DynamoDB 風格）；block 大、不可變、只要會放/會找 → 放便宜的 append-only 儲存節點。兩者用不同技術、各自擴展。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>            上傳(multipart)
+ Client ───▶ API 前端 ───▶ Metadata 服務(bucket/key→manifest, 強一致)
+                              │
+                              ▼
+                       一致性雜湊放置 ──▶ 儲存節點群
+                              │            ├─ 副本 R 份  或
+                              │            └─ 抹除碼 k 資料 + m parity
+ Client ◀─── API 前端 ◀─── 讀 manifest → 取分片 → 組裝/還原（節點失效用 parity）
+            下載(預簽 URL)</code></pre>
+  <ol>
+    <li><strong>API 前端</strong>：無狀態，認證/限流/簽章驗證；上傳走 multipart，下載組裝。</li>
+    <li><strong>Metadata 服務</strong>：bucket/key → manifest 的強一致 KV，記錄每個物件分片放在哪。</li>
+    <li><strong>放置層</strong>：用一致性雜湊把分片/副本散到跨故障域的儲存節點；節點增減只搬動一小部分。</li>
+    <li><strong>儲存節點</strong>：存不可變 block；背景有 repair 程序持續補回因磁碟壞掉而少的冗餘。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>① Multipart 上傳</h3>
+  <p>大檔不該一次 PUT：網路一斷就全廢。流程：<code>init</code> 拿 <code>uploadId</code> → 各 part 獨立並行 PUT（可重試單一 part）→ <code>complete</code> 把 part 依序組裝成物件並算整體 ETag。好處：<strong>並行加速、斷點續傳、單 part 失敗只重傳該 part</strong>。</p>
+
+  <h3>② 一致性雜湊放置</h3>
+  <p>分片要放哪些節點？用 <strong>一致性雜湊環</strong>：節點（含虛擬節點）雜湊到環上，分片 key 雜湊後順時針找前 N 個<em>不同實體節點</em>。好處：加/退節點只重分配 <code>1/N</code> 的資料，不像 <code>hash % N</code> 全洗牌。放置時還要避開<strong>同一故障域</strong>（同機架/同 AZ），確保一次故障不會同時帶走太多冗餘。</p>
+
+  <h3>③ 副本 vs 抹除碼（本題最核心取捨）</h3>
+  <table>
+    <tr><th>方式</th><th>原理</th><th>空間倍率</th><th>容忍遺失</th><th>還原成本</th></tr>
+    <tr><td>副本 REPLICA</td><td>整顆物件複製 R 份</td><td>R（如 3.0x）</td><td>R−1 份</td><td>低（直接讀另一份）</td></tr>
+    <tr><td>抹除碼 EC</td><td>k 資料分片 + m parity（RS 編碼）</td><td>(k+m)/k（如 RS(10,4)=1.4x）</td><td>m 份</td><td>高（要計算還原）</td></tr>
+  </table>
+  <p>抹除碼用<strong>更少空間</strong>換到<strong>相近甚至更高</strong>的耐久度，代價是還原與小檔讀取要算、要拉多個分片。實務：<strong>冷資料/大物件用 EC</strong>（省錢），<strong>熱資料/小物件可用副本</strong>（讀延遲低）。最簡單的 EC 是 <code>m=1</code> 的 XOR parity：<code>p = d0 XOR d1</code>，缺任一資料片就 <code>d0 = d1 XOR p</code> 補回——Demo 就用這個讓你親眼看到還原。</p>
+
+  <h3>④ 強一致 metadata</h3>
+  <p>「上傳完馬上能讀到」（read-after-write）要求 manifest 寫入強一致。常見做法：metadata 放支援交易/條件寫的分片式 KV，complete 是一次原子提交；資料 block 先寫好、冗餘達標後才提交 manifest，<strong>避免 manifest 指向還沒寫完的 block</strong>。</p>
+
+  <h3>⑤ 預簽 URL</h3>
+  <p>第三方（瀏覽器、合作夥伴）要直接上傳/下載，但不能給金鑰。伺服器用 <code>HMAC(method, bucket, key, expires, secret)</code> 簽出一個 URL。對方拿著用，伺服器<strong>重算 HMAC 比對（hash_equals）+ 檢查未過期</strong>才放行。竄改任何欄位或過期 → 簽章不符 → 403。Demo 完整實作。</p>
+
+  <h3>⑥ 生命週期與背景修復</h3>
+  <ul>
+    <li><strong>lifecycle</strong>：規則把物件 N 天後轉到更便宜的冷儲存（換更高 k 的 EC）、或到期自動刪。</li>
+    <li><strong>repair / scrubbing</strong>：磁碟會壞。背景持續掃描，發現某物件冗餘低於門檻就用其餘分片重建補回，維持耐久度——這是 11 個 9 的真正來源。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td><strong>小檔過多</strong></td><td>每個物件一條 manifest + 多次磁碟 seek，metadata 與 IOPS 雙爆</td><td>小物件打包進大 chunk（packing）、提高 metadata 快取、鼓勵客戶端合併</td></tr>
+    <tr><td><strong>metadata 熱點</strong></td><td>同 prefix 的 key 落同分片、熱門 bucket 壓垮單一分片</td><td>對 key 雜湊分片（非字典序）、熱 key 加快取、自動分裂(split)熱分片</td></tr>
+    <tr><td><strong>跨區複製</strong></td><td>單區故障要能容災、就近讀取</td><td>非同步跨區複製（CRR）；接受跨區最終一致，區內強一致</td></tr>
+    <tr><td><strong>修復風暴</strong></td><td>一台機器掛掉觸發大量 repair，吃滿頻寬</td><td>節流 repair、分散冗餘到多故障域降低單機影響面</td></tr>
+    <tr><td><strong>大物件吞吐</strong></td><td>單連線拉不滿頻寬</td><td>multipart 並行 + 分片散在多節點 → 並行讀</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>副本 vs 抹除碼</strong>：空間（EC 省）vs 還原/讀延遲與 CPU（副本省）vs 小檔友善度（副本佳）。能講清楚「冷資料 EC、熱資料副本」就到位。</li>
+    <li><strong>扁平 vs 階層命名空間</strong>：扁平（S3）= 列舉靠 prefix、無真正 rename 目錄（rename 大量物件很貴）；階層（HDFS/檔案系統）= 有目錄樹但 metadata 更複雜。物件儲存選扁平換取簡單與水平擴展。</li>
+    <li><strong>強一致 metadata vs 最終一致資料</strong>：manifest 強一致保證 read-after-write；block 與跨區複製可最終一致。把「指標（manifest）」與「資料（block）」的一致性需求分開談。</li>
+    <li><strong>物件不可變的威力</strong>：因為不就地改，所以可大膽快取、可永久內容定址、冗餘只需「寫一次放好」，不必處理就地更新的並發——這是物件儲存能做到海量又便宜的根本前提。</li>
+    <li><strong>常見追問</strong>：耐久度 11 個 9 怎麼算？→ 冗餘度 + 跨故障域 + 持續 repair 把「同時壞超過 m 份」的機率壓到極低。如何防止 manifest 指向半寫好的資料？→ 先寫足冗餘、再原子提交 manifest。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重<strong>物件儲存真正的考點</strong>，可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Erasure.php</code>　抹除碼教學版：<code>k=2</code> 資料 + <code>m=1</code> XOR parity（<code>p=d0 XOR d1</code>），缺一片用 XOR 還原；對照「副本 3x vs 抹除碼 1.5x」空間取捨。</li>
+    <li><code>src/ObjectStore.php</code>　multipart（init/part/complete + ETag）、一致性雜湊放置、副本/抹除碼存放、metadata（flock 序列化讀改寫＝強一致）、節點失效還原、預簽 URL（hash_hmac）。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁：建 bucket、一鍵 multipart 上傳、看分片落在哪些節點、製造節點失效後下載並用 parity/副本還原比對 crc32、產生並驗證預簽 URL。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8033 -t public
+# 瀏覽器開 http://localhost:8033：上傳 → 製造節點失效 → 下載看還原 → 預簽 URL</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 用 <code>data/nodes/</code> 下的<strong>子目錄模擬儲存節點</strong>，沒有真正的網路、分散式協調、背景 repair 或 Reed-Solomon 有限體運算（XOR parity 只容忍 <code>m=1</code>）。
+    但 <strong>multipart 組裝與 ETag、一致性雜湊放置、抹除碼編碼/還原、副本容錯讀取、metadata 強一致（flock）、預簽 URL 的 HMAC 簽章與過期驗證</strong> 皆為<strong>真實可執行</strong>——這些正是面試考點。所有共享狀態寫入用 <code>flock</code> 保護。
+  </div>
+
+  <footer>㉝ Object Storage S3 · K 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

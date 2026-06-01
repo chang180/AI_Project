@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 6 688 508" width="688" height="508" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="6" width="688" height="508" fill="#ffffff"/>
+<text x="40" y="30" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">Splitwise 帳務分攤 — 高階架構（寫=藍 查詢=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="110" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">加支出 (寫)</tspan>
+<tspan x="120" dy="18.75">誰付/怎麼分</tspan>
+</text>
+<rect x="260" y="110" width="170" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="345" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="345" dy="0">交易服務</tspan>
+<tspan x="345" dy="18.75">算分攤/匯率/冪等</tspan>
+</text>
+<rect x="490" y="110" width="180" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="580" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="580" dy="0">帳本 (append-only)</tspan>
+<tspan x="580" dy="18.75">expenses + splits</tspan>
+</text>
+<rect x="490" y="270" width="180" height="70" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="580" y="280" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="580" dy="0">淨額聚合</tspan>
+<tspan x="580" dy="18.75">creditor / debtor</tspan>
+<tspan x="580" dy="18.75">(守恆 sum=0)</tspan>
+</text>
+<rect x="490" y="420" width="180" height="70" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="580" y="430" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="580" dy="0">債務簡化</tspan>
+<tspan x="580" dy="18.75">最小現金流</tspan>
+<tspan x="580" dy="18.75">→ 最少轉帳</tspan>
+</text>
+<rect x="40" y="423" width="160" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="120" y="435" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">查餘額/還款 (讀)</tspan>
+<tspan x="120" dy="18.75">要最少轉帳</tspan>
+</text>
+<polyline points="202,142 258,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="432,142 488,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="580,174 580,268" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="580,340 580,418" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="202,455 488,455" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

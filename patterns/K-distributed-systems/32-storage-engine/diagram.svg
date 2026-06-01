@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 968 444" width="968" height="444" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+</defs>
+<rect x="16" y="0" width="968" height="444" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">LSM-tree 儲存引擎 — 寫路徑=藍 讀路徑=綠 背景/基建=黃</tspan>
+</text>
+<text x="40" y="78" font-size="16" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">▶ 寫路徑</tspan>
+</text>
+<rect x="40" y="110" width="150" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="130" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">put / delete</tspan>
+</text>
+<rect x="250" y="110" width="150" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="325" y="122" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="325" dy="0">① WAL</tspan>
+<tspan x="325" dy="17.5">順序寫·崩潰復原</tspan>
+</text>
+<rect x="460" y="110" width="160" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="540" y="122" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="540" dy="0">② memtable</tspan>
+<tspan x="540" dy="17.5">記憶體有序·tombstone</tspan>
+</text>
+<text x="470" y="196" font-size="13" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="470" dy="0">③ 滿門檻 → flush</tspan>
+</text>
+<rect x="460" y="230" width="230" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="575" y="244" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="575" dy="0">SSTable_n (新) + index + bloom</tspan>
+</text>
+<rect x="460" y="300" width="230" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="575" y="314" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="575" dy="0">SSTable_2 + index + bloom</tspan>
+</text>
+<rect x="460" y="370" width="230" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="575" y="384" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="575" dy="0">SSTable_1 (舊) + index + bloom</tspan>
+</text>
+<text x="40" y="300" font-size="16" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">▼ 讀路徑</tspan>
+</text>
+<rect x="40" y="332" width="150" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="115" y="352" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">get(key)</tspan>
+</text>
+<rect x="250" y="332" width="150" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="325" y="344" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="325" dy="0">bloom 過濾</tspan>
+<tspan x="325" dy="16.25">false→跳過 IO</tspan>
+</text>
+<text x="250" y="296" font-size="13" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="250" dy="0">先查 memtable，未命中→</tspan>
+</text>
+<text x="760" y="300" font-size="16" fill="#e8590c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="760" dy="0">● compaction</tspan>
+</text>
+<rect x="760" y="332" width="200" height="88" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="860" y="346" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="860" dy="0">合併後 SSTable</tspan>
+<tspan x="860" dy="16.25">丟棄被覆寫/tombstone</tspan>
+<tspan x="860" dy="16.25">更少更大→降讀放大</tspan>
+</text>
+<polyline points="192,140 248,140" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="402,140 458,140" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="540,172 540,228" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,362 248,362" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="402,350 458,250" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="402,362 458,324" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="402,372 458,394" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="696,300 756,330" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="696,388 756,368" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

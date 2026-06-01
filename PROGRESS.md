@@ -3,7 +3,9 @@
 > 換電腦後先讀這份。所有進度都在 git，`git clone`/`git pull` 即可接續。
 
 ## 專案是什麼
-30 題系統設計學習專案（原 14 題核心 + 16 題進階補充）。每題產出：`notes.html`（9 段式筆記）+ `diagram.excalidraw`（架構圖）+ `demo/`（PHP，`php -S` 可跑）。全繁體中文。
+43 題系統設計學習專案（原 14 題核心 + 29 題進階補充）。每題產出：`notes.html`（9 段式筆記，**內嵌 SVG 架構圖**）+ `diagram.excalidraw`（可編輯原稿）+ `diagram.svg`（自動生成）+ `demo/`（PHP，`php -S` 可跑）。全繁體中文。
+
+> 架構圖：`tools/excalidraw-to-svg.php` 把 `diagram.excalidraw` 轉成 `diagram.svg`（永久、離線、可內嵌），notes 用 `<img class="diagram-svg">` inline 顯示。改完圖跑 `php tools/excalidraw-to-svg.php --all` 重新生成。
 
 - 入口：瀏覽器開 `index.html`
 - 框架小抄：`framework.html`（每次練習前看）
@@ -19,10 +21,13 @@
 - F 社交/Feed：⑮ News Feed
 - G 搜尋/索引/地理空間：⑯ Typeahead ⑱ 附近的人 Yelp ㉖ 全文搜尋
 - H 基礎設施/平台元件：⑲ 分散式限流器 ㉓ Snowflake ID ㉕ Kafka 訊息佇列
-- I 認證/安全：㉔ OAuth/SSO（新組）
-- J 可觀測性：㉗ Prometheus 指標監控（新組）
+- I 認證/安全：㉔ OAuth/SSO
+- J 可觀測性：㉗ Prometheus 指標監控
+- K 分散式系統：㉛ KV store ㉜ LSM 儲存引擎 ㉝ S3 物件儲存 ㉞ 分散式快取 ㉟ Raft 共識 ㊱ 分散式鎖（新組，地基題；原規劃 K+L 合併）
+- L 圖/大規模演算法：㊲ 網頁爬蟲 ㊳ 搜尋引擎 ㊴ 地圖路徑 ㊵ Splitwise（新組）
+- M 排程/工作流：㊶ 工作流引擎 ㊷ 分散式排程器（新組）
 
-## 已完成 ✅ 全部 30 題
+## 已完成 ✅ 全部 43 題
 每題皆含 notes.html（9 段式）+ diagram.excalidraw + 可跑 PHP demo，並通過 `php -l` 與實跑驗證。各 demo 的核心邏輯重點：
 
 | # | 題目 | demo 核心考點（非 CRUD） | 埠 |
@@ -57,6 +62,19 @@
 | ㉘ | 秒殺/搶票 | 原子條件扣減防超賣(CAS) + 冪等鍵 + 入場令牌削峰 + 每人限購 | 8028 |
 | ㉙ | 遊戲排行榜 | ZSET 語意 zadd/zrevrank/Top-K + 我的名次±鄰居 + 分窗榜 | 8029 |
 | ㉚ | 視訊會議 Zoom | 信令中繼(SDP/ICE) + SFU 轉發表 + simulcast 依頻寬選層 + active speaker | 8030 |
+| ㉛ | 分散式 KV store | 一致性雜湊+vnode + quorum N/R/W + 向量時鐘 sibling + read repair + hinted handoff | 8031 |
+| ㉜ | LSM 儲存引擎 | WAL + memtable→SSTable flush + bloom 省 IO + compaction（vs B-tree） | 8032 |
+| ㉝ | 物件儲存 S3 | multipart 組裝 + 一致性雜湊放置 + 副本/抹除碼(XOR)還原 + 預簽 URL | 8033 |
+| ㉞ | 分散式快取 | 16384 slot 路由+重分片 + 主從 + LRU/LFU + 穿透/擊穿/雪崩緩解 | 8034 |
+| ㉟ | Raft 共識 | leader election + log replication + 多數 commit + 掛 leader 重選不丟 log | 8035 |
+| ㊱ | 分散式鎖+服務發現 | 租約鎖 + fencing token 擋過期寫 + watch + leader election + 服務註冊 | 8036 |
+| ㊲ | 網頁爬蟲 | BFS frontier + bloom 去重 + politeness/crawl-delay + 依 domain 分片 + 重抓 | 8037 |
+| ㊳ | 搜尋引擎全鏈 | 倒排索引分片 + scatter-gather + PageRank 冪次迭代 + BM25+PR 融合排序 | 8038 |
+| ㊴ | 地圖路徑規劃 | 道路圖 + Dijkstra vs A*(探索更少) + 即時路況 ETA + 瓦片 | 8039 |
+| ㊵ | Splitwise 分攤 | 三種分攤 + 淨額守恆(和=0) + 最小現金流債務簡化 + 整數分 + 冪等 | 8040 |
+| ㊶ | 工作流引擎 | DAG 排程 + 事件溯源 durable execution(重放不重跑) + 重試 + saga 補償 + 審批 | 8041 |
+| ㊷ | 分散式排程器 | 到點觸發 + claim+fencing+租約防重複執行 + misfire 補跑 + 分片 | 8042 |
+| ㊸ | 推薦系統 | 兩階段：協同過濾+ANN 召回 → 特徵排序 Top-N + 冷啟動熱門 fallback | 8043 |
 
 啟動任一 demo：`cd <題目>/demo && php -S localhost:<埠> -t public`
 （H/I/J 新題實際路徑：`patterns/H-infra-primitives/23-snowflake-id`、`patterns/I-auth-security/24-oauth-sso`、`patterns/H-infra-primitives/25-message-queue`、`patterns/G-search-index/26-fulltext-search`、`patterns/J-observability/27-metrics-monitoring`、`patterns/C-consistency-txn/28-flash-sale`、`patterns/D-stream-storage/29-leaderboard`、`patterns/B-realtime-sync/30-video-conferencing`）
@@ -68,13 +86,14 @@
 ### ✅ 下一批 8 題（23–30）已完成（2026-06-01）
 全部 8 題已建好 notes.html + diagram.excalidraw + 可跑 demo，皆過 `php -l`、實跑 HTTP 200、diagram 合法 JSON。新增 2 分組 🅸 認證/安全、🅹 可觀測性。index.html（30/30、加 I/J 區塊與卡片）、各分組 README、本檔表格皆已更新。
 
-### ⭐ 下一階段擴充規劃（31 題起）見 [ROADMAP.md](ROADMAP.md)
-14 題擴充清單，依優先序分 4 新組（🅺 分散式資料儲存、🅻 協調/共識、🅼 圖/大規模演算法、🅽 排程/工作流）+ 延伸 E 推薦系統。**最大缺口是分散式系統地基題**（KV store、Raft、儲存引擎、分散式快取）。建議首批：Tier 1 地基 6 題（㉛–㊱）。要動工就說「建 K 組」「建 ㉛ ㉟」等。
+### ✅ 擴充 13 題（31–43）已完成（2026-06-01）
+依 [ROADMAP.md](ROADMAP.md) 建完。新增 3 分組：🅺 分散式系統（31–36，原規劃 K 資料儲存 + L 協調/共識**合併為一組**，因屬同類地基且使用者反映較難）、🅻 圖/大規模演算法（37–40）、🅼 排程/工作流（41–42），並延伸 🅴 推薦系統（43）。皆過 `php -l`、實跑 HTTP 200、diagram 合法 JSON。
+同時導入 **SVG 內嵌**：`tools/excalidraw-to-svg.php` 生成 `diagram.svg`，全 43 題 notes 改用 `<img class="diagram-svg">` inline 顯示（不再只是連結，永久離線可看）。index.html（43/43、加 K/L/M 區塊與卡片）、各分組 README、本檔皆已更新。
 
 ### 其餘可選
+- [ ] ROADMAP.md 的 **Tier 3 產品廣度**（RTB 廣告競價、通用通知服務、Email/Gmail、協作白板 CRDT、多人遊戲伺服器、Pastebin、CDN…）可再擴充。
 - [ ] 把各 demo 的「示意」元件換成真套件：QR→`endroid/qr-code`、RAG→真向量嵌入、LLM→真模型；系統邏輯不需改。
 - [ ] 依 framework.html 自我計時重做每題、補充個人筆記。
-- [ ] 30 題之後的更多題庫維度（地圖路徑/視訊白板/物件儲存 S3/分散式鎖/工作流引擎/推薦系統/Email/Splitwise 等）見對話推薦清單，可再擴充。
 
 ## 模擬面試進度（① QR Code，當大師教學用）
 進行到一半，暫停點如下，下次可從這裡接續：

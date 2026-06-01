@@ -109,7 +109,8 @@ HASH ratelimit:{key}                -> { tokens: 4.2, last_refill: 1717142399.81
   <div class="box"><span class="label">為何用 TTL</span>限流計數是<strong>有時效</strong>的，過期即無意義。靠 Redis 的 TTL 自動回收，省去掃描清理；key 設計把 window_id 編進去，舊視窗自然被淘汰。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code>                              ┌──────────────────┐
                               │  限流規則設定 (黃) │
                               └─────────┬────────┘

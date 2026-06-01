@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊷ 分散式排程器 / Cron · 系統設計筆記</title>
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../index.html">← 回總覽</a>
+  <a href="../README.md">🅼 排程/工作流</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊷ 分散式排程器 / Cron：不重不漏地觸發百萬個定時任務</h1>
+  <p class="subtitle">
+    <span class="tag group">M 排程/工作流</span>
+    <span class="tag time">建議 42 分鐘</span>
+    <span class="tag">Design a Distributed Scheduler / Cron</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>可靠地在對的時間、把對的任務、恰好觸發一次、並能水平擴展</strong>」。
+    單機 <code>crontab</code> 很簡單；面試真正考的是 <em>多台機器</em> 一起跑時，如何
+    <strong>不重複執行（去重）、不漏執行（misfire 補跑）、且負載能分散</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>使用者註冊一個排程任務：<strong>固定間隔</strong>（每 5 分鐘）或 <strong>cron 表達式</strong>（每天 02:00、每週一）。</li>
+    <li>到點時觸發任務：呼叫一個 webhook / 丟一條訊息到佇列 / 跑一段工作。</li>
+    <li>能查詢執行歷史、下次觸發時間、失敗重試。</li>
+    <li>可暫停 / 取消 / 修改排程。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>不重複執行</strong>：一次觸發只能跑一次（或至少要冪等去重）。這是整題的核心。</li>
+    <li><strong>不漏執行</strong>：機器當掉、重啟也不能把該跑的任務吞掉（misfire 要能補）。</li>
+    <li><strong>水平擴展</strong>：從數百個 job 到上億個 job、每秒上萬次觸發。</li>
+    <li><strong>觸發準時</strong>：延遲可接受秒級，但不能無限漂移。</li>
+    <li><strong>高可用</strong>：沒有單點；單台排程器掛掉，其他要接手。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「要 <strong>exactly-once 還是 at-least-once + 冪等</strong>？」<br>
+    分散式下精確一次幾乎做不到（網路、當機隨時發生），務實答案是
+    <em>at-least-once 觸發 + 任務本身冪等 / 用 fencing 去重</em>。把這點講清楚，整題就穩了。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>排程 job 數</td><td>1 億個 job</td><td>每筆中繼資料 ~300B → ~30 GB（可進 DB / 分片）</td></tr>
+    <tr><td>觸發頻率</td><td>平均每 job 每小時觸發 1 次</td><td>1 億/3600 ≈ <strong>~2.8 萬 觸發/秒</strong>（峰值 ×3 ≈ 8 萬）</td></tr>
+    <tr><td>掃描成本</td><td>每秒掃「nextRun ≤ now」的 job</td><td>需索引 nextRun；不能全表掃 1 億筆</td></tr>
+    <tr><td>worker 數</td><td>單 worker 每秒處理 ~500 觸發</td><td>2.8 萬 / 500 ≈ <strong>~56 個 worker</strong>（峰值上百）</td></tr>
+    <tr><td>執行歷史</td><td>每次觸發記一筆，留 30 天</td><td>2.8萬×86400×30 ≈ 700 億筆 → 走時序庫 / 過期清理</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    瓶頸不在「執行」而在「<strong>掃描到點的 job</strong>」與「<strong>多 worker 搶同一個觸發時的去重</strong>」。
+    設計圍繞這兩點：<em>高效找出到點 job（索引 / 時間輪）</em> 與 <em>claim 鎖確保只跑一次</em>。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 建立排程（固定間隔或 cron）
+POST /api/v1/jobs
+Body: { "name": "send-report", "schedule": "*/5 * * * *",
+        "target": { "type": "webhook", "url": "https://..." },
+        "misfire_policy": "fire-once" }
+→ 201 { "job_id": "j_abc", "next_run": "2026-06-01T02:05:00Z" }
+
+# 修改 / 暫停 / 取消
+PATCH  /api/v1/jobs/{id}   Body: { "paused": true }
+DELETE /api/v1/jobs/{id}
+
+# 查下次觸發與歷史
+GET /api/v1/jobs/{id}              → { next_run, last_run, status }
+GET /api/v1/jobs/{id}/runs        → [ { run_id, fired_at, worker, result } ]
+
+# （內部）worker 認領一個到點觸發 —— 防重複的核心
+POST /internal/claim   Body: { "fire_id": "...", "worker_id": "w1" }
+→ 200 { "ok": true, "fence_token": 4711, "lease_until": "..." }   # 認領成功
+→ 409 { "ok": false, "reason": "already-claimed" }                # 已被搶走（去重）
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>jobs                              -- 排程定義
+  job_id        PK
+  schedule      VARCHAR   -- cron 表達式或 interval
+  next_run      TIMESTAMP -- ★建索引：掃描靠它
+  misfire_policy ENUM     -- fire-once | skip | fire-all
+  paused        BOOL
+  shard         INT       -- 雜湊分片，決定哪個 worker 群負責
+
+fires / claims                    -- 每次「到點」產生一筆，claim 去重的單位
+  fire_id       PK
+  job_id        FK
+  scheduled_at  TIMESTAMP -- 邏輯上應觸發的時刻
+  claimed_by    VARCHAR   -- 認領的 worker（NULL=未認領）
+  fence_token   BIGINT    -- 單調遞增，fencing 用（拒絕殭屍寫入）
+  lease_until   TIMESTAMP -- 租約到期；過期未完成 → 可被別人接管
+  status        ENUM      -- pending | claimed | done | missed
+
+runs                              -- 執行歷史（高頻 append → 走時序庫）
+  run_id, fire_id, worker, fired_at, result, fence_token</code></pre>
+  <div class="box"><span class="label">為何要 <code>fires</code> 這張表</span>
+    去重必須有一個「<strong>唯一的觸發實例</strong>」當鎖的對象。把 <code>(job_id, scheduled_at)</code> 做成唯一鍵，
+    多 worker 都想 insert/claim 同一筆時，DB 唯一約束 + 條件更新自然只讓一個成功 —— 這就是去重的根。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>             ┌──────────────┐        掃描 next_run ≤ now
+ 排程定義 ───▶│ Job Store(DB) │◀─────────┐
+             └──────────────┘          │
+                                  ┌─────┴──────┐  (leader 選舉：只一個在掃，避免重複)
+                                  │  Scheduler  │──▶ 產生 fire（到點觸發）
+                                  └─────┬──────┘
+                                        ▼  分派（依 shard）
+                        ┌────────────────────────────────┐
+                        │   多個 Worker 競爭 claim 同一 fire │
+                        │   鎖 + fencing token + 租約       │
+                        │   → 只有一個成功 → 執行           │
+                        └───────────┬─────────────────────┘
+              worker 當掉           ▼ 租約過期未完成
+              ─────────────▶  misfire / 接管：另一 worker 重新 claim（換更大 token）</code></pre>
+  <ol>
+    <li><strong>Scheduler（掃描 + 分派）</strong>：週期性查 <code>next_run ≤ now</code> 的 job，為每個到點 job 產生一個 fire；多台時用 <strong>leader 選舉</strong> 或 <strong>分片</strong> 避免重複掃描。</li>
+    <li><strong>Worker（認領 + 執行）</strong>：搶 claim 一個 fire，拿到 fencing token 後執行，完成寫 run；at-least-once + 去重。</li>
+    <li><strong>協調儲存</strong>：DB / etcd / ZooKeeper 提供原子的 claim、租約、leader 選舉。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>怎麼高效找出到點的 job？</h3>
+  <ul>
+    <li><strong>索引掃描（優先佇列）</strong>：對 <code>next_run</code> 建索引，每輪 <code>WHERE next_run ≤ now ORDER BY next_run LIMIT N</code>。簡單、好分片，億級 job 也可行。</li>
+    <li><strong>時間輪（Timing Wheel）</strong>：把任務掛到「未來時間槽」的環狀桶上，指針每 tick 前進一格只看當格 —— O(1) 觸發，Kafka / Netty 用此法。代價是長延遲任務要多層輪 + 重新入輪。</li>
+    <li>取捨：索引掃描好理解、好水平分片（面試首選說法）；時間輪在<em>超高頻、單機密集</em>觸發時更省。</li>
+  </ul>
+  <h3>防重複執行：claim / lock + fencing（本題核心）</h3>
+  <ul>
+    <li>每次到點是一個唯一 fire（<code>job_id + scheduled_at</code>）。多 worker 都想跑它，用<strong>原子的條件更新</strong>當鎖：<code>UPDATE fires SET claimed_by=:me WHERE fire_id=:f AND claimed_by IS NULL</code> —— 只有第一個影響到 1 列的 worker 算認領成功。</li>
+    <li><strong>fencing token</strong>：認領時發一個<em>單調遞增</em>的 token。worker 帶 token 去寫結果 / 呼叫下游；下游只接受「比上次更大的 token」。這擋掉「<strong>殭屍 worker</strong>」：它卡住（GC、網路）租約過期被接管後才醒來，拿著舊 token 想寫入會被拒。</li>
+    <li><strong>租約（lease）</strong>：認領附帶到期時間。worker 須在租約內完成或續租；逾期未完成 → 視為當掉，鎖自動釋放，別人可重新 claim（拿更大 token）。避免「認領者死了任務永遠卡住」。</li>
+    <li>結論：<strong>at-least-once 觸發 + fencing 去重</strong>，務實地逼近 exactly-once。</li>
+  </ul>
+  <h3>misfire 補跑策略</h3>
+  <ul>
+    <li><strong>fire-once</strong>：不管錯過幾次，補跑一次就好（如「寄日報」漏了補一次即可）。</li>
+    <li><strong>skip</strong>：直接跳過，等下一個正常週期（如「每分鐘清快取」，補跑無意義）。</li>
+    <li><strong>fire-all</strong>：每個錯過的週期都補跑（如「每小時結算」，每筆都不能少）。</li>
+    <li>實作：worker 復活 / 掃描時發現 <code>next_run</code> 已落後 now 多個週期，依策略決定產生幾個 fire，並把 <code>next_run</code> 推進到下一個未來時刻。</li>
+  </ul>
+  <h3>分片與 rebalance</h3>
+  <ul>
+    <li>job 依 <code>hash(job_id) % N</code> 分到 N 個 worker 群，各自只掃自己那片 → 掃描與執行負載分散，且天然降低 claim 競爭。</li>
+    <li>worker 增減時 rebalance（一致性雜湊 / 重新指派）；搬遷期短暫重複沒關係，靠 claim 去重兜底。</li>
+  </ul>
+  <h3>leader 選舉：避免重複掃描</h3>
+  <p>若每台 scheduler 都掃全表，會重複產生 fire（雖然 claim 會去重，但浪費）。用 <strong>leader 選舉</strong>（etcd lease / ZooKeeper ephemeral node / DB advisory lock）讓「同一片」只有一個在掃；leader 掛掉，租約過期後其他人補位。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td>海量 job 掃描</td><td>每秒掃 1 億筆找到點 job</td><td><code>next_run</code> 索引 + 分片 + 時間輪；只取 <code>LIMIT N</code></td></tr>
+    <tr><td>觸發時間尖峰</td><td>整點 / 02:00 大量 job 同時到點（thundering herd）</td><td>抖動（jitter）分散觸發、令牌桶限流、預先攤平 next_run</td></tr>
+    <tr><td>長任務佔用</td><td>某 worker 跑很久，租約過期被接管 → 重複跑</td><td>長任務拆小 / 主動續租（heartbeat lease）/ 任務冪等</td></tr>
+    <tr><td>claim 競爭熱點</td><td>同一批 fire 大量 worker 搶鎖</td><td>分片降低競爭 + 批次認領（一次 claim 一段）</td></tr>
+    <tr><td>執行歷史寫爆</td><td>每次觸發寫一筆 run</td><td>批次寫 / 時序庫 / 過期清理</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>精確觸發 vs 可靠觸發</strong>：要絕對準時很貴；務實是允許秒級延遲、保證最終一定觸發（不漏）。</li>
+    <li><strong>at-least-once + 冪等 &gt; exactly-once</strong>：別承諾 exactly-once。承諾「至少一次觸發 + 任務冪等 / fencing 去重」，這是分散式的標準答案。</li>
+    <li><strong>集中排程 vs 去中心</strong>：單一 leader 掃描簡單但有上限；分片 + 多 leader 可擴展但要處理 rebalance 與邊界重複。</li>
+    <li><strong>索引掃描 vs 時間輪</strong>：前者好分片好理解；後者超高頻省成本但長延遲任務複雜。</li>
+    <li><strong>常見追問</strong>：worker 在執行到一半當掉怎麼辦？→ 租約過期被接管 + fencing 擋殭屍 + 任務冪等。整點驚群怎麼解？→ jitter + 限流。怎麼保證不漏？→ misfire 策略 + 持久化 next_run。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>系統核心邏輯</strong>（也是分散式排程真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Scheduler.php</code>　排程定義（每 N tick 觸發 + nextRun）、tick 推進邏輯時鐘產生到點 fire、<strong>claim 防重複（fencing token + 租約到期）</strong>、misfire 策略（fire-once / skip / fire-all）、依雜湊分片指派 worker。</li>
+    <li><code>public/index.php</code>　路由（加 job / tick / worker 上下線 / claim / complete / state / reset）+ 互動測試頁。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8042 -t public
+# 瀏覽器開 http://localhost:8042
+# 加 job → tick 推進看哪些 job 觸發 → 多 worker 但每次觸發只被一個認領
+# → 把認領中的 worker 下線、tick 過租約，看 misfire 補跑與接管</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    因 PHP 無跨請求常駐計時器，Demo 用<strong>手動 tick 推進邏輯時鐘</strong>做確定性模擬「多 worker 常駐排程」。
+    其中<strong>到點觸發、防重複 claim（fencing token + 租約到期）、misfire 補跑、分片指派</strong>皆為<strong>真實可執行邏輯</strong>。
+    真實系統改為：worker 常駐進程依牆鐘自掃、協調狀態放共用儲存（DB / etcd / ZooKeeper）、心跳偵測當掉、leader 選舉避免重複掃描 —— 核心去重與補跑模型一致。
+  </div>
+
+  <footer>㊷ Distributed Scheduler / Cron · M 排程/工作流 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 908 558" width="908" height="558" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="908" height="558" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">YouTube 影片儲存/串流 — 高階架構（上傳/寫=藍 播放/分發=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="100" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">上傳端 (分塊)</tspan>
+</text>
+<rect x="250" y="100" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="330" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="330" dy="0">Upload Service</tspan>
+</text>
+<rect x="480" y="100" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="113" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">物件儲存</tspan>
+<tspan x="565" dy="20">(原片 S3類)</tspan>
+</text>
+<rect x="480" y="230" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="250" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">轉碼佇列 Queue</tspan>
+</text>
+<rect x="720" y="230" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="810" y="243" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="810" dy="0">轉碼 Worker</tspan>
+<tspan x="810" dy="20">(ffmpeg)</tspan>
+</text>
+<rect x="720" y="350" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="810" y="363" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="810" dy="0">切片/多碼率</tspan>
+<tspan x="810" dy="20">.ts + .m3u8</tspan>
+</text>
+<rect x="480" y="350" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="363" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">物件儲存</tspan>
+<tspan x="565" dy="20">(分段)</tspan>
+</text>
+<rect x="250" y="230" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="335" y="243" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="335" dy="0">中繼資料 DB</tspan>
+<tspan x="335" dy="20">(狀態/觀看數)</tspan>
+</text>
+<rect x="250" y="470" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="335" y="483" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="335" dy="0">CDN</tspan>
+<tspan x="335" dy="20">(邊緣快取)</tspan>
+</text>
+<rect x="40" y="470" width="150" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="115" y="483" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">播放端</tspan>
+<tspan x="115" dy="20">(自適應)</tspan>
+</text>
+<polyline points="192,132 246,132" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="412,132 476,132" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="330,166 330,226" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="422,262 476,262" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="652,262 716,262" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="810,296 810,346" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="718,382 654,382" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="480,290 390,350" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="480,382 335,482" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="246,502 192,502" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="250" y="178" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="250" dy="0">complete→入列</tspan>
+</text>
+<text x="555" y="320" font-size="12" fill="#e8590c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="555" dy="0">回源 miss (源站)</tspan>
+</text>
+</svg>

@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 6 873 502" width="873" height="502" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+</defs>
+<rect x="16" y="6" width="873" height="502" fill="#ffffff"/>
+<text x="40" y="30" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">Typeahead 自動完成 — 高階架構（查詢/讀=綠 建索引/寫=藍 基建=黃）</tspan>
+</text>
+<rect x="40" y="120" width="160" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="120" y="140" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">使用者輸入 (敲鍵)</tspan>
+</text>
+<rect x="280" y="120" width="170" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="365" y="140" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="365" dy="0">Suggest Service</tspan>
+</text>
+<rect x="540" y="60" width="190" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="635" y="80" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="635" dy="0">Trie 索引 (駐記憶體)</tspan>
+</text>
+<rect x="540" y="160" width="190" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="635" y="180" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="635" dy="0">前綴 Top-K 快取</tspan>
+</text>
+<rect x="280" y="300" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="365" y="320" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="365" dy="0">查詢日誌 (Kafka)</tspan>
+</text>
+<rect x="540" y="300" width="190" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="635" y="320" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="635" dy="0">聚合計頻</tspan>
+</text>
+<rect x="540" y="420" width="190" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="635" y="440" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="635" dy="0">離線重建 Trie</tspan>
+</text>
+<text x="205" y="95" font-size="13" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="205" dy="0">前綴查詢</tspan>
+</text>
+<text x="745" y="250" font-size="13" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="745" dy="0">載入最新索引</tspan>
+<tspan x="745" dy="16.25">(熱載入)</tspan>
+</text>
+<polyline points="202,152 276,152" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="452,144 538,102" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="452,160 538,190" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="365,186 365,298" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="452,332 538,332" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="635,364 635,418" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="738,452 798,452 798,92 678,92" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

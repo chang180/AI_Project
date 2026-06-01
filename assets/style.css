@@ -104,6 +104,10 @@ pre code { background: none; padding: 0; color: var(--text); }
   background: var(--bg-soft); border: 1px dashed var(--accent); border-radius: 8px;
   padding: 10px 16px; color: var(--accent);
 }
+.diagram-svg {
+  display: block; max-width: 100%; height: auto; margin: 1em 0;
+  background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+}
 
 /* ---- 進度條 ---- */
 .progress { background: var(--bg-soft); border-radius: 999px; height: 10px; overflow: hidden; border: 1px solid var(--border); }

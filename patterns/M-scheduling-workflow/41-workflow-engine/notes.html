@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊶ 工作流引擎 (Temporal/Airflow) · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅼 排程/工作流</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊶ 工作流引擎 (Temporal/Airflow)：把「長流程」變成可靠、可重試、可重放的程式</h1>
+  <p class="subtitle">
+    <span class="tag group">M 排程/工作流</span>
+    <span class="tag time">建議 52 分鐘</span>
+    <span class="tag">Design a Workflow Orchestration Engine</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把跨服務、跨小時/天、會失敗會重試的長流程，變成可靠且可觀測的有狀態執行</strong>」。
+    難點不在「依序呼叫幾個 API」，而在 <em>崩潰後如何續跑、失敗如何重試與補償、人工審批如何等待、重啟後狀態如何不丟</em>——這正是 Temporal / Airflow / Step Functions 存在的理由。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（為何需要工作流引擎）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>為什麼需要工作流引擎？</h3>
+  <p>想像一個訂單履約流程：預留庫存 → 風控人工審批 → 扣款 → 出貨 → 通知客戶。若用一個普通的服務「依序呼叫」來做，會遇到一連串難題：</p>
+  <ul>
+    <li><strong>長流程</strong>：審批可能等幾小時甚至幾天，程序不可能就這樣 hang 在那裡佔著執行緒。</li>
+    <li><strong>可靠（崩潰可續跑）</strong>：扣完款、機器在出貨前掛了——重啟後要從「出貨」續跑，而不是重頭把款再扣一次。</li>
+    <li><strong>可重試</strong>：出貨呼叫物流 API 偶發逾時，要能自動退避重試，不是一次失敗整單就死。</li>
+    <li><strong>可補償（saga）</strong>：出貨最終失敗，已經扣的款要退、已預留的庫存要釋放——要能反向回滾。</li>
+    <li><strong>可觀測</strong>：每一步現在在哪、重試幾次、卡在哪個審批，都要能查。</li>
+  </ul>
+  <p>工作流引擎把這些「<strong>橫切關注點</strong>」（重試、持久化、計時、補償、審批等待）從業務碼裡抽出來，由引擎統一保證。代表系統：</p>
+  <ul>
+    <li><strong>Temporal / Cadence</strong>：<em>durable execution</em>——你用一般程式碼寫流程，引擎用事件溯源把每一步的結果記下來，崩潰後「重放」歷史把程式狀態還原到中斷點繼續跑。</li>
+    <li><strong>Airflow</strong>：以 <em>DAG</em> 描述任務相依，排程器挑 ready 的任務丟給 worker，偏批次/資料管線。</li>
+    <li><strong>AWS Step Functions</strong>：以狀態機（JSON/ASL）定義流程，託管執行。</li>
+  </ul>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>用 <strong>DAG</strong> 定義工作流：多個 step、step 間有相依（deps）。</li>
+    <li><strong>排程執行</strong>：相依都完成的 step 才 ready；引擎挑 ready step 執行、推進整張圖。</li>
+    <li><strong>durable execution</strong>：每步結果持久化；崩潰可從中斷點續跑。</li>
+    <li><strong>重試 + 退避</strong>；step 最終失敗時依 <strong>saga</strong> 反向補償。</li>
+    <li><strong>人工審批 / 等待外部事件</strong>：執行到審批節點暫停，等外部 signal。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>持久性（durability）</strong>：狀態一旦記錄就不可丟，是引擎的生命線。</li>
+    <li><strong>exactly-once 效果</strong>：同一 step 不因重試/重放被執行兩次副作用。</li>
+    <li><strong>可水平擴展</strong>：能同時跑大量工作流實例、大量 step。</li>
+    <li><strong>確定性重放</strong>：重放歷史要得到一致結果（流程碼不可依賴非確定來源）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「流程定義是<strong>程式碼</strong>（Temporal，靈活、可分支迴圈）還是<strong>宣告式 DAG / 狀態機</strong>（Airflow / Step Functions，易可視化、易靜態分析）？」這決定了引擎如何保證持久性與確定性，也是整題分水嶺。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>並發工作流實例</td><td>100 萬個長流程同時「在飛」</td><td>多數時間在等待（審批/計時/外部）→ 不佔 CPU，只佔狀態</td></tr>
+    <tr><td>每流程 step 數</td><td>平均 20 個 step</td><td>2000 萬個 step 狀態需追蹤</td></tr>
+    <tr><td>狀態大小</td><td>每流程 event log ~5 KB</td><td>100 萬 × 5KB ≈ <strong>5 GB</strong> 活躍狀態（+ 歷史歸檔）</td></tr>
+    <tr><td>step 執行吞吐</td><td>每秒推進的 step</td><td>由 worker 數決定；引擎本身只做排程與記錄</td></tr>
+    <tr><td>等待時長</td><td>審批可達數天</td><td>關鍵：等待<strong>不能</strong>佔用執行緒/記憶體常駐 → 狀態落盤，事件到才喚醒</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>工作流的成本不在「算」而在「等與記」。100 萬個流程多半在等待外部事件，<strong>真正稀缺的是持久化狀態的容量與一致性，不是 CPU</strong>。所以引擎設計圍繞「<strong>狀態落盤 + 事件喚醒</strong>」，而非常駐執行緒。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 定義工作流（DAG：step + 相依 deps）
+POST /api/v1/workflows
+Body: { "name":"order_fulfillment",
+        "steps":[ {"id":"reserve","deps":[],"compensate":"release_stock"},
+                   {"id":"approve","type":"approval","deps":["reserve"]},
+                   {"id":"pay","deps":["approve"],"compensate":"refund"}, ... ] }
+
+# 啟動一個工作流實例
+POST /api/v1/workflows/{name}/start   →  { "run_id":"..." }
+
+# 對等待中的審批節點送 signal 放行（外部事件喚醒）
+POST /api/v1/runs/{run_id}/signal     Body: { "step":"approve", "decision":"approve" }
+
+# 查詢執行狀態（各 step 狀態、重試次數、event log）
+GET  /api/v1/runs/{run_id}            →  { "status":"RUNNING", "steps":[...], "events":[...] }
+
+# 取消 / 終止（觸發 saga 補償）
+POST /api/v1/runs/{run_id}/terminate
+</code></pre>
+  <div class="box"><span class="label">注意</span>真實 Temporal 的「推進」不是由 client 呼叫 tick，而是引擎內部由 task queue + worker 驅動；本筆記 demo 為了可觀察，把推進顯式化成 <code>POST /api/run</code>（步進 tick）。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>workflow_def（工作流定義 / DAG）
+  name, version
+  steps  JSON  -- [{id, type:task|approval, deps:[...], compensate:"..."}]
+
+workflow_run（實例）
+  run_id  PK, name, status(RUNNING|COMPLETED|FAILED), started_at
+
+event_log（事件溯源，append-only，每實例一條 log）
+  run_id, seq, type, step, payload(result/attempt/backoff/action), ts
+  -- type: WORKFLOW_DEFINED / STEP_COMPLETED / STEP_RETRY / STEP_FAILED
+  --       STEP_BLOCKED / STEP_APPROVED / STEP_COMPENSATED / WORKFLOW_FAILED
+
+-- 「目前狀態」不是一張可變表，而是 event_log 的 fold（重放推導）：
+--   state = reduce(applyEvent, events, initialState)
+</code></pre>
+  <div class="box"><span class="label">為何用 event log 而非可變狀態表</span>
+    把「狀態」存成一連串<strong>不可變事件</strong>（事件溯源），帶來三個關鍵能力：(1) <strong>崩潰可續跑</strong>——重啟後重放 log 即還原進度；(2) <strong>確定性重放</strong>——同樣的 log 永遠 fold 出同樣狀態；(3) <strong>完整稽核</strong>——每一步何時做、重試幾次都留痕。這就是 durable execution 的底層。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 工作流定義(DAG) ──▶ 排程器(挑 ready step) ──▶ Worker(執行 step)
+                          ▲                          │
+                          │                          ▼
+                    重放重建狀態 ◀──────────────  Event Log(事件溯源/durable)
+                    (已完成不重跑)
+                          │
+        審批節點 BLOCKED ─┘  ← 收到 signal 放行          失敗──▶ 重試(指數退避)
+                                                              │(超上限)
+                                                              ▼
+                                                  saga 反向補償(notify←ship←pay←…)</code></pre>
+  <ol>
+    <li><strong>排程器</strong>：由 event log 重放出目前狀態 → 找出 deps 全完成的 ready step → 派發執行。</li>
+    <li><strong>Worker</strong>：執行 step 的實際工作（呼叫 API / 算東西），結果回報。</li>
+    <li><strong>Event Log</strong>：每個 step 的開始/完成/失敗/重試/補償都 append 進去，是唯一真相來源（持久化）。</li>
+    <li><strong>重放</strong>：任何時刻「目前進度」都由重放 log 得到；崩潰重啟也靠它續跑、且已完成 step 不重跑。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>① DAG 排程與相依</h3>
+  <ul>
+    <li>工作流是有向<strong>無環</strong>圖：定義時要驗證 deps 都存在、且無環（Kahn 拓樸排序，環會導致永遠跑不完）。</li>
+    <li><strong>ready 判定</strong>：一個 step 的所有 deps 都 <code>DONE</code> 且自己還 <code>PENDING</code> → ready。引擎每一輪挑出<em>所有</em> ready step（可並行）推進。</li>
+    <li>無分支的鏈是 DAG 的特例；真正的價值在「fan-out / fan-in」——多個前置完成才解鎖後續（如 <code>reserve</code> 與 <code>charge_prep</code> 都完成才能 <code>approve</code>）。</li>
+  </ul>
+
+  <h3>② Durable Execution / 事件溯源重放</h3>
+  <ul>
+    <li><strong>狀態 = fold(events)</strong>：引擎不維護一份可變的「目前狀態」，而是隨時重放 event log 推導。</li>
+    <li><strong>重放不重跑</strong>：重放時遇到 <code>STEP_COMPLETED</code> 就<em>直接讀 log 裡記下的結果</em>，<strong>不重新執行該 step 的副作用</strong>。所以崩潰後重啟，已扣的款不會再扣一次。</li>
+    <li>這就是 Temporal 的招牌：你的流程碼看起來像普通函式呼叫，但每個「活動(activity)」結果都被記進歷史；重啟時引擎快速重放歷史把你的程式「快轉」回中斷點，再從那裡往下跑。</li>
+  </ul>
+  <div class="box tip"><span class="label">面試金句</span>「Durable execution = 事件溯源 + 確定性重放。已完成步驟的副作用只發生一次（記在 log），重放只是把控制流還原，不重做副作用。」</div>
+
+  <h3>③ 冪等與 exactly-once 效果</h3>
+  <ul>
+    <li>嚴格的「exactly-once 投遞」在分散式下不可能；引擎做的是 <strong>at-least-once 執行 + 冪等</strong> = <em>exactly-once 效果</em>。</li>
+    <li>機制：每個 step 配唯一 id；執行前先查 log「這個 step 是否已 <code>STEP_COMPLETED</code>」，是則跳過。配合下游冪等鍵（如付款用 idempotency-key），重試/重放都安全。</li>
+  </ul>
+
+  <h3>④ 重試 + 指數退避</h3>
+  <ul>
+    <li>step 失敗（暫時性錯誤如逾時）→ 記 <code>STEP_RETRY</code>（含 attempt 與 backoff），退避後重試。</li>
+    <li><strong>指數退避</strong>：100ms → 200ms → 400ms…（真實系統再加 jitter 抖動避免重試風暴）。</li>
+    <li>達 <strong>重試上限</strong>仍失敗 → 標記 <code>STEP_FAILED</code>，視為永久失敗，觸發補償。</li>
+  </ul>
+
+  <h3>⑤ Saga 補償</h3>
+  <ul>
+    <li>長流程跨多服務，無法用單一 DB 交易回滾。saga 模式：每個會產生副作用的 step 配一個<strong>補償動作</strong>（pay→退款、reserve→釋放庫存）。</li>
+    <li>某 step 最終失敗 → 對<strong>已完成</strong>的 step 依 <strong>反向順序</strong>執行補償（後完成的先補償）。例：<code>notify ← ship ← pay ← approve ← reserve</code>。</li>
+    <li>補償動作本身也要冪等、也要記進 log（補償也可能失敗重試）。</li>
+  </ul>
+
+  <h3>⑥ 人工審批 / 等待外部事件</h3>
+  <ul>
+    <li>審批節點執行到 → 進入 <code>BLOCKED</code>，<strong>狀態落盤後就釋放資源</strong>，不佔執行緒等待（這是長流程能擴展的關鍵）。</li>
+    <li>外部送 <strong>signal</strong>（人按了核准 / 計時器到期 / webhook）→ 寫 <code>STEP_APPROVED</code> + <code>STEP_COMPLETED</code>，引擎在下一輪喚醒、繼續推進。</li>
+    <li>同樣機制可實現「等計時器」「等子工作流」「等外部回呼」。</li>
+  </ul>
+
+  <h3>⑦ 確定性要求</h3>
+  <ul>
+    <li>因為要「重放歷史還原狀態」，<strong>流程碼必須是確定性的</strong>：不可直接讀系統時鐘、亂數、外部 API（這些每次重放會不一樣，導致歷史對不上）。</li>
+    <li>做法：所有非確定來源都走「activity / step」——它的結果記進 log，重放時拿 log 的值而非重新求值。Temporal 對此有嚴格的「workflow code 不可有副作用」約束。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>問題</th><th>對策</th></tr>
+    <tr><td>大量並發工作流</td><td>百萬實例同時在飛</td><td>實例依 run_id 分片(sharding)到多個歷史服務節點；無狀態排程器水平擴展</td></tr>
+    <tr><td>長時間等待的狀態保存</td><td>審批等數天，不能常駐記憶體</td><td>狀態落盤、釋放資源；用計時器服務 / 事件索引，到期或 signal 才喚醒重載</td></tr>
+    <tr><td>worker 擴展</td><td>step 執行吞吐不足</td><td>worker 與引擎解耦，透過 task queue 拉取；按佇列加 worker；長/短任務分流</td></tr>
+    <tr><td>event log 變長</td><td>長壽流程歷史龐大、重放變慢</td><td>continue-as-new（截斷歷史另起新 run）/ 週期性快照(snapshot) 縮短重放</td></tr>
+    <tr><td>歷史服務寫入熱點</td><td>append log 的寫壓力</td><td>依 run_id 分片；批次/順序寫；冷歷史歸檔到物件儲存</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>編排(orchestration) vs 編舞(choreography)</strong>：本題是編排——有個<em>中央引擎</em>掌握全流程、好觀測與補償，但引擎是焦點與單點考量；編舞則靠服務間發事件彼此觸發，去中心、鬆耦合，但流程「散」在各處、難追蹤難補償。長交易/需補償的流程多選編排。</li>
+    <li><strong>同步 vs 非同步</strong>：同步呼叫鏈簡單但會被最慢一環卡死、不耐久等；工作流引擎本質是<em>非同步、有狀態</em>，用持久化換到「可等很久、可崩潰續跑」。</li>
+    <li><strong>狀態機 vs 程式碼定義流程</strong>：宣告式 DAG / 狀態機（Airflow、Step Functions）易可視化、易靜態檢查、好限制確定性；程式碼定義（Temporal）表達力強（任意分支、迴圈、區域變數），但要靠執行期約束保證確定性與可重放。</li>
+    <li><strong>常見追問</strong>：
+      <ul>
+        <li>重放為什麼不會重複扣款？→ 已完成 step 從 log 拿結果，不重跑副作用。</li>
+        <li>審批等三天，引擎掛了怎麼辦？→ 狀態在 log，重啟重放即還原 BLOCKED；signal 一到照常喚醒。</li>
+        <li>補償也失敗怎麼辦？→ 補償亦記 log、可重試；最終可進「人工介入」死信狀態。</li>
+        <li>怎麼保證流程碼確定性？→ 禁止流程碼直接讀時鐘/亂數/外部，一律走 activity 記結果。</li>
+      </ul>
+    </li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>工作流引擎的核心邏輯</strong>（也是面試真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/WorkflowEngine.php</code>　核心引擎：DAG 定義與驗證（無環）、tick 挑 ready step 推進、<strong>replay 事件溯源重建狀態（不重跑）</strong>、重試指數退避、<strong>saga 反向補償</strong>、審批 signal 放行。</li>
+    <li><code>public/index.php</code>　路由（<code>/api/workflow</code>、<code>/api/run</code>、<code>/api/signal</code>、<code>/api/fail</code>、<code>/api/state</code>、<code>/api/reset</code>）+ 步進測試頁（DAG 狀態表 + event log）。</li>
+    <li>內建範例 DAG：訂單履約（reserve, charge_prep → approve(審批) → pay → ship → notify）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8041 -t public
+# 瀏覽器開 http://localhost:8041：載入範例 DAG → tick 步進看 ready 推進 →
+# 注入 ship 失敗看重試→saga 反向補償 → 對 approve 送 signal 放行 → 看 replayedNoRerun</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 是<strong>單機引擎 + 手動步進(tick)</strong>，沒有分散式叢集、多 worker、task queue、計時器服務或可水平擴展的歷史服務。但 <strong>DAG 排程與相依、durable execution / 事件溯源重放（崩潰可續跑、重放不重跑 → exactly-once 效果）、重試指數退避、saga 反向補償、人工審批等待外部 signal、確定性結果</strong>等系統邏輯<strong>皆為真實可執行</strong>。所有狀態落在 <code>data/</code> 下的 event log，寫入用 <code>flock</code> 保護，支援多請求併發。
+  </div>
+
+  <footer>㊶ Workflow Orchestration Engine · M 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

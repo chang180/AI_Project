@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 938 498" width="938" height="498" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+</defs>
+<rect x="16" y="0" width="938" height="498" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">附近地點 — 高階架構（讀/查=綠 寫/索引=藍 基建=黃）</tspan>
+</text>
+<rect x="40" y="120" width="150" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="115" y="140" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">使用者 (查附近)</tspan>
+</text>
+<rect x="250" y="120" width="160" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="330" y="140" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="330" dy="0">查詢服務 (無狀態)</tspan>
+</text>
+<rect x="250" y="250" width="160" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="330" y="263" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="330" dy="0">快取</tspan>
+<tspan x="330" dy="18.75">(熱門查詢結果)</tspan>
+</text>
+<rect x="480" y="120" width="200" height="80" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="580" y="133" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="580" dy="0">空間索引</tspan>
+<tspan x="580" dy="18.75">geohash 分桶</tspan>
+<tspan x="580" dy="18.75">(中心格 + 8 鄰格)</tspan>
+</text>
+<rect x="760" y="120" width="170" height="80" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="845" y="133" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="845" dy="0">地點 DB</tspan>
+<tspan x="845" dy="18.75">(主 + 讀副本)</tspan>
+<tspan x="845" dy="18.75">讀多寫少</tspan>
+</text>
+<rect x="480" y="260" width="200" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="580" y="273" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="580" dy="0">haversine 精算</tspan>
+<tspan x="580" dy="18.75">過濾 + 排序 + 分頁</tspan>
+</text>
+<rect x="40" y="410" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="423" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">商家 (新增/更新</tspan>
+<tspan x="120" dy="18.75">地點, 低頻寫)</tspan>
+</text>
+<rect x="260" y="410" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="350" y="423" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="350" dy="0">地點寫入服務</tspan>
+<tspan x="350" dy="18.75">(算 geohash)</tspan>
+</text>
+<rect x="500" y="410" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="590" y="423" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="590" dy="0">索引更新</tspan>
+<tspan x="590" dy="18.75">(桶歸屬+失效快取)</tspan>
+</text>
+<polyline points="192,152 248,152" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="330,186 330,248" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="412,152 478,152" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="580,202 580,258" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="682,160 758,160" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="200,442 258,442" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="440,442 498,442" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="590,410 590,204" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="760,440 846,204" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

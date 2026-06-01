@@ -122,7 +122,8 @@ simulcast 層定義
   <div class="box"><span class="label">為何要轉發表</span>SFU 的本質就是這張表：N 人房裡，<strong>每個 publisher 的上行流，要為每個 subscriber 各拉一條下行</strong>，且每條下行可挑不同 simulcast 層（看訂閱者頻寬）。表的規模是 N×(N−1)，但每個 client 仍只上行一條。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 信令面（藍，量小、僅建連時突發）
    Peer ──WebSocket──▶ 信令伺服器 ──中繼 SDP/ICE──▶ 對端 Peer
                           │（協助協商，但不碰媒體）

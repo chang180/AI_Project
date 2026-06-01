@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 808 354" width="808" height="354" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="808" height="354" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">指標監控系統 Prometheus — 高階架構（scrape=藍 查詢=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="90" width="150" height="50" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="104" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Target /metrics</tspan>
+</text>
+<rect x="40" y="160" width="150" height="50" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="174" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Target /metrics</tspan>
+</text>
+<rect x="40" y="230" width="150" height="50" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="244" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Target /metrics</tspan>
+</text>
+<rect x="250" y="90" width="170" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="335" y="104" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="335" dy="0">Service Discovery</tspan>
+</text>
+<rect x="250" y="180" width="290" height="150" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="392" y="190" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="392" dy="0">Prometheus Server（定時 scrape）</tspan>
+</text>
+<rect x="275" y="225" width="240" height="44" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="395" y="238" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="395" dy="0">本地 TSDB（series 表）</tspan>
+</text>
+<rect x="275" y="278" width="240" height="42" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="395" y="290" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="395" dy="0">PromQL 查詢（rate / sum）</tspan>
+</text>
+<rect x="620" y="240" width="180" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="710" y="258" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="710" dy="0">Alertmanager（firing）</tspan>
+</text>
+<rect x="620" y="110" width="180" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="710" y="128" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="710" dy="0">Grafana 視覺化</tspan>
+</text>
+<polyline points="192,115 246,205" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,185 246,215" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,255 246,225" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="335,142 335,178" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="517,299 617,274" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="618,150 542,210" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="196" y="60" font-size="13" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="196" dy="0">pull scrape</tspan>
+</text>
+</svg>

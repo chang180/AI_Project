@@ -117,7 +117,8 @@ consumer group offset 表（消費進度，與訊息分離儲存）
   </div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code>                    ┌──────────── Broker（topic = orders, 3 分區）────────────┐
  Producer ──hash(key)│  P0: [o0][o1][o2]...                                    │
    produce ─────────▶│  P1: [o0][o1][o2][o3]...   ← 同 key 永遠落同分區          │

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 6 818 542" width="818" height="542" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="6" width="818" height="542" fill="#ffffff"/>
+<text x="40" y="30" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">遊戲排行榜 Leaderboard — 高階架構（更新分數=藍 查榜=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="150" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="170" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">遊戲服務</tspan>
+</text>
+<rect x="360" y="140" width="200" height="84" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="460" y="160" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="460" dy="0">Redis ZSET</tspan>
+<tspan x="460" dy="20">(skiplist O(log N))</tspan>
+</text>
+<rect x="640" y="60" width="170" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="725" y="73" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="725" dy="0">lb:daily 日榜 key</tspan>
+</text>
+<rect x="640" y="125" width="170" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="725" y="138" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="725" dy="0">lb:weekly 週榜 key</tspan>
+</text>
+<rect x="640" y="190" width="170" height="50" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="725" y="203" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="725" dy="0">lb:all 總榜 key</tspan>
+</text>
+<rect x="360" y="330" width="200" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="460" y="350" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="460" dy="0">查 Top-K / 我的名次±鄰居</tspan>
+</text>
+<rect x="40" y="330" width="160" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="120" y="350" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">玩家 (查榜)</tspan>
+</text>
+<rect x="40" y="460" width="200" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="140" y="480" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="140" dy="0">明細 DB (歷史·防作弊·可重算)</tspan>
+</text>
+<polyline points="202,182 358,182" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="218" y="152" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="218" dy="0">zadd 更新分數</tspan>
+</text>
+<polyline points="562,170 638,85" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="562,182 638,150" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="562,196 638,215" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="460,328 460,228" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="470" y="262" font-size="14" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="470" dy="0">ZREVRANGE / ZREVRANK</tspan>
+</text>
+<polyline points="358,362 202,362" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="120,214 120,458" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="128" y="410" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="128" dy="0">每局明細落 DB</tspan>
+</text>
+</svg>

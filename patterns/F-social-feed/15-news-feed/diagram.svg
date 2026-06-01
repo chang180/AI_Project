@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 928 468" width="928" height="468" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="928" height="468" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">News Feed Fan-out — 推/拉/Hybrid（寫=藍 讀=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="100" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">作者發文 (寫)</tspan>
+</text>
+<rect x="260" y="100" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="340" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="340" dy="0">Post Service</tspan>
+</text>
+<rect x="480" y="30" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="50" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">貼文庫 posts</tspan>
+</text>
+<rect x="480" y="130" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="142" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">Fan-out Worker</tspan>
+<tspan x="565" dy="17.5">判定名人?</tspan>
+</text>
+<rect x="480" y="230" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="250" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">社交圖 follows</tspan>
+</text>
+<rect x="740" y="130" width="180" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="830" y="142" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="830" dy="0">Feed 快取</tspan>
+<tspan x="830" dy="17.5">(每使用者預算 feed)</tspan>
+</text>
+<rect x="40" y="380" width="160" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="120" y="400" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">使用者讀 feed</tspan>
+</text>
+<rect x="260" y="380" width="160" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="340" y="400" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="340" dy="0">Feed Service</tspan>
+</text>
+<rect x="480" y="380" width="170" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="565" y="392" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">合併排序</tspan>
+<tspan x="565" dy="17.5">(推來的 + 拉名人)</tspan>
+</text>
+<polyline points="202,132 258,132" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="422,120 478,68" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="422,145 478,162" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="652,162 738,162" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="695" y="168" font-size="12" fill="#1971c2" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="695" dy="0">一般:推</tspan>
+</text>
+<polyline points="202,412 258,412" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="422,412 478,412" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="740,320 650,360 580,380" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="645" y="330" font-size="12" fill="#2f9e44" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="645" dy="0">讀:取推來的</tspan>
+</text>
+<polyline points="565,380 565,294" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="625" y="330" font-size="12" fill="#2f9e44" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="625" dy="0">讀:即時拉名人</tspan>
+</text>
+<polyline points="565,294 565,230" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

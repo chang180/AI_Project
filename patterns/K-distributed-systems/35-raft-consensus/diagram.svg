@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 808 594" width="808" height="594" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+</defs>
+<rect x="16" y="0" width="808" height="594" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">Raft 共識 — 選舉→複製→提交（主流程=藍 回應=綠 基建=黃）</tspan>
+</text>
+<text x="40" y="72" font-size="16" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">① Leader Election（選舉逾時 → 投票限制 → 多數）</tspan>
+</text>
+<rect x="40" y="110" width="170" height="70" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="125" y="124" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="125" dy="0">Candidate n1</tspan>
+<tspan x="125" dy="17.5">term++ 投自己</tspan>
+<tspan x="125" dy="17.5">發 RequestVote</tspan>
+</text>
+<rect x="320" y="90" width="170" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="405" y="102" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="405" dy="0">Follower n2</tspan>
+<tspan x="405" dy="17.5">比 log 夠新 → 投票</tspan>
+</text>
+<rect x="320" y="170" width="170" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="405" y="182" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="405" dy="0">Follower n3</tspan>
+<tspan x="405" dy="17.5">比 log 夠新 → 投票</tspan>
+</text>
+<rect x="600" y="110" width="180" height="70" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="690" y="124" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="690" dy="0">得多數票 → LEADER</tspan>
+<tspan x="690" dy="17.5">發心跳壓制</tspan>
+<tspan x="690" dy="17.5">(term 升至 T)</tspan>
+</text>
+<polyline points="212,135 316,120" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="212,155 316,200" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="222" y="92" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="222" dy="0">RequestVote</tspan>
+</text>
+<polyline points="492,120 596,132" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="492,200 596,160" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="500" y="196" font-size="12" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="500" dy="0">投票 (grant)</tspan>
+</text>
+<text x="40" y="268" font-size="16" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">② Log Replication（AppendEntries 一致性檢查 → 多數 commit → apply）</tspan>
+</text>
+<rect x="40" y="310" width="150" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="322" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client</tspan>
+<tspan x="115" dy="17.5">command x=1</tspan>
+</text>
+<rect x="280" y="300" width="200" height="80" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="380" y="312" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="380" dy="0">LEADER</tspan>
+<tspan x="380" dy="17.5">append log[idx]={term,cmd}</tspan>
+<tspan x="380" dy="17.5">發 AppendEntries</tspan>
+<tspan x="380" dy="17.5">(prevLogIndex/Term)</tspan>
+</text>
+<rect x="580" y="290" width="200" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="680" y="300" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="680" dy="0">Follower n2</tspan>
+<tspan x="680" dy="17.5">一致性符 → 截斷+append</tspan>
+</text>
+<rect x="580" y="360" width="200" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="680" y="370" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="680" dy="0">Follower n3</tspan>
+<tspan x="680" dy="17.5">一致性符 → 截斷+append</tspan>
+</text>
+<polyline points="192,340 278,340" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="482,330 578,318" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="482,350 578,388" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="486" y="296" font-size="12" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="486" dy="0">AppendEntries</tspan>
+</text>
+<polyline points="580,312 482,330" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="580,388 482,350" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="500" y="416" font-size="12" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="500" dy="0">ack → matchIndex 推進</tspan>
+</text>
+<rect x="280" y="450" width="200" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="380" y="460" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="380" dy="0">Commit 規則</tspan>
+<tspan x="380" dy="17.5">多數副本 + 當前 term</tspan>
+<tspan x="380" dy="17.5">→ commitIndex 前進</tspan>
+</text>
+<rect x="560" y="450" width="220" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="670" y="460" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="670" dy="0">複製狀態機 (RSM)</tspan>
+<tspan x="670" dy="17.5">apply 相同有序 log</tspan>
+<tspan x="670" dy="17.5">→ 各節點 KV 一致</tspan>
+</text>
+<polyline points="380,380 380,448" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="482,480 558,480" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="40" y="530" font-size="13" fill="#868e96" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">故障/分區：kill leader → tick 幾次 → 存活多數重新選舉 → 新 leader（term 更高）接續；已 commit 的 log 因「選舉限制」保證不丟（leader completeness）。</tspan>
+</text>
+</svg>

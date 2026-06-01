@@ -118,7 +118,8 @@ offline_queue
   <div class="box"><span class="label">為何分開</span><code>connections</code> 是高頻變動的暫態資料（放 Redis）；<code>messages</code> 是永久歷史（分片落地）。把「連線狀態」與「訊息持久化」分離，是這題的核心切分。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> Client A ──WS──▶ WS Gateway1 ──▶ 訊息服務 ──▶ 訊息庫(持久化, 配 seq)
                                       │
                                       ├─▶ 連線註冊表(Redis): B 連在哪台?

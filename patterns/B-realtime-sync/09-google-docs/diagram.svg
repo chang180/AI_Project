@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 928 558" width="928" height="558" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="928" height="558" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">Google Docs 協作編輯器 — 高階架構（編輯/寫=藍 廣播=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="110" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">Client A (編輯)</tspan>
+<tspan x="120" dy="18.75">本地樂觀更新</tspan>
+</text>
+<rect x="40" y="320" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="332" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">Client B (編輯)</tspan>
+<tspan x="120" dy="18.75">本地樂觀更新</tspan>
+</text>
+<rect x="260" y="215" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="335" y="227" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="335" dy="0">WS 連線層</tspan>
+<tspan x="335" dy="18.75">(Gateway)</tspan>
+</text>
+<rect x="470" y="205" width="190" height="84" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="217" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">協作伺服器</tspan>
+<tspan x="565" dy="18.75">(單文件權威)</tspan>
+<tspan x="565" dy="18.75">操作排序 + OT transform</tspan>
+</text>
+<rect x="470" y="360" width="190" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="372" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">操作日誌</tspan>
+<tspan x="565" dy="18.75">(append-only)</tspan>
+</text>
+<rect x="730" y="360" width="190" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="825" y="372" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="825" dy="0">文件快照儲存</tspan>
+<tspan x="825" dy="18.75">版本歷史</tspan>
+</text>
+<rect x="730" y="130" width="190" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="825" y="142" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="825" dy="0">廣播 → Client A</tspan>
+<tspan x="825" dy="18.75">(transform 後 + 版本號)</tspan>
+</text>
+<rect x="730" y="215" width="190" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="825" y="227" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="825" dy="0">廣播 → Client B</tspan>
+<tspan x="825" dy="18.75">(transform 後 + 版本號)</tspan>
+</text>
+<rect x="40" y="470" width="200" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="140" y="482" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="140" dy="0">presence</tspan>
+<tspan x="140" dy="18.75">(游標 / 選取)</tspan>
+</text>
+<rect x="300" y="470" width="200" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="400" y="482" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="400" dy="0">Pub-Sub (Redis)</tspan>
+<tspan x="400" dy="18.75">廣播 presence</tspan>
+</text>
+<polyline points="202,150 258,235" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="202,350 258,260" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="412,247 468,247" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="565,291 565,358" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="662,392 728,392" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="662,225 728,172" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="662,250 728,250" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="242,502 298,502" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

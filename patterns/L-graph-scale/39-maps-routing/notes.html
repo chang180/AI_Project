@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊴ 地圖路徑規劃 Google Maps · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅻 圖/大規模演算法</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊴ 地圖路徑規劃 (Google Maps)：毫秒級回應的全球最短路</h1>
+  <p class="subtitle">
+    <span class="tag group">L 圖/演算法</span>
+    <span class="tag time">建議 50 分鐘</span>
+    <span class="tag">Design Maps &amp; Route Planning</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把道路網建成加權圖 → 在圖上求最短/最快路徑 → 預處理讓查詢達毫秒級</strong>」。
+    天真的 Dijkstra 在一張大陸級的圖上要掃描上千萬節點、慢到無法上線；面試真正考的是
+    <em>A* 用啟發式剪枝</em> 與 <em>Contraction Hierarchies 預處理捷徑</em> 如何把查詢從秒級壓到毫秒級，
+    以及 <em>即時路況</em> 如何持續改寫邊權、重算 ETA。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>給定<strong>起點與終點</strong>，回傳一條路徑（座標序列）。</li>
+    <li>支援兩種目標：<strong>最短距離</strong>（公尺）與<strong>最快時間</strong>（ETA，受限速與路況影響）。</li>
+    <li><strong>即時路況</strong>：壅塞/事故會即時改寫路段通行時間 → 重算 ETA、必要時改道。</li>
+    <li><strong>多模式</strong>：開車 / 步行 / 大眾運輸 / 騎乘（每種模式一張子圖或不同邊權集合）。</li>
+    <li>回傳 <strong>ETA</strong> 與轉彎指示；地圖顯示需要<strong>瓦片（map tiles）</strong>。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：路徑查詢 p99 &lt; 100ms（含跨大陸長程）。</li>
+    <li><strong>讀遠多於寫</strong>：查路徑極多、底圖更新少（道路幾週才變一次）；路況則高頻更新。</li>
+    <li><strong>高可用</strong>：導航是即時關鍵路徑。</li>
+    <li><strong>正確性</strong>：路徑須是真正的最短/最快（或可控的近似）。</li>
+    <li><strong>可擴展</strong>：全球數十億節點、百萬級查詢 QPS。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「要最短<em>距離</em>還是最快<em>時間</em>？要不要吃<em>即時路況</em>？」<br>
+    純距離 = 靜態邊權，可全力預處理；最快時間 + 即時路況 = 邊權會變，預處理結構必須能容忍部分動態更新（這是難點）。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>圖規模</td><td>全球道路網</td><td>節點 ~數億個路口、邊 ~10 億+ 路段</td></tr>
+    <tr><td>查詢量（讀）</td><td>10 億次/日</td><td>~11.5k QPS（峰值 ×3 ≈ 35k）</td></tr>
+    <tr><td>單次天真 Dijkstra</td><td>掃描成本與節點數成正比</td><td>大陸級可達 <strong>千萬節點/查詢</strong> → 秒級，不可接受</td></tr>
+    <tr><td>CH 預處理後</td><td>沿捷徑只展開數百~數千節點</td><td><strong>&lt; 1ms ~ 數 ms</strong>，可上線</td></tr>
+    <tr><td>預處理成本</td><td>一次性離線</td><td>大陸級數十分鐘~數小時，產出捷徑索引</td></tr>
+    <tr><td>路況更新（寫）</td><td>路段級壅塞係數</td><td>數百萬路段、秒~分鐘級刷新 → 需可增量重算</td></tr>
+    <tr><td>瓦片</td><td>z0~z20 金字塔</td><td>海量靜態圖片 → 全部丟 CDN</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    查詢量大且要毫秒回應 → 不能每次都全圖搜尋。整題圍繞「<strong>離線預處理換線上查詢速度</strong>」與「<strong>啟發式剪枝</strong>」。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 路徑查詢（讀，超高頻）
+GET /api/v1/route?from=25.04,121.53&amp;to=25.06,121.57&amp;mode=drive&amp;metric=time
+→ 200 {
+    "path": [[25.04,121.53], ...],          # 座標序列
+    "eta_seconds": 842, "distance_m": 7310,
+    "steps": [{ "instruction": "左轉中山路", "dist_m": 320 }, ...]
+  }
+
+# 道路圖更新（寫，低頻，觸發重建/增量預處理）
+POST /api/v1/graph        Body: { "nodes":[...], "edges":[...] }
+
+# 即時路況（寫，高頻，改邊權 → 影響 ETA）
+POST /api/v1/traffic      Body: { "segments":[{ "a":1,"b":2,"speed_kmh":12 }] }
+
+# 地圖瓦片（讀，海量，走 CDN）
+GET /tiles/{z}/{x}/{y}.png
+
+# 偵錯/教學：比較演算法探索節點數
+GET /api/v1/route/compare?from=&amp;to=&amp;metric=
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>nodes（路口）
+  id        BIGINT PRIMARY KEY
+  lat, lng  DOUBLE                       -- 用於啟發式（直線距離）與顯示
+
+edges（路段，有向；雙向路存兩筆）
+  from_id, to_id   BIGINT
+  distance_m       DOUBLE                -- 固定（由座標算）
+  base_time_s      DOUBLE               -- 自由流時間 = distance / 限速
+  road_class       SMALLINT              -- 高速/大道/巷弄（多模式用）
+
+traffic（即時路況，與 edges 解耦的高頻寫）
+  edge_key   (from_id,to_id)
+  congestion DOUBLE                      -- 壅塞係數，live_time = base_time × congestion
+
+ch_shortcuts（CH 預處理產物）
+  u, v, weight, via                      -- 跳過中間節點的捷徑邊
+  node_order INT                         -- 收縮順序 / 階層等級
+
+tiles（底圖瓦片金字塔，物件儲存 + CDN）
+  z/x/y → png/vector</code></pre>
+  <div class="box"><span class="label">為何分開</span>
+    <code>distance_m</code> 永不變、<code>base_time_s</code> 幾乎不變、<code>congestion</code> 每分鐘變。
+    把「會變的路況」與「不變的拓樸」分層，才能讓昂貴的預處理只在拓樸變動時重做，路況更新只乘一個係數。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 地圖資料(OSM/供應商) ──▶ 圖建構 ──▶ 預處理(CH) ──▶ 捷徑索引
+                                                      │
+ 查詢(from,to,metric) ─▶ 路由服務 ─(Dijkstra / A*)──▶ 路徑 + ETA ─▶ 回應
+                              ▲
+ 即時路況串流 ──▶ 邊權更新 ────┘（live_time = base × congestion）
+
+ 顯示底圖 ─▶ 瓦片服務 ─▶ CDN（z/x/y 靜態圖片，與路由解耦）</code></pre>
+  <ol>
+    <li><strong>圖建構</strong>：把原始地圖資料正規化成節點/邊加權圖（距離、限速、路別）。</li>
+    <li><strong>預處理（CH）</strong>：離線收縮節點、產生捷徑，讓線上查詢只走少數階層。</li>
+    <li><strong>路由服務</strong>：無狀態、可水平擴展；收查詢 → 跑 A*/CH 雙向搜尋 → 回路徑與 ETA。</li>
+    <li><strong>路況串流</strong>：持續把壅塞係數推進邊權，ETA 隨之變化（不需重做整套 CH，只調權重或用可動態化的 CRP）。</li>
+    <li><strong>瓦片服務</strong>：底圖是靜態金字塔，全進 CDN，與路由計算完全分離。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>Dijkstra vs A*：差在「先展開誰」</h3>
+  <ul>
+    <li><strong>Dijkstra</strong>：依「已走成本 <code>g</code>」由小到大展開 → 像水波<strong>四面八方均勻擴張</strong>，與終點方向無關，展開節點多。</li>
+    <li><strong>A*</strong>：依 <code>f = g + h</code> 展開，<code>h</code> 是「到終點的樂觀估計」（啟發式）→ <strong>朝終點方向擴張</strong>，展開節點少。</li>
+    <li>兩者找到的路徑與成本<strong>相同（皆最優）</strong>，差別只在「探索/定案的節點數」—— 這正是 demo 直接量給你看的數字。</li>
+  </ul>
+  <h3>啟發式的「可採納性」（admissibility）</h3>
+  <ul>
+    <li><strong>可採納</strong> = <code>h</code> 永不<em>高估</em>真實剩餘成本 → A* 保證最優。</li>
+    <li>距離度量：用<strong>直線（haversine/歐式）距離</strong>當 <code>h</code>，直線必不長於沿路走的距離 → 天然可採納。</li>
+    <li>時間度量：把直線距離除以<strong>地圖最高限速</strong>得「最樂觀通行秒數」當 <code>h</code> → 不高估、可採納。</li>
+    <li>若 <code>h</code> 高估（不可採納），A* 變快但可能回傳<strong>非最優</strong>路徑（這是某些「導航夠好就好」的刻意取捨）。</li>
+  </ul>
+  <h3>Contraction Hierarchies（CH）：預處理捷徑達毫秒級</h3>
+  <ul>
+    <li><strong>離線</strong>：依某種順序逐一「收縮」節點；移除一個節點時，若它是兩鄰居間最短路的必經點，就加一條直接連兩鄰居的<strong>捷徑邊（shortcut）</strong>，把它「跳過」。</li>
+    <li><strong>線上</strong>：查詢時做<strong>雙向搜尋</strong>，且<strong>只往階層更高的節點走</strong>。因為有捷徑，一條跨城市的路只需展開數百~數千節點，而非數百萬 → <strong>毫秒級</strong>。</li>
+    <li>代價：一次性預處理（大陸級數十分鐘~數小時）＋ 額外捷徑儲存；<strong>邊權若大幅改變需重做</strong>。</li>
+    <li>應對動態路況的進階版：<strong>CRP（Customizable Route Planning）</strong> 把預處理切成「拓樸層（慢、少做）」與「權重客製層（快、可隨路況重跑）」，兼顧速度與即時性。</li>
+  </ul>
+  <h3>即時路況更新邊權 → ETA</h3>
+  <p>每條路段維護 <code>live_time = base_time × congestion</code>。路況串流把壅塞係數推進來，最快路徑的搜尋就會自動避開塞車段、改道，
+  ETA 也跟著上升或下降。<strong>距離度量不受路況影響</strong>（距離是幾何固定值），只有時間度量會變 —— demo 兩種都可切換對照。</p>
+  <h3>地圖分塊 / 瓦片（slippy map）</h3>
+  <p>底圖用 Web Mercator 把世界切成 <code>z/x/y</code> 金字塔瓦片，縮放越深瓦片越多。瓦片是<strong>靜態、可永久快取</strong>，全部丟 CDN，
+  與路由計算完全解耦。demo 的 <code>GET /api/tile?z=&amp;x=&amp;y=</code> 用標準瓦片公式把瓦片座標換回經緯邊界，回傳落在框內的節點/邊（簡化版）。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>單張大圖</td><td>全球圖記憶體裝不下、單次搜尋太久</td><td>地理<strong>分區/分層</strong>（partition）；CH/CRP 預處理；只在分區邊界做跨區拼接</td></tr>
+    <tr><td>查詢延遲</td><td>長程 Dijkstra 掃太多節點</td><td>A* 啟發式剪枝 + CH 捷徑雙向搜尋 → 毫秒級</td></tr>
+    <tr><td>查詢 QPS</td><td>路由服務 CPU</td><td>無狀態服務水平擴展 + 結果快取（熱門 OD 對）</td></tr>
+    <tr><td>預處理成本</td><td>拓樸更新就要重算</td><td>道路變動低頻、離線批次；用 CRP 分層只重跑客製層</td></tr>
+    <tr><td>即時路況</td><td>邊權高頻變動、CH 不易增量</td><td>權重與拓樸分離（CRP）；或在小範圍做即時 A*，遠程仍用預處理</td></tr>
+    <tr><td>底圖流量</td><td>海量瓦片請求</td><td>靜態瓦片全進 CDN，與路由完全分離</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>預處理 vs 查詢時間</strong>：CH 用昂貴的離線預處理換毫秒級線上查詢；純 Dijkstra/A* 無預處理但長程慢。查詢量越大越該預處理。</li>
+    <li><strong>最短 vs 最快 vs 即時</strong>：距離是靜態、可全力預處理；最快時間吃即時路況、邊權會變，預處理結構要能容忍動態（CRP）。</li>
+    <li><strong>精確 vs 啟發（近似）</strong>：可採納啟發式保證最優但剪枝有限；放寬成不可採納（高估）或用地標/A* landmark 加速，速度更快但可能非最優 —— 導航實務常接受「夠好的近似」。</li>
+    <li><strong>常見追問</strong>：CH 如何處理單行道/轉彎限制？→ 有向圖 + 轉彎成本建模。如何做大眾運輸時刻表路由？→ 時間相依圖 / RAPTOR 演算法。如何避開收費/特定路段？→ 邊權加懲罰或過濾子圖。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>路由演算法的核心邏輯</strong>（也是這題真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Graph.php</code>　道路圖：節點含座標、邊有 distance/time 權重；haversine 距離、壅塞係數、瓦片切分。</li>
+    <li><code>src/Router.php</code>　<strong>Dijkstra 與 A*</strong>（共用同一二元堆積），各自回報<strong>探索節點數</strong>；A* 啟發式用直線距離。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁：選起訖 → 比較兩演算法探索節點數、調路況看 ETA/改道，並提供 <code>/api/route /api/compare /api/traffic /api/tile /api/state</code>。</li>
+    <li>預設塞一個 6×5 格狀城市道路網（30 路口、49 路段）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8039 -t public
+# 瀏覽器開 http://localhost:8039：選起點/終點 → 比較 Dijkstra vs A*；
+# 對路徑上某段套壅塞 → 看最快路徑改道、ETA 變化。</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的道路圖為<strong>小型示意</strong>（30 路口），<strong>Dijkstra、A*（含探索節點數比較）、即時路況改 ETA、瓦片切分</strong>皆為真實可執行邏輯；
+    <strong>Contraction Hierarchies 在此僅作觀念說明（§6）未實作</strong>——在這種小圖上 CH 不會帶來可感差異，它的價值要在大陸級圖才顯現。
+    要看 A* 明顯少探索節點，選格網<em>中段</em>的終點即可（角落對角是 A* 的最壞情況）。
+  </div>
+
+  <footer>㊴ 地圖路徑規劃 (Google Maps) · L 圖/大規模演算法 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

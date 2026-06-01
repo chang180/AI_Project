@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉞ 分散式快取 (Redis Cluster) · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉞ 分散式快取 (Redis Cluster)：用 16384 個 slot 把快取攤到整個叢集</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design a Distributed Cache (Redis Cluster)</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>一個容量與吞吐都超過單機的 KV 快取，靠固定 16384 個 hash slot 把 key 攤到多個 shard，每個 shard 主從複製保高可用</strong>」。
+    單機 Redis 很簡單；面試真正考的是 <em>怎麼分片（slot 路由）、怎麼重分片（加減節點只搬受影響的 slot）、怎麼在記憶體滿時淘汰（LRU/LFU），以及怎麼處理穿透／擊穿／雪崩三大快取問題</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型（slot / shard / 主從）</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>快取用途、為何要分散式</h3>
+  <ul>
+    <li><strong>用途</strong>：擋在 DB 前面的記憶體層，吸收讀流量（讀多寫少）、降延遲（記憶體 ns/µs 級 vs DB ms 級）、削峰。也可做 session、排行榜、限流計數、分散式鎖。</li>
+    <li><strong>為何分散式</strong>：單機 Redis 受限於①單機記憶體（資料量超過幾十 GB 裝不下）②單執行緒吞吐（單核 ~10 萬 QPS 上限）③單點故障。把資料切片到多個 shard，就能<strong>水平擴容容量與吞吐</strong>，並用主從副本扛故障。</li>
+  </ul>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><code>SET key value [EX ttl]</code> / <code>GET key</code>，支援 TTL 過期。</li>
+    <li>資料自動分片到多個節點；client 不需知道 key 在哪台，由路由決定。</li>
+    <li>加 / 移除節點時可<strong>重分片（resharding）</strong>，且只搬移受影響的 slot。</li>
+    <li>記憶體達上限（maxmemory）時依<strong>淘汰策略</strong>（LRU / LFU）逐出。</li>
+    <li>每個 shard 有<strong>主從副本</strong>，master 故障時 replica 自動升主（故障轉移）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：p99 &lt; 1ms（命中時）。</li>
+    <li><strong>高吞吐</strong>：百萬級 QPS（靠分片把流量攤到多 shard）。</li>
+    <li><strong>高可用</strong>：單一節點掛掉不影響整體（主從 + 故障轉移）。</li>
+    <li><strong>可擴展</strong>：線上加節點不中斷服務。</li>
+    <li><strong>一致性可妥協</strong>：快取允許短暫不一致（最終一致），優先保可用與低延遲（AP 取向）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「資料量與 QPS 多大？」決定要不要分散式。<strong>幾 GB / 幾萬 QPS → 單機 Redis + 副本就夠</strong>；幾百 GB / 百萬 QPS → 才需要 Redis Cluster 這種分片方案。別一上來就上叢集。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>資料量</td><td>5 億個 key，每個含值平均 400 bytes</td><td>≈ <strong>200 GB</strong>（含 Redis 額外開銷實際更多）</td></tr>
+    <tr><td>單機裝得下嗎</td><td>單機可用 ~64 GB</td><td>裝不下 → 需 <strong>≥ 4 個 shard</strong> 分攤</td></tr>
+    <tr><td>讀 QPS</td><td>峰值 100 萬讀/秒</td><td>單 shard ~10 萬 → 需 ~10 個 shard 分流</td></tr>
+    <tr><td>命中率</td><td>熱資料集中（長尾）</td><td>目標 &gt; 95%；命中率每降 1% 回源壓力大增</td></tr>
+    <tr><td>每 shard slot 數</td><td>16384 / N 個 shard</td><td>10 shard → 每個約 1638 個 slot</td></tr>
+    <tr><td>副本</td><td>每 master 配 1 replica</td><td>節點數 = shard 數 × 2</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>分片數由「<strong>容量</strong>」與「<strong>吞吐</strong>」兩條線取較大者決定。命中率是快取的命脈：算清楚<strong>記憶體夠不夠裝熱資料集</strong>，裝不下就會頻繁淘汰、命中率崩、回源打垮 DB。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 基本讀寫（client 端算 slot 後直連對應 shard）
+SET user:42 "{...}" EX 300        # 寫 master，非同步複製到 replica
+GET user:42                       # 命中回值；未命中由應用回源 DB 後再 SET 回填
+
+# 叢集管理（運維面）
+CLUSTER SLOTS                     # 查 slot → 節點 的映射表
+CLUSTER ADDSLOTS / SETSLOT        # 重分片：把某段 slot 指派/搬移到節點
+CLUSTER FAILOVER                  # 手動觸發 replica 升主
+
+# 本 demo 對應 HTTP API
+POST /api/set      { key, value, ttl }      → 回 slot / shard / 是否淘汰誰
+GET  /api/get      ?key=                     → 回 slot / shard / 命中
+POST /api/policy   { policy:lru|lfu, maxKeys }
+POST /api/node     { action:add|remove|failover, node }
+GET  /api/slots    [?key=]                   → slot→節點映射 + 各 shard 概觀
+POST /api/scenario { type:penetration|breakdown|avalanche, mitigate, n }
+</code></pre>
+  <div class="box"><span class="label">重點</span>Redis Cluster 是 <strong>smart client</strong> 模式：client 本地持有 slot→節點 映射，自己算 slot 直連目標 shard，<strong>不經過中央 proxy</strong>。若打錯節點，節點回 <code>MOVED</code>/<code>ASK</code> 重導向並讓 client 更新映射。</div>
+
+  <h2 id="data">4. 資料模型（slot / shard / 主從）</h2>
+  <pre><code>固定 16384 個 hash slot（0 .. 16383）
+  slot = CRC16(key) % 16384            # 同 key 必同 slot
+
+slot → shard 映射（每個 master 負責一段連續 slot 區間）
+  shardA: slots 0     – 5460
+  shardB: slots 5461  – 10921
+  shardC: slots 10922 – 16383
+
+每個 shard = 1 master + N replica
+  master   : 接受寫，持有該段 slot 的全部 key
+  replica  : 非同步複製 master，唯讀；master 掛掉時被選為新 master
+
+key 內 {tag}：hash tag
+  user:{42}:profile 與 user:{42}:orders → 只對 "42" 算 slot
+  → 落同一 slot/shard，可做同 shard 內的多鍵操作（如 MGET、交易）</code></pre>
+  <div class="box"><span class="label">為何是 16384？</span>① 節點間用 gossip 交換「我負責哪些 slot」的點陣圖，16384 bits = 2KB，夠小可常傳。② 對一般叢集規模（&lt; 1000 節點）解析度足夠（每節點仍分到十幾個 slot）。③ 是 CRC16 輸出空間（65536）的 1/4，取模均勻。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>           ┌──────────────────────────────┐
+ Client ──▶ │ slot = CRC16(key) % 16384     │  (smart client 本地路由)
+           │ 查本地 slot→節點 映射          │
+           └───────────────┬──────────────┘
+            ┌──────────────┼──────────────┐
+            ▼              ▼              ▼
+        ┌────────┐     ┌────────┐     ┌────────┐
+        │ shardA │     │ shardB │     │ shardC │   每 shard：
+        │master  │     │master  │     │master  │     master 接寫
+        │  │repl │     │  │repl │     │  │repl │     replica 複製/升主
+        └──┴─────┘     └──┴─────┘     └──┴─────┘
+            └── 命中回值；未命中 → 應用回源 DB → SET 回填 ──▶ DB
+
+對比：一致性雜湊（Cassandra/DynamoDB 風格）= client 端把 key 雜湊到「環」上，
+      順時針找節點；加減節點只影響環上相鄰區段。Redis 用「固定 16384 slot」
+      取代「連續環」，本質都是把 key 空間切片、只搬受影響片段。</code></pre>
+  <ol>
+    <li><strong>路由</strong>：client 算 slot → 查映射 → 直連 shard 的 master（寫）或 replica（讀，可選）。</li>
+    <li><strong>回源</strong>：未命中時由應用層走 cache-aside：查 DB → <code>SET</code> 回填。</li>
+    <li><strong>故障轉移</strong>：master 掛 → 叢集其他 master 投票 → 該 shard 的 replica 升為新 master。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>① 16384 slot 與重分片（resharding）</h3>
+  <ul>
+    <li><code>slot = CRC16(key) % 16384</code> 把 key 攤到固定 slot；slot 再指派給 shard。</li>
+    <li><strong>加節點</strong>：從現有節點各勻出一批 slot 給新節點，<strong>只搬被勻走的那些 slot 的 key</strong>，其餘不動。對比「<code>hash(key) % N</code>」一改 N 幾乎全表要重排，slot 法只動受影響片段。</li>
+    <li><strong>移除節點</strong>：把它負責的 slot 併回其他節點。搬移期間 slot 處於 migrating/importing 狀態，老節點對該 slot 回 <code>ASK</code> 把請求導到新節點。</li>
+  </ul>
+  <h3>② 主從複製與故障轉移</h3>
+  <ul>
+    <li>master 寫入後<strong>非同步</strong>把指令串流給 replica（預設非同步 → 故障時可能丟最後幾筆寫）。</li>
+    <li>master 失聯 → 叢集多數 master 認定其下線 → 該 shard 的 replica 發起選舉、升為新 master，slot 歸屬轉到它。</li>
+    <li>快取容忍少量丟失，故多採非同步複製換取低延遲（要強保證可用 <code>WAIT</code> 等待副本確認，但會拉高延遲）。</li>
+  </ul>
+  <h3>③ 淘汰策略：LRU vs LFU</h3>
+  <ul>
+    <li><strong>LRU</strong>（Least Recently Used）：淘汰<em>最久沒被存取</em>的 key。適合「近期用過的近期會再用」的時間局部性。缺點：一次掃描（如批次任務遍歷全表）會把熱資料擠掉。</li>
+    <li><strong>LFU</strong>（Least Frequently Used）：淘汰<em>使用次數最少</em>的 key。抗「一次性掃描污染」，更貼近真實熱度；Redis 的 LFU 用帶衰減的計數器避免老熱 key 永遠不被淘汰。</li>
+    <li>其他：<code>volatile-ttl</code>（優先淘汰快到期的）、<code>noeviction</code>（滿了直接拒寫，回錯誤）。實務上 <code>allkeys-lru</code> 或 <code>allkeys-lfu</code> 最常用。</li>
+  </ul>
+  <h3>④ 三大快取問題與解</h3>
+  <table>
+    <tr><th>問題</th><th>成因</th><th>緩解</th></tr>
+    <tr><td><strong>穿透</strong> penetration</td><td>查「<em>根本不存在</em>」的 key（含惡意掃描），快取永遠 miss，每次都打 DB</td><td>① <strong>空值快取</strong>：把「查無」也快取一小段時間 ② <strong>布隆過濾器</strong>：一定不存在的 key 直接擋掉不回源</td></tr>
+    <tr><td><strong>擊穿</strong> breakdown</td><td>單一<em>熱 key</em> 過期瞬間，大量併發同時回源打 DB（cache stampede）</td><td>① <strong>互斥鎖 / singleflight</strong>：同 key 同時只放一個回源，其餘等結果 ② 熱 key 邏輯不過期 / 後台續期</td></tr>
+    <tr><td><strong>雪崩</strong> avalanche</td><td>大量 key <em>同一時間</em>過期（或整個快取宕機），回源洪峰打垮 DB</td><td>① <strong>TTL 加隨機抖動</strong>打散過期時間 ② 多級快取 / 限流降級 ③ 快取高可用避免整體宕機</td></tr>
+  </table>
+  <h3>⑤ Hot key（熱點 key）</h3>
+  <ul>
+    <li>單一超熱 key（如爆款商品）會把它所在的<strong>單一 shard 打爆</strong>（slot 不能再細分到別台）。</li>
+    <li>解法：<strong>本地快取</strong>（client 端 / 應用層多級快取，熱 key 不打 Redis）、<strong>key 拆分</strong>（<code>hotkey#1..#N</code> 散到多 slot 再聚合）、<strong>讀走 replica</strong> 分流。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td><strong>熱 slot</strong></td><td>某 slot 的 key 過熱，單 shard CPU/網卡打滿</td><td>本地快取擋熱 key、讀分流到 replica、熱 key 拆分散 slot</td></tr>
+    <tr><td><strong>大 key</strong></td><td>單一 key 值過大（大 hash/大 list），讀寫慢、複製/搬移卡住、阻塞單執行緒</td><td>拆小、用 <code>HSCAN</code> 漸進處理、避免一次取整包</td></tr>
+    <tr><td><strong>重分片搬移</strong></td><td>加減節點時搬 slot，搬移期間延遲抖動、可能 MOVED/ASK 重導</td><td>低峰期搬、限速搬移、客戶端正確處理重導向</td></tr>
+    <tr><td><strong>命中率下滑</strong></td><td>記憶體不足頻繁淘汰，回源暴增</td><td>加 shard 擴容、調淘汰策略、縮短/分層 TTL</td></tr>
+    <tr><td><strong>複製延遲</strong></td><td>replica 落後，讀 replica 讀到舊值</td><td>關鍵讀走 master、或 <code>WAIT</code> 強制等待</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>固定 slot vs 一致性雜湊</strong>：slot（Redis）映射明確、重分片可精準控制搬哪些 slot、運維直觀；一致性雜湊（Dynamo/Cassandra）無中央 slot 表、加減節點只動環上相鄰段、更去中心。兩者都解決「取模 N 全表重排」的痛點，差在「離散 slot」vs「連續環 + 虛擬節點」。</li>
+    <li><strong>強一致 vs 可用</strong>：快取幾乎都選<strong>可用 + 最終一致</strong>（AP）。非同步複製 → master 掛可能丟最後幾筆寫，但換來低延遲與高可用；要強一致就 <code>WAIT</code> 等副本，犧牲延遲。</li>
+    <li><strong>本地快取 vs 集中快取</strong>：本地（程序內，如 Caffeine）最快、零網路，但各機不一致、容量小；集中（Redis）共享一致、容量大，但有網路 RTT。實務常<strong>多級</strong>：本地擋熱 key，Redis 擋其餘，DB 兜底。</li>
+    <li><strong>cache-aside vs write-through</strong>：
+      <ul>
+        <li><strong>cache-aside</strong>（旁路）：應用負責「讀 miss 回源回填、寫時刪快取」。最常用、實作簡單，但有「寫後讀到舊值」的競態（用刪除而非更新、延遲雙刪緩解）。</li>
+        <li><strong>write-through</strong>（寫穿）：寫先寫快取再由快取同步寫 DB，讀永遠命中、一致性好，但寫延遲高、冷資料也佔快取。另有 <strong>write-back</strong>（先寫快取非同步刷 DB）最快但可能丟資料。</li>
+      </ul>
+    </li>
+    <li><strong>常見追問</strong>：MOVED 與 ASK 差別？（前者 slot 已永久搬、client 要更新映射；後者搬移中的臨時重導）。為何 16384 不是 65536？（gossip 點陣圖大小與解析度的取捨）。如何防大 key 阻塞？（拆分 + 漸進式刪除 <code>UNLINK</code>）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 把分散式快取的<strong>系統核心邏輯</strong>用單機檔案模擬出來，可實際用 PHP 內建伺服器跑：</p>
+  <ul>
+    <li><code>src/SlotMap.php</code>　16384 個 hash slot 與 slot→節點映射；<code>slot = crc32(key) % 16384</code>；加/移除節點時<strong>只搬受影響的 slot 區段</strong>並回報哪些 slot 換主。支援 <code>{tag}</code> hash tag。</li>
+    <li><code>src/CacheNode.php</code>　單一 shard（master + replica），SET/GET with TTL，maxmemory 滿時依 <strong>LRU / LFU</strong> 淘汰並回報淘汰誰，replica 可升主（故障轉移）。</li>
+    <li><code>src/Cluster.php</code>　把 SlotMap + 多個 CacheNode 組起來路由，並示範<strong>穿透／擊穿／雪崩</strong>三大問題各一個可觸發場景 + 緩解開關（空值快取、布隆過濾器、singleflight 互斥鎖、TTL 抖動），用「回源 DB 次數」量化緩解效果。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁：set/get 看 slot 落點、加/移除節點看 slot 搬移、切 LRU/LFU + maxmemory 看淘汰、一鍵觸發三大問題比較緩解前後。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8034 -t public
+# 瀏覽器開 http://localhost:8034
+# 試：set user-42 → 看落 slot/shard；加 shardD → 看 moved 哪些 slot；
+#     maxKeys 設小 + 連 set 同 {tag} → 看 LRU 淘汰；點穿透/擊穿/雪崩比較緩解前後</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機用檔案模擬多個 shard</strong>，無真正的網路、叢集 gossip 或自動故障偵測；slot 雜湊用 <code>crc32 % 16384</code> <strong>近似</strong> Redis 真正的 <code>crc16 % 16384</code>（本環境禁用相關擴充，但兩者皆為「同 key 必同 slot、分佈均勻」的雜湊取模，路由邏輯完全相同）。其餘——<strong>16384 slot 路由、重分片只搬受影響 slot、主從複製與升主、LRU/LFU 淘汰、穿透/擊穿/雪崩三問題與緩解</strong>——皆為真實可執行的邏輯。
+  </div>
+
+  <footer>㉞ 分散式快取 (Redis Cluster) · K 分散式系統 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

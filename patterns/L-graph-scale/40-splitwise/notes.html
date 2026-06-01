@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊵ Splitwise 帳務分攤 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../index.html">← 回總覽</a>
+  <a href="../README.md">🅻 圖/大規模演算法</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊵ Splitwise 帳務分攤：分攤、淨額守恆與最小現金流</h1>
+  <p class="subtitle">
+    <span class="tag group">L 圖/演算法</span>
+    <span class="tag time">建議 40 分鐘</span>
+    <span class="tag">Design Splitwise (Expense Sharing)</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>群組帳本 + 淨額聚合 + 圖上最小現金流化簡</strong>」。
+    記一筆支出很簡單；面試真正考的是 <em>多人多筆欠款如何化簡成最少筆轉帳</em>、
+    <em>金額如何避免浮點誤差</em>、<em>淨額為何必須守恆（和=0）</em>，以及<em>重送如何不重複入帳</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>建立<strong>群組</strong>與成員；在群組內記錄一筆<strong>支出</strong>：誰付款、總金額、在哪些人之間分攤。</li>
+    <li>三種<strong>分攤方式</strong>：均分（equal）、指定金額（exact）、百分比（percentage）。</li>
+    <li><strong>淨額查詢</strong>：每人對群組的淨餘額（正=應收 creditor、負=應付 debtor）。</li>
+    <li><strong>債務簡化（還款建議）</strong>：把錯綜複雜的多對多欠款，化簡成<strong>最少筆數</strong>的轉帳。</li>
+    <li>支援<strong>多幣別</strong>（依當下匯率換算成群組基準幣記帳）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>金額絕對正確</strong>：帳務系統，一分錢都不能算錯 → 用<strong>整數分</strong>，禁用浮點。</li>
+    <li><strong>守恆</strong>：群組內所有人淨額相加恆為 0（任何時刻皆成立，可被驗證）。</li>
+    <li><strong>冪等</strong>：網路重送、重試不可造成重複入帳。</li>
+    <li><strong>強一致帳本</strong>：餘額是讀「自己的寫」的場景，使用者加完支出立刻要看到正確餘額。</li>
+    <li><strong>可擴展</strong>：少量超大群組（如百人旅遊團）與海量小群組並存。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「分攤方式要支援到哪幾種？」「還款建議是要『最少筆數』還是『保留原始欠款關係』？」
+    這兩個決定了核心演算法是否要寫最小現金流化簡。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>使用者</td><td>5000 萬</td><td>多為小群組（2–10 人）</td></tr>
+    <tr><td>群組數</td><td>人均 5 群</td><td>~2.5 億群組</td></tr>
+    <tr><td>新增支出（寫）</td><td>1000 萬/日</td><td>~115 寫 QPS（峰值 ×3 ≈ 350）</td></tr>
+    <tr><td>餘額/簡化查詢（讀）</td><td>每筆支出後多人多次查</td><td>讀寫比 ~20:1 → ~2.3k 讀 QPS</td></tr>
+    <tr><td>儲存（支出明細）</td><td>每筆 ~300 bytes，永久保留</td><td>1000萬×365×5×300B ≈ <strong>5.5 TB</strong></td></tr>
+    <tr><td>大群組</td><td>少數百人團 + 千筆支出</td><td>淨額重算與簡化的熱點</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>絕大多數群組很小（淨額重算與簡化都是毫秒級），<strong>瓶頸在少數超大群組</strong>與<strong>熱門群組的並發寫</strong> → 設計圍繞「<strong>每群獨立帳本 + 餘額增量維護 + 寫入冪等</strong>」。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 建立群組
+POST /api/v1/groups        { "name": "日本旅遊", "members": ["Amy","Ben","Cat","Dan"], "currency": "TWD" }
+
+# 新增支出（寫，核心）
+POST /api/v1/groups/{gid}/expenses
+Header: Idempotency-Key: 7f3a...        # 冪等鍵，重送不重複入帳
+Body: {
+  "payer": "Amy", "amount": 12000,      # 整數分（$120.00）
+  "type": "equal|exact|percentage",
+  "among": ["Amy","Ben","Cat","Dan"],   # equal：人名清單
+                                        # exact：{ "Cat":4000, "Dan":2000 }（總和=amount）
+                                        # percentage：{ "Amy":40, "Ben":30, ... }（總和=100）
+  "desc": "晚餐", "currency": "TWD"
+}
+→ 201 { "id": 42, "shares": { "Amy":3000, "Ben":3000, "Cat":3000, "Dan":3000 } }
+
+# 每人淨餘額（讀）
+GET /api/v1/groups/{gid}/balances
+→ { "net": { "Amy":-3000, "Cat":17000, ... }, "sum": 0, "conserved": true }
+
+# 債務簡化：最少筆數還款建議（讀）
+GET /api/v1/groups/{gid}/settle
+→ { "transfers": [ {"from":"Dan","to":"Cat","amount":8000}, ... ], "before": 8, "after": 3 }
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>groups
+  gid          BIGINT PK
+  name         TEXT
+  base_currency CHAR(3)              -- 群組基準幣
+
+group_members
+  gid, user_id                       -- 多對多
+
+expenses (append-only 帳本，永久保留)
+  id           BIGINT PK
+  gid          BIGINT
+  payer        user_id
+  amount_cents BIGINT                -- 整數分，絕不用 float
+  currency     CHAR(3)
+  fx_rate      BIGINT                -- 換算成基準幣的匯率（定點，如 ×10^6）
+  type         ENUM(equal,exact,percentage)
+  desc         TEXT
+  idem_key     VARCHAR(64) UNIQUE    -- 冪等鍵，DB 唯一索引擋重複
+  created_at   TIMESTAMP
+
+expense_splits (每筆支出拆出的每人分攤)
+  expense_id, user_id, share_cents   -- sum(share)=amount_cents（守恆）
+
+balances (聚合快取，可由 expenses 重算)
+  gid, user_id, net_cents            -- 正=應收 負=應付；增量維護</code></pre>
+  <div class="box"><span class="label">為何拆 splits 表</span>支出與「每人分攤」拆開，讓淨額聚合（<code>付款額 − 分攤額</code>）可用 SQL 聚合或增量維護；<code>balances</code> 是可重算的快取，真相永遠是 append-only 的 <code>expenses + splits</code>。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>           ┌────────────┐      ┌──────────────┐     ┌──────────────┐
+ 加支出 ───▶│ 交易服務     │────▶│ 帳本(append) │────▶│ 淨額聚合      │
+ (寫,冪等)  │ 算分攤/匯率  │     │ expenses     │     │ creditor/    │
+           └────────────┘      │ +splits      │     │ debtor (sum=0)│
+                                └──────────────┘     └──────┬───────┘
+                                                            ▼
+ 查還款 ───────────────────────────────────────▶  ┌──────────────┐
+ (讀)                                              │ 債務簡化      │
+                                                   │ 最小現金流    │
+                                                   │ → 最少轉帳    │
+                                                   └──────────────┘</code></pre>
+  <ol>
+    <li><strong>交易服務</strong>：驗證分攤（總和=金額 / 百分比=100）、多幣別換算、產生每人分攤，靠冪等鍵去重後寫入帳本。</li>
+    <li><strong>帳本</strong>：append-only 的 expenses + splits，是唯一真相來源（source of truth）。</li>
+    <li><strong>淨額聚合</strong>：每人 <code>淨額 = Σ墊付 − Σ分攤</code>；可增量維護或重算，恆守恆（sum=0）。</li>
+    <li><strong>債務簡化</strong>：讀時把淨額圖跑最小現金流，回最少筆數轉帳建議。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>三種分攤方式</h3>
+  <ul>
+    <li><strong>均分 equal</strong>：金額 ÷ 人數；<strong>不能整除的餘數（分）逐分配給前面的人</strong>，保證 <code>Σ分攤 = 總額</code>，不丟也不多一分。</li>
+    <li><strong>指定金額 exact</strong>：直接給每人應分攤的分；驗證 <code>Σ = 總額</code>，否則拒絕。</li>
+    <li><strong>百分比 percentage</strong>：先按比例下取整，再用最大餘數法把因下取整少掉的分補回，仍保證 <code>Σ = 總額</code>。</li>
+  </ul>
+
+  <h3>淨額守恆（sum = 0）</h3>
+  <p>每筆支出對「付款人」加上整筆金額、對每個「分攤者」減去其分攤額。
+  因為 <code>Σ分攤 = 總額</code>，每筆支出對全體淨額的貢獻是 <code>+總額 − Σ分攤 = 0</code>。
+  所以<strong>任意筆數支出後，全體淨額和恆為 0</strong>。這是帳務系統的不變式（invariant），
+  <em>每次計算都應主動驗證 sum===0</em>；一旦不為 0 代表分攤計算有 bug（典型是浮點或餘數沒處理好）。</p>
+
+  <h3>債務簡化 — 最小現金流（核心考點）</h3>
+  <p>多對多欠款（Amy 欠 Ben、Ben 欠 Cat、Cat 欠 Amy…）可化簡。先把每人壓成一個淨額，
+  原始的個別欠款邊就不重要了——重要的只有「誰最後該收多少、誰該付多少」。</p>
+  <pre><code>貪婪法（每輪結算最大債主 ↔ 最大欠款人）：
+  while 還有非零淨額:
+    c = 淨額最正者(最大債主)，d = 淨額最負者(最大欠款人)
+    t = min(c, -d)
+    記一筆轉帳 d → c，金額 t
+    c -= t; d += t            # 至少有一人歸零
+  N 人 → 最多 N-1 筆轉帳</code></pre>
+  <p>Demo 中 4 人原始 8 條欠款邊 → 簡化成 <strong>3 筆</strong>轉帳（皆轉給唯一債主 Cat）。
+  注意：「最少筆數還款」嚴格來說是 NP-hard（可化簡為子集和分組），
+  貪婪法不保證理論最優，但<strong>實務上接近最優且 O(N log N)</strong>，是業界常用做法；
+  面試講清楚「貪婪近似 + N-1 上界 + 為何不追求絕對最優」即可。</p>
+
+  <h3>整數分避免浮點</h3>
+  <p><code>0.1 + 0.2 !== 0.3</code> 在浮點下成立，帳務系統絕不能用 float。
+  一律以<strong>整數分（cents）</strong>儲存與運算，顯示時才除以 100。分攤的餘數用整數邏輯逐分配，
+  確保「加總無誤差、守恆成立」。</p>
+
+  <h3>冪等去重</h3>
+  <p>客戶端重送/重試在分散式下無法避免。每筆寫入帶 <strong>Idempotency-Key</strong>，
+  服務端用 DB 唯一索引或已見鍵集合判斷：同鍵第二次到達 → 回傳第一次的結果（replay），<strong>不重複入帳</strong>。</p>
+
+  <h3>多幣別匯率</h3>
+  <p>支出可用任意幣別，記帳時依當下匯率換算成<strong>群組基準幣</strong>，並把原幣別與匯率一起存進帳本（保留可追溯）。
+  匯率用<strong>定點數</strong>（如 ×10⁶ 的整數）避免浮點；換算後仍以整數分入帳。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>情境</th><th>對策</th></tr>
+    <tr><td>大群組淨額重算</td><td>百人團、千筆支出，每次全表掃描</td><td><strong>增量維護</strong> balances：每筆支出只改動相關幾人的淨額，不全重算</td></tr>
+    <tr><td>熱門群組並發寫</td><td>同群多人同時加支出，餘額互相覆蓋</td><td>每群獨立帳本 + 行鎖 / 樂觀鎖；append-only 寫不衝突，聚合分開做</td></tr>
+    <tr><td>歷史明細查詢</td><td>長期群組支出很多、分頁查</td><td>expenses 依 gid 分片 + 游標分頁；冷資料下沉</td></tr>
+    <tr><td>簡化即時性</td><td>每次查 settle 都重跑演算法</td><td>淨額變動才重算並快取 settle 結果；O(N log N) 對小群組可即時</td></tr>
+    <tr><td>跨群分片</td><td>2.5 億群組單庫裝不下</td><td>依 gid 雜湊<strong>分片</strong>；同群所有資料同片，聚合不跨片</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>即時簡化 vs 顯示原始欠款</strong>：最小現金流轉帳數最少（少跑幾趟銀行），但「Amy 直接付 Cat」可能看不出原本是「Amy 欠 Ben、Ben 欠 Cat」→ 有些 App 同時提供「原始明細」與「簡化建議」。</li>
+    <li><strong>精確 vs 效能</strong>：絕對最少筆數是 NP-hard；貪婪近似 O(N log N) 換來實務上夠好的結果，正確取捨。</li>
+    <li><strong>強一致帳本 vs 最終一致</strong>：餘額是「讀自己的寫」→ 帳本與聚合需強一致（加完立刻看到）；跨群統計類報表可最終一致。</li>
+    <li><strong>balances 快取 vs 永遠重算</strong>：balances 是可丟棄的快取，真相永遠是 append-only 帳本；任何時候都能由帳本重算驗證守恆。</li>
+    <li><strong>常見追問</strong>：負金額/退款怎麼記？→ 反向支出。改一筆舊支出？→ 不可變帳本用「沖銷 + 重記」而非就地改。匯率波動？→ 記帳當下鎖定匯率。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重<strong>帳務系統的真正考點</strong>：三種分攤、淨額守恆、債務簡化，皆可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Ledger.php</code>　帳本核心：三種分攤計算（整數分、餘數逐分配）、淨額聚合（守恆驗證）、債務簡化（最小現金流貪婪）、冪等去重；JSON 檔 + <code>flock</code> 保證並發原子性。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁：建成員、加支出（選分攤方式）、看各人淨餘額（sum=0）、一鍵看最少轉帳。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8040 -t public
+# 瀏覽器開 http://localhost:8040 加幾筆不同分法的支出，看淨額和=0、債務簡化的最少轉帳筆數</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 是<strong>單機帳本</strong>（JSON 檔模擬 DB、檔案鎖模擬交易），不含分片、多區域、真正的多幣別匯率源。
+    但<strong>分攤計算、淨額守恆（sum=0）、債務簡化（最小現金流）、冪等去重、整數分皆為真實可執行邏輯</strong>，
+    這些正是面試的核心考點。
+  </div>
+
+  <footer>㊵ Splitwise 帳務分攤 · L 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 878 588" width="878" height="588" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="878" height="588" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">網頁搜尋引擎（全鏈）— 索引=藍 查詢=綠 基建=黃</tspan>
+</text>
+<rect x="40" y="90" width="150" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="108" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Crawler 爬蟲</tspan>
+</text>
+<rect x="240" y="90" width="150" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="315" y="108" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">Indexer 分析+切詞</tspan>
+</text>
+<rect x="470" y="60" width="160" height="48" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="550" y="74" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="550" dy="0">Shard 0 倒排索引</tspan>
+</text>
+<rect x="470" y="116" width="160" height="48" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="550" y="130" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="550" dy="0">Shard 1 倒排索引</tspan>
+</text>
+<rect x="470" y="172" width="160" height="48" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="550" y="186" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="550" dy="0">Shard N 倒排索引</tspan>
+</text>
+<rect x="240" y="240" width="150" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="315" y="258" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">連結圖 Link Graph</tspan>
+</text>
+<rect x="470" y="240" width="160" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="550" y="252" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="550" dy="0">PageRank</tspan>
+<tspan x="550" dy="18.75">冪次迭代→權威分</tspan>
+</text>
+<rect x="40" y="400" width="150" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="115" y="418" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client 查詢</tspan>
+</text>
+<rect x="240" y="400" width="150" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="315" y="412" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">查詢解析</tspan>
+<tspan x="315" dy="18.75">AND/OR + 快取</tspan>
+</text>
+<rect x="470" y="400" width="160" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="550" y="412" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="550" dy="0">協調者</tspan>
+<tspan x="550" dy="18.75">scatter → gather</tspan>
+</text>
+<rect x="700" y="400" width="170" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="785" y="412" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="785" dy="0">融合排序</tspan>
+<tspan x="785" dy="18.75">α·BM25 + β·PageRank</tspan>
+</text>
+<rect x="240" y="510" width="150" height="54" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="315" y="528" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">查詢結果快取</tspan>
+</text>
+<polyline points="192,120 238,120" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="392,110 468,84" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="392,122 468,140" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="392,134 468,196" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="315,150 315,240" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="392,270 468,270" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,430 238,430" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="392,430 468,430" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="632,430 698,430" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="550,400 550,302" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="315,460 315,508" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="440" y="380" font-size="13" fill="#2f9e44" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="440" dy="0">scatter</tspan>
+</text>
+<text x="555" y="318" font-size="13" fill="#e8590c" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="555" dy="0">權威分餵入融合</tspan>
+</text>
+</svg>

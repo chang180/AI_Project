@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 -4 808 508" width="808" height="508" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+</defs>
+<rect x="16" y="-4" width="808" height="508" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">網頁爬蟲 Web Crawler — 高階架構（主流程=藍 去重=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="100" width="140" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="110" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="110" dy="0">種子 Seeds</tspan>
+</text>
+<rect x="240" y="100" width="150" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="315" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">Frontier (佇列)</tspan>
+</text>
+<rect x="450" y="100" width="140" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="520" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="520" dy="0">Fetcher (限速)</tspan>
+</text>
+<rect x="650" y="100" width="140" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="720" y="120" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="720" dy="0">Parser 抽 link</tspan>
+</text>
+<rect x="650" y="260" width="140" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="720" y="272" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="720" dy="0">URL 去重</tspan>
+<tspan x="720" dy="17.5">bloom + 精確 set</tspan>
+</text>
+<rect x="450" y="260" width="140" height="60" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="520" y="280" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="520" dy="0">URL 正規化</tspan>
+</text>
+<rect x="450" y="20" width="140" height="56" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="520" y="30" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="520" dy="0">per-domain politeness</tspan>
+<tspan x="520" dy="16.25">crawl-delay</tspan>
+</text>
+<rect x="240" y="260" width="150" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="315" y="272" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">依 domain 分片</tspan>
+<tspan x="315" dy="16.25">shard #0/#1/#2</tspan>
+</text>
+<rect x="650" y="420" width="150" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="725" y="440" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="725" dy="0">內容存儲</tspan>
+</text>
+<rect x="240" y="420" width="150" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="315" y="432" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">重抓排程</tspan>
+<tspan x="315" dy="16.25">freshness</tspan>
+</text>
+<polyline points="182,130 238,130" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="392,130 448,130" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="592,130 648,130" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="720,162 720,258" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="648,290 592,290" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="448,290 390,290" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="300,258 300,160" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="520,76 520,98" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="720,322 720,418" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="648,450 392,450" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="315,418 315,320" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

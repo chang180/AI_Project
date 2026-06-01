@@ -132,7 +132,8 @@ delivery_log  (投遞紀錄，at-least-once 去重用)
     生產上常用 PostGIS（GIST 索引）、Elasticsearch geo_point、或 Redis GEO 指令。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 感測器網路 ──▶ 偵測服務 ──▶ 事件匯流排(Kafka) ──▶ 地理篩選服務
  (地震儀/手機)   (估震央/規模)   高優先級 topic        │   ▲
                                                       │   │ 查空間索引

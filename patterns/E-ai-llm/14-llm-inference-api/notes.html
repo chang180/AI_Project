@@ -113,7 +113,8 @@ usage_counter（計費，按 token 累加；真實系統走事件流聚合）
   <div class="box"><span class="label">兩階段為何要分</span><strong>prefill</strong>（一次處理整段 prompt，平行度高、算力密集）與 <strong>decode</strong>（一次生一個 token，記憶體頻寬密集）特性完全不同；很多系統會把兩者分流到不同副本（disaggregated prefill/decode）以分別最佳化。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 客戶端 ──▶ API Gateway ──▶ 請求佇列 ──▶ 批次排程器 ──▶ GPU Worker ──▶ 串流 token
    │        (限流/計費/鑑權)    (依優先級)    (continuous       (KV cache    (SSE 回吐)
    │                                          batching)         /模型)

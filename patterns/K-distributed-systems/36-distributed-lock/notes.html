@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊱ 分散式鎖 + 服務發現 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊱ 分散式鎖 + 服務發現：用協調服務管住分散式系統的「真相來源」</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag time">建議 45 分鐘</span>
+    <span class="tag">Design a Distributed Lock &amp; Service Discovery</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>一個小而強一致（CP）的協調服務（etcd / ZooKeeper），對外提供互斥鎖、選主、設定、服務名冊四種原語</strong>」。
+    單機 <code>synchronized</code> 很簡單；面試真正考的是 <em>當持鎖者 GC 暫停 / 網路分割 / 時鐘漂移時，分散式鎖如何還能「安全」</em>——
+    答案的核心是 <strong>fencing token</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（為何要分散式協調）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>為何需要分散式協調？四種剛需原語</h3>
+  <ul>
+    <li><strong>互斥（分散式鎖）</strong>：多台機器同時想動同一份資源（同一筆訂單、同一個檔案、同一個 cron 任務），需要保證「同一時刻只有一個」。</li>
+    <li><strong>選主（leader election）</strong>：一批對等節點要選出一個 leader 來做排程 / 寫入協調，掉線後要能自動換人。</li>
+    <li><strong>設定中心（config）</strong>：feature flag、限流參數要能集中改、即時推給所有節點。</li>
+    <li><strong>服務發現（service registry）</strong>：實例會擴縮、會掛，呼叫端要能查到「目前還活著的實例清單」。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>強一致 / 線性一致（CP）</strong>：鎖與選主絕不能「同時兩個人都覺得自己拿到了」。寧可在分割時拒絕服務，也不能授予衝突。</li>
+    <li><strong>高可用</strong>：協調服務是整個系統的「真相來源」，自身掛了影響面極大 → 用奇數節點（3/5）多數決容錯。</li>
+    <li><strong>低延遲</strong>：鎖 acquire / 服務發現查詢在毫秒級。</li>
+    <li><strong>安全性 &gt; 活性</strong>：鎖的「互斥（safety）」不可破；偶爾因租約過期早放鎖（活性受損）可接受。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「這把鎖是為了<strong>效率</strong>（避免重複做白工，偶爾兩個人做也只是浪費）還是為了<strong>正確性</strong>（兩個人同時做會壞資料）？」
+    若是正確性，光有鎖不夠，<strong>一定要談 fencing token</strong>，否則直接出局。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>協調節點數</td><td>容忍 1 台掛</td><td>3 節點（quorum=2）；容忍 2 台掛 → 5 節點</td></tr>
+    <tr><td>鎖 / 寫操作 QPS</td><td>需經 Raft 多數決落盤</td><td>單叢集約 <strong>1萬～數萬寫 QPS</strong>（受 fsync + RTT 限制，不是無限）</td></tr>
+    <tr><td>watch 連線</td><td>每個微服務實例監看設定 / 名冊</td><td>數萬～數十萬長連線 → 注意 <strong>watch 風暴</strong></td></tr>
+    <tr><td>單筆 key 大小</td><td>鎖 / 註冊資訊小</td><td>建議 &lt; 1KB；etcd 預設整庫上限約 <strong>8GB</strong>（協調服務不是資料庫）</td></tr>
+    <tr><td>租約 TTL</td><td>服務心跳</td><td>常見 5～30 秒；TTL 越短偵測掉線越快但心跳壓力越大</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>協調服務<strong>寫吞吐有限且不該存大資料</strong>。它的價值在「<strong>強一致的少量關鍵元資料</strong>」，不是高吞吐儲存。把它當資料庫用是最常見的災難。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 分散式鎖（租約）
+POST /v3/lock        { key, owner, ttl }      → { fencingToken, expireAt }
+POST /v3/unlock      { key, owner }
+POST /v3/renew       { key, owner, ttl }      # heartbeat 續租
+
+# 下游受保護資源：寫入必須帶 fencing token
+PUT  /resource/{id}  Header: X-Fencing-Token: 42   # 資源只接受 > 上次見過的 token
+
+# leader election
+POST /v3/campaign    { election, candidate, ttl } → { isLeader, leader, epoch }
+GET  /v3/leader?election=scheduler
+
+# watch（變更通知，通常是長連線 / streaming）
+WATCH key=config:flag        → 推送該 key 的每次變更事件
+
+# 設定中心
+PUT  /v3/kv  { key, value }   GET /v3/kv?key=
+
+# 服務發現
+POST /v3/register   { service, instance, addr, ttl }   # 帶租約，須續租
+GET  /v3/discover?service=payment   → [ 存活實例清單 ]</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># 協調服務內部是一棵「有版本的 KV 樹」+ 租約表 + watch 表
+locks        key → { owner, expireAt(lease), fencingToken, version }
+                   -- fencingToken 來自全域單調遞增計數器，每次「成功授予」+1
+fenced       resource → lastSeenToken           -- 下游資源各自記「見過的最大 token」
+leases       leaseId → { ttl, lastHeartbeat, boundKeys[] }  -- 一個 session 綁多個 key
+services     service → { instanceId → { addr, leaseId, meta } }  -- ephemeral：lease 死則消失
+configs      key → { value, version }            -- 版本用於 watch / CAS
+watches      key → [ watcherId... ]              -- 變更時逐一推送</code></pre>
+  <div class="box"><span class="label">為何 fencing token 必須單調遞增且全域唯一</span>
+    它是「<strong>邏輯時鐘 / 鎖世代（epoch）</strong>」。下游資源靠「比大小」就能擋掉任何過期持有者的延遲寫入，
+    不需要信任時鐘、不需要知道鎖的存在。etcd 用 key 的 <code>mod_revision</code>、ZooKeeper 用 znode 的 <code>zxid / czxid</code> 當這個 token。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>        ┌───────────────── 協調服務叢集（CP，Raft 複製）─────────────────┐
+        │   Node1(Leader) ⇄ Node2(Follower) ⇄ Node3(Follower)            │
+        │   每筆寫(acquire/put/register) 經 Raft 多數決落盤後才回應        │
+        └───────────────────────────────────────────────────────────────┘
+            ▲ acquire→拿 fencingToken    ▲ watch 變更   ▲ register/discover
+            │                            │              │
+        ┌───┴────┐                  ┌────┴───┐     ┌────┴────┐
+        │Client A│ ──帶 token 寫──▶ │ 下游資源│     │ 呼叫端  │ discover→存活實例
+        └────────┘   (資源 fence    └────────┘     └─────────┘
+        ┌────────┐    掉小 token)
+        │Client B│
+        └────────┘</code></pre>
+  <ol>
+    <li><strong>協調服務本身是 CP 系統</strong>：3/5 節點用 Raft（etcd）或 ZAB（ZooKeeper）複製同一份狀態機；只有 leader 處理寫，多數派確認後才提交 → 線性一致。</li>
+    <li><strong>Client</strong>：透過協調服務 acquire 鎖 / 註冊 / 監看；自己不互相協調，全部委託給這個「單一真相來源」。</li>
+    <li><strong>下游資源</strong>：是 fencing 的執行者——它記住見過的最大 token，過期持有者的 stale 寫入在這一層被擋下。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>租約鎖 vs 永久鎖</h3>
+  <p>永久鎖（持有者不釋放就永遠鎖著）在分散式下是<strong>死局</strong>：持有者當機 → 鎖永遠卡死。
+  因此分散式鎖一律是<strong>租約（lease）</strong>：鎖帶 TTL，持有者要週期性 <code>renew</code> 續租；
+  一旦漏續租（當機 / 卡住），租約到期鎖自動釋放，他人可接手。代價是引入了下面這個經典不安全場景。</p>
+
+  <h3>⭐ 為什麼一定要 fencing token？（本題最重要考點）</h3>
+  <div class="box warn"><span class="label">經典不安全場景（Martin Kleppmann 的圖）</span>
+    <ol>
+      <li>Client A 取得鎖（token=33），準備寫資源。</li>
+      <li>A 發生 <strong>STW GC 暫停</strong>（或被換出 CPU）卡了好幾秒——它<strong>不知道自己卡住了</strong>。</li>
+      <li>A 的租約在這期間<strong>過期</strong>，協調服務把鎖釋放。</li>
+      <li>Client B 取得鎖（token=34），寫入資源。</li>
+      <li>A 終於醒來，<strong>以為自己還持有鎖</strong>，拿著 token=33 也來寫資源 → 若無防護就<strong>覆蓋了 B 的寫入，資料壞掉</strong>。</li>
+    </ol>
+    <strong>解法</strong>：資源端記住「見過的最大 token」（已是 34），A 帶 token=33 來寫 → <code>33 &lt; 34</code> → <strong>拒絕</strong>。
+    這就是 fencing：即使鎖會誤判、時鐘不可信、GC 暫停無法預測，<strong>下游仍然安全</strong>。
+  </div>
+  <p>關鍵點：fencing token 必須由<strong>協調服務在授予鎖時單調遞增地配發</strong>，且<strong>下游資源必須有能力檢查並拒絕舊 token</strong>。
+  只有「拿到鎖就放心寫」而沒有 fence，這把鎖只能用在「效率型」場景，不能用在「正確性型」場景。</p>
+
+  <h3>watch 機制</h3>
+  <p>client 監看某 key（鎖 / 設定 / 服務名冊），值一變更，協調服務主動推事件，避免 client 忙輪詢（busy polling）。
+  典型用法：落選者 watch 現任 leader 的 key，leader 租約一過期 → 收到 deleted 事件 → 立刻發起競選。</p>
+
+  <h3>ephemeral node：選主與服務註冊的共同底層</h3>
+  <p>ZooKeeper 的 <strong>ephemeral（臨時）節點</strong>與 session 綁定：session 一斷（心跳停），節點自動刪除。
+  服務註冊就是建一個 ephemeral node（實例掛了自動下線）；選主就是大家搶建同一個 ephemeral node，建到的就是 leader（建不到的 watch 它）。
+  etcd 用 <strong>lease + key 綁定</strong>達到等價效果。</p>
+
+  <h3>心跳與 session 過期</h3>
+  <p>TTL 設定是個取捨：<strong>太短</strong>→ 一點網路抖動就誤判掉線、頻繁換主、心跳壓力大；<strong>太長</strong>→ 真掉線時偵測慢、鎖卡很久。常見 5～30 秒。</p>
+
+  <h3>Redlock 爭議（必知）</h3>
+  <p>Redis 作者提的 <strong>Redlock</strong>（向 N 個獨立 Redis 多數派取鎖）被 Kleppmann 批評：它依賴<strong>時鐘不漂移</strong>與<strong>無長暫停</strong>的假設，
+  在 GC / 時鐘跳變下仍可能讓兩個 client 同時持鎖，<strong>且本身不提供 fencing token</strong>。
+  結論：要「正確性」用 <strong>etcd / ZooKeeper（CP）+ fencing token</strong>；Redis 鎖只適合「效率型」場景。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>成因</th><th>對策</th></tr>
+    <tr><td>協調服務寫吞吐</td><td>每筆寫要 Raft 多數決 + fsync</td><td>別把它當資料庫；只放關鍵元資料；批次 / 合併寫；分多個 namespace 叢集</td></tr>
+    <tr><td>watch 風暴</td><td>一個熱門 key 變更要推給數萬 watcher</td><td>事件批次化、分層代理（proxy 扇出）、client 端去抖動</td></tr>
+    <tr><td>herd effect（驚群）</td><td>leader 掉線 → 所有落選者同時搶鎖</td><td>ZooKeeper「<strong>有序排隊</strong>」：每人只 watch 排在自己前一位的節點，避免全體驚群</td></tr>
+    <tr><td>讀放大</td><td>大量 client 反覆查名冊 / 設定</td><td>follower 提供唯讀（線性讀需 readIndex）、client 端快取 + watch 失效</td></tr>
+    <tr><td>租約風暴</td><td>數十萬實例各自一個短 TTL lease 心跳</td><td>多實例共用一個 session/lease、拉長 TTL</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>鎖安全性 vs 效能</strong>：每次寫都檢查 fencing token 有成本，但這是「正確性型」鎖的不可省步驟；「效率型」可放寬。</li>
+    <li><strong>CP 協調 vs AP</strong>：鎖 / 選主必須 CP（etcd/ZK/Consul），分割時寧可不可用也不能腦裂；若用 AP 系統（如純 Redis）做鎖，必須接受可能雙持鎖並靠 fencing 補救。</li>
+    <li><strong>自旋（spin）vs 阻塞 watch</strong>：拿不到鎖時不要忙輪詢（浪費 + 驚群），改用 watch 在前一位釋放時被喚醒。</li>
+    <li><strong>租約 TTL 長短</strong>：短→快偵測但易誤判；長→穩定但故障恢復慢。依「可容忍多久卡住」決定。</li>
+    <li><strong>常見追問</strong>：協調服務自己掛了怎麼辦？→ 奇數節點多數決容錯 + 它掛了應「fail-safe」（拿不到鎖就不動，而非硬幹）。為何不直接用資料庫的 <code>SELECT ... FOR UPDATE</code>？→ 可以，但缺租約自動釋放與 watch，且把協調壓力壓在主庫上。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 用單機檔案模擬一個 etcd / ZooKeeper 風格的協調服務，所有協調原語<strong>邏輯為真、可實際執行</strong>：</p>
+  <ul>
+    <li><code>src/CoordService.php</code>　協調服務本體：租約鎖 <code>acquire/release/renew</code>、<strong>fencing token</strong> 配發、<code>fenceWrite</code> 下游防護、watch 佇列、leader election、config、服務 register/discover。所有操作都在一次 <code>flock(LOCK_EX)</code> 臨界區內讀-改-寫狀態檔，模擬「線性一致的複製狀態機」。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁（六個區塊對應六種原語）。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8036 -t public
+# 瀏覽器開 http://localhost:8036</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    這是<strong>單機模擬</strong>的協調服務：用一個狀態檔 + <code>flock</code> 模擬「被 Raft 複製、線性一致的單一狀態機」，
+    <strong>沒有</strong>真正的多節點共識 / 網路 / 故障容錯。但<strong>租約鎖、fencing token 防護、watch、leader election、服務發現的協調邏輯都是真實可執行的</strong>——
+    尤其可實際演示「舊 token 被 fence 拒絕」這個分散式鎖最重要的考點。要做成真叢集，把狀態機換成 etcd/ZooKeeper 的 client 即可，上層原語不變。
+  </div>
+
+  <footer>㊱ 分散式鎖 + 服務發現 · L 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

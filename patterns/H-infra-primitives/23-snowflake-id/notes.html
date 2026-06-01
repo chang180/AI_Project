@@ -120,7 +120,8 @@ EPOCH = 1704067200000   // 2024-01-01 00:00:00 UTC（毫秒）</code></pre>
   <div class="box tip"><span class="label">為何自訂 epoch</span>用接近「上線時間」的 epoch 取代 1970，可讓 41 bit 的 ~69 年從上線那刻才開始算，最大化可用年限。位元分配可依需求調整（如機器多就多給機器 id、單機產量大就多給 seq），但總和固定 63 bit。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> App Server #1 ─┐  (內嵌 Snowflake，machineId=1)
  App Server #2 ─┼─▶ 各自於本機記憶體取號，無中心協調 ──▶ 全域唯一 ID
  App Server #N ─┘  (machineId=N)

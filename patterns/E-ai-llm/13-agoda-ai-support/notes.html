@@ -120,7 +120,8 @@ audit_log (審計，誰在何時對哪筆做了什麼，不可竄改)
   <div class="box"><span class="label">為何分開</span>知識庫是<strong>讀多、離線重建</strong>的向量索引；對話狀態是<strong>短生命週期</strong>可放 Redis/文件庫；退款與審計是<strong>強一致、不可遺失</strong>的金融資料，必須進交易型 DB 並保留冪等鍵與完整稽核軌跡。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code>使用者問句
     │
     ▼

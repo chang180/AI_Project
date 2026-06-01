@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 928 528" width="928" height="528" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="928" height="528" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">視訊會議 Zoom — 信令=藍 / 媒體轉發=綠 / 基建=黃</tspan>
+</text>
+<text x="320" y="70" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="320" dy="0">信令面：交換 SDP/ICE（量小）</tspan>
+</text>
+<rect x="340" y="96" width="200" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="440" y="114" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="440" dy="0">信令伺服器 (WebSocket)</tspan>
+</text>
+<rect x="40" y="240" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="260" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Peer A</tspan>
+</text>
+<rect x="40" y="340" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="360" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Peer B</tspan>
+</text>
+<rect x="40" y="440" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="460" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Peer C</tspan>
+</text>
+<rect x="480" y="320" width="200" height="110" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="580" y="338" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="580" dy="0">SFU</tspan>
+<tspan x="580" dy="20">轉發表</tspan>
+<tspan x="580" dy="20">選層 + 主講者</tspan>
+</text>
+<rect x="740" y="240" width="180" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="830" y="252" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="830" dy="0">STUN / TURN</tspan>
+<tspan x="830" dy="17.5">穿透 NAT</tspan>
+</text>
+<text x="210" y="300" font-size="13" fill="#e8590c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="210" dy="0">上行：每人 1 條 →</tspan>
+</text>
+<text x="250" y="470" font-size="13" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="250" dy="0">下行：N−1 條（各挑 simulcast 層）</tspan>
+</text>
+<text x="480" y="446" font-size="13" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="480" dy="0">層級：high / mid / low</tspan>
+</text>
+<polyline points="192,268 342,120" fill="none" stroke="#1971c2" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,368 342,128" fill="none" stroke="#1971c2" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,468 342,136" fill="none" stroke="#1971c2" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,282 478,362" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,372 478,377" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="192,472 478,402" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="478,360 192,272" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="478,380 192,372" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="478,400 192,472" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="690,320 750,280" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="2 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

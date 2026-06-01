@@ -132,7 +132,8 @@ dead_letters  (DLQ：超過重試上限的投遞，供人工/自動重送)
   <div class="box"><span class="label">為何 delivery 與 event 分開</span>一個事件 fan-out 成 N 筆 delivery，每筆獨立重試/獨立 DLQ；<code>event_id</code> 全程不變，正是接收方做冪等去重的鍵。<code>endpoint_id</code> 同時是分區鍵 → 保證「同端點順序」並把慢端點隔離在自己的分區。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 事件來源 ──▶ Ingest API ──▶ Fan-out ──▶ 投遞佇列（依 endpoint 分區）
                                               │
                                               ▼

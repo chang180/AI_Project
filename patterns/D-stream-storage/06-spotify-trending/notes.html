@@ -108,7 +108,8 @@ trending_cache  (key = window:region)
   <div class="box"><span class="label">為何不進主庫</span>播放事件是極高頻 append-only，寫 OLTP 會被壓垮；走 Kafka 緩衝 + 串流聚合，最終只把「<strong>已算好的 Top-K</strong>」物化進 Redis 供讀。原始事件可另存列式/時序庫（ClickHouse）供離線精算對帳。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 播放(寫) ─▶ 事件收集 ─▶ Kafka(依 song_id 分區) ─▶ 串流聚合(Flink)
                                                         │  Count-Min Sketch 估頻率
                                                         │  + 滑動視窗 / 時間衰減

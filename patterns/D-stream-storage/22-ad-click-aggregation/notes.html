@@ -114,7 +114,8 @@ billing_olap （列式 OLAP，如 ClickHouse / Druid）
   <div class="box"><span class="label">為何分三套狀態</span>去重、風控、聚合是管線中<strong>三個獨立關卡</strong>，各自有不同的 key（click_id / ip / ad_id+window）與不同的生命週期（去重狀態短 TTL、聚合結果長存）。混在一起會讓任一個爆掉時拖垮全部。原始事件另存物件儲存供批次層重算對帳。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 點擊(寫) ─▶ 收集服務 ─▶ Kafka(依 ad_id 分區) ─▶ 去重(click_id 冪等)
                                                     │
                                                     ▼

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 1008 492" width="1008" height="492" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+</defs>
+<rect x="16" y="0" width="1008" height="492" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">分散式訊息佇列 Kafka — 高階架構（produce=藍 consume=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="150" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="162" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Producer</tspan>
+<tspan x="115" dy="18.75">produce(key)</tspan>
+</text>
+<text x="200" y="118" font-size="14" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="200" dy="0">partition = crc32(key) % N</tspan>
+</text>
+<rect x="360" y="96" width="380" height="290" rx="8" fill="#f1f3f5" stroke="#495057" stroke-width="1" stroke-dasharray="8 6"/>
+<text x="374" y="104" font-size="14" fill="#495057" text-anchor="start" dominant-baseline="hanging">
+<tspan x="374" dy="0">Broker — topic: orders（3 個分區，各為 append-only log）</tspan>
+</text>
+<rect x="380" y="138" width="340" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="392" y="152" font-size="14" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="392" dy="0">P0  [off0][off1][off2] →（分區內有序）</tspan>
+</text>
+<rect x="380" y="204" width="340" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="392" y="218" font-size="14" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="392" dy="0">P1  [off0][off1][off2][off3] →  同 key 永遠落此</tspan>
+</text>
+<rect x="380" y="270" width="340" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="392" y="284" font-size="14" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="392" dy="0">P2  [off0][off1] →</tspan>
+</text>
+<rect x="360" y="414" width="380" height="54" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="550" y="428" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="550" dy="0">ZooKeeper / KRaft：選主、分區指派、成員/rebalance 協調</tspan>
+</text>
+<rect x="800" y="138" width="200" height="84" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="902" y="150" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="902" dy="0">Consumer Group A</tspan>
+<tspan x="902" dy="17.5">offset 游標</tspan>
+<tspan x="902" dy="17.5">P0:2 P1:4 P2:1</tspan>
+</text>
+<rect x="800" y="268" width="200" height="84" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="902" y="280" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="902" dy="0">Consumer Group B</tspan>
+<tspan x="902" dy="17.5">offset 游標</tspan>
+<tspan x="902" dy="17.5">P0:0 …（可重放）</tspan>
+</text>
+<polyline points="192,182 378,232" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="722,166 798,178" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="722,232 798,192" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="722,298 798,310" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="722,172 798,302" fill="none" stroke="#2f9e44" stroke-width="2" stroke-dasharray="2 6" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="550,414 550,388" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

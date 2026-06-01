@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 738 494" width="738" height="494" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="738" height="494" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">分散式排程器 / Cron — 高階架構（主流程=藍 回應=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="110" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">排程定義</tspan>
+<tspan x="120" dy="18.75">(interval/cron)</tspan>
+</text>
+<rect x="280" y="110" width="170" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="365" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="365" dy="0">Job Store (DB)</tspan>
+<tspan x="365" dy="18.75">index: next_run</tspan>
+</text>
+<rect x="530" y="110" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="620" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="620" dy="0">Scheduler</tspan>
+<tspan x="620" dy="18.75">掃描到點→產生 fire</tspan>
+</text>
+<rect x="530" y="24" width="180" height="54" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="620" y="32" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="620" dy="0">Leader 選舉</tspan>
+<tspan x="620" dy="17.5">(etcd/ZK 協調)</tspan>
+<tspan x="620" dy="17.5">避免重複掃描</tspan>
+</text>
+<rect x="280" y="250" width="430" height="110" rx="8" fill="#d3f9d8" stroke="#2f9e44" stroke-width="2"/>
+<text x="496" y="262" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="496" dy="0">多 Worker 競爭 claim 同一個 fire</tspan>
+</text>
+<rect x="300" y="296" width="110" height="50" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="355" y="310" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="355" dy="0">Worker w1 ✓</tspan>
+</text>
+<rect x="430" y="296" width="110" height="50" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="485" y="310" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="485" dy="0">Worker w2 ✗</tspan>
+</text>
+<rect x="560" y="296" width="130" height="50" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="625" y="310" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="625" dy="0">Worker w3 ✗</tspan>
+</text>
+<rect x="280" y="410" width="200" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="380" y="420" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="380" dy="0">鎖 + fencing token + 租約</tspan>
+<tspan x="380" dy="17.5">只一個成功 → 執行</tspan>
+</text>
+<rect x="530" y="410" width="200" height="60" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="630" y="420" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="630" dy="0">worker 當掉 / 租約過期</tspan>
+<tspan x="630" dy="17.5">→ misfire 補跑 + 接管</tspan>
+</text>
+<polyline points="202,142 278,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="452,142 528,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="620,110 620,78" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="560,174 485,250" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="360" y="200" font-size="13" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="360" dy="0">分派（依 shard）</tspan>
+</text>
+<polyline points="355,346 355,408" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="600,346 630,408" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

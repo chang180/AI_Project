@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 884 414" width="884" height="414" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="884" height="414" fill="#ffffff"/>
+<text x="40" y="24" font-size="20" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">分散式鎖 + 服務發現 — 協調服務(Raft 複製=黃)：主流程=藍 回應=綠</tspan>
+</text>
+<rect x="360" y="80" width="470" height="120" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="376" y="88" font-size="14" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="376" dy="0">協調服務叢集 etcd/ZooKeeper（CP，Raft 多數決複製）</tspan>
+</text>
+<rect x="382" y="120" width="130" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="447" y="138" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="447" dy="0">Node1 Leader</tspan>
+</text>
+<rect x="532" y="120" width="130" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="597" y="138" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="597" dy="0">Node2 Follower</tspan>
+</text>
+<rect x="682" y="120" width="130" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="747" y="138" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="747" dy="0">Node3 Follower</tspan>
+</text>
+<polyline points="512,148 532,148" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="662,148 682,148" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<rect x="40" y="110" width="150" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="128" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client A (持鎖者)</tspan>
+</text>
+<rect x="40" y="210" width="150" height="56" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="228" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">Client B (接手者)</tspan>
+</text>
+<rect x="360" y="270" width="180" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="450" y="282" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="450" dy="0">下游受保護資源</tspan>
+<tspan x="450" dy="17.5">(只收更大 token)</tspan>
+</text>
+<rect x="620" y="270" width="180" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="710" y="282" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="710" dy="0">呼叫端</tspan>
+<tspan x="710" dy="17.5">(discover 存活實例)</tspan>
+</text>
+<polyline points="192,132 378,130" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="210" y="96" font-size="13" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="210" dy="0">acquire → 拿 token</tspan>
+</text>
+<polyline points="192,236 362,146 832,244" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="230,166 430,270" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="210" y="196" font-size="13" fill="#1971c2" text-anchor="start" dominant-baseline="hanging">
+<tspan x="210" dy="0">帶 token 寫資源</tspan>
+</text>
+<polyline points="710,270 710,200" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="716" y="220" font-size="13" fill="#2f9e44" text-anchor="start" dominant-baseline="hanging">
+<tspan x="716" dy="0">watch / discover</tspan>
+</text>
+<text x="360" y="350" font-size="13" fill="#e03131" text-anchor="start" dominant-baseline="hanging">
+<tspan x="360" dy="0">★ fencing：A 租約過期後拿舊(小)token 來寫 → 資源比大小拒絕 → 資料安全</tspan>
+</text>
+</svg>

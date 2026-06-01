@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 788 584" width="788" height="584" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="788" height="584" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">分散式 KV — 一致性雜湊環 + quorum + 向量時鐘（寫=藍 讀=綠 基建=黃）</tspan>
+</text>
+<ellipse cx="240" cy="290" rx="180" ry="180" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6"/>
+<text x="245" y="280" font-size="14" fill="#e8590c" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="245" dy="0">雜湊環 0~2^32-1</tspan>
+<tspan x="245" dy="17.5">(每節點多個 vnode)</tspan>
+</text>
+<ellipse cx="246" cy="110" rx="14" ry="14" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="246" y="102" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="246" dy="0">A</tspan>
+</text>
+<ellipse cx="374" cy="164" rx="14" ry="14" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="375" y="156" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="375" dy="0">B</tspan>
+</text>
+<ellipse cx="406" cy="314" rx="14" ry="14" fill="#eebefa" stroke="#9c36b5" stroke-width="2"/>
+<text x="407" y="306" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="407" dy="0">C</tspan>
+</text>
+<ellipse cx="314" cy="454" rx="14" ry="14" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="315" y="446" font-size="12" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="315" dy="0">A&apos;</tspan>
+</text>
+<ellipse cx="134" cy="434" rx="14" ry="14" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="135" y="426" font-size="12" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="135" dy="0">B&apos;</tspan>
+</text>
+<ellipse cx="74" cy="264" rx="14" ry="14" fill="#eebefa" stroke="#9c36b5" stroke-width="2"/>
+<text x="75" y="256" font-size="12" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="75" dy="0">C&apos;</tspan>
+</text>
+<ellipse cx="309" cy="129" rx="9" ry="9" fill="#1e1e1e" stroke="#1e1e1e" stroke-width="2"/>
+<text x="330" y="80" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="330" dy="0">hash(key) 落點</tspan>
+</text>
+<rect x="520" y="110" width="170" height="70" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="605" y="124" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="605" dy="0">協調者 (任一節點)</tspan>
+<tspan x="605" dy="17.5">put(key,value)</tspan>
+</text>
+<rect x="520" y="220" width="240" height="90" rx="8" fill="#d0ebff" stroke="#1971c2" stroke-width="2"/>
+<text x="640" y="232" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="640" dy="0">preference list = [A, B, C]</tspan>
+<tspan x="640" dy="16.25">順時針取前 N 個不同節點</tspan>
+<tspan x="640" dy="16.25">寫 N 副本，W 個 ack 即成功</tspan>
+</text>
+<rect x="520" y="350" width="240" height="60" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="640" y="362" font-size="13" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="640" dy="0">quorum：W+R &gt; N</tspan>
+<tspan x="640" dy="16.25">→ 讀寫副本集合必重疊</tspan>
+</text>
+<rect x="460" y="450" width="320" height="110" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="470" y="460" font-size="13" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="470" dy="0">get(key) 走 R 副本，比向量時鐘：</tspan>
+<tspan x="470" dy="16.25">{A:1} vs {A:1,B:1} → 後者較新 (取代)</tspan>
+<tspan x="470" dy="16.25">{A:1} vs {B:1} → 並發 → 回兩個 sibling</tspan>
+<tspan x="470" dy="16.25">read repair：把落後副本補上</tspan>
+</text>
+<polyline points="318,129 518,129" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="605,180 605,220" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="640,310 640,350" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="620,410 620,450" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 838 502" width="838" height="502" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+</defs>
+<rect x="16" y="0" width="838" height="502" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">Snowflake 唯一 ID 產生器 — 高階架構（寫=藍 讀=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="90" width="200" height="70" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="140" y="104" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="140" dy="0">App Server #1</tspan>
+<tspan x="140" dy="17.5">(內嵌 Snowflake, machineId=1)</tspan>
+</text>
+<rect x="40" y="180" width="200" height="70" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="140" y="194" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="140" dy="0">App Server #2</tspan>
+<tspan x="140" dy="17.5">(內嵌 Snowflake, machineId=2)</tspan>
+</text>
+<rect x="40" y="270" width="200" height="70" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="140" y="284" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="140" dy="0">App Server #N</tspan>
+<tspan x="140" dy="17.5">(內嵌 Snowflake, machineId=N)</tspan>
+</text>
+<rect x="360" y="180" width="180" height="70" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="450" y="194" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="450" dy="0">各自於本機記憶體取號</tspan>
+<tspan x="450" dy="17.5">→ 全域唯一 ID</tspan>
+<tspan x="450" dy="17.5">(無中心協調)</tspan>
+</text>
+<rect x="40" y="400" width="200" height="70" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="140" y="414" font-size="14" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="140" dy="0">ZooKeeper / etcd</tspan>
+<tspan x="140" dy="17.5">開機時分配唯一 machineId</tspan>
+<tspan x="140" dy="17.5">(ephemeral 節點, 心跳回收)</tspan>
+</text>
+<text x="360" y="360" font-size="16" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="360" dy="0">64-bit 位元佈局</tspan>
+</text>
+<rect x="360" y="390" width="40" height="56" rx="0" fill="#ced4da" stroke="#343a40" stroke-width="2"/>
+<text x="380" y="408" font-size="11" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="380" dy="0">1</tspan>
+<tspan x="380" dy="13.75">sign</tspan>
+</text>
+<rect x="400" y="390" width="200" height="56" rx="0" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="500" y="408" font-size="12" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="500" dy="0">41 bits 時間戳(ms)</tspan>
+</text>
+<rect x="600" y="390" width="110" height="56" rx="0" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="655" y="408" font-size="12" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="655" dy="0">10 bits 機器 id</tspan>
+</text>
+<rect x="710" y="390" width="120" height="56" rx="0" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="770" y="408" font-size="12" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="770" dy="0">12 bits 序號</tspan>
+</text>
+<text x="360" y="458" font-size="13" fill="#495057" text-anchor="start" dominant-baseline="hanging">
+<tspan x="360" dy="0">id = ((ts - EPOCH) &lt;&lt; 22) | (machineId &lt;&lt; 12) | seq</tspan>
+</text>
+<polyline points="242,125 358,190" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="242,215 358,215" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="242,305 358,240" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="140,400 134,340" fill="none" stroke="#e8590c" stroke-width="2" stroke-dasharray="8 6" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="150" y="356" font-size="12" fill="#e8590c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="150" dy="0">註冊 / 領取 machineId</tspan>
+</text>
+</svg>

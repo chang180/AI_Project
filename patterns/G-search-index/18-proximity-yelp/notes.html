@@ -110,7 +110,8 @@ geohash 桶 → [place_id, ...]      # 同前綴 = 地理鄰近
   <div class="box"><span class="label">為何預存 geohash</span>把座標在<strong>寫入時</strong>就編成 geohash 字串並建索引，查詢就退化成「字串前綴比對」——可直接用一般 B-Tree / 排序集，不需要特殊空間資料庫。屬性（評分/類別）留在同一列，過濾時順手做掉。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 寫(低頻) ─▶ 地點寫入服務 ─▶ 算 geohash ─▶ 地點DB(主) ─┐
                                   │                      ├─▶ 索引更新(桶)
                                   └──────────────────────┘

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊳ 網頁搜尋引擎（全鏈）· 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅻 圖/大規模演算法</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊳ 網頁搜尋引擎（全鏈）：分片倒排索引、scatter-gather、PageRank 與融合排序</h1>
+  <p class="subtitle">
+    <span class="tag group">L 圖/演算法</span>
+    <span class="tag time">建議 52 分鐘</span>
+    <span class="tag">Design a Web Search Engine</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>爬 → 索引 → 排序 → 服務</strong>」的全鏈題：把第 ㉖ 題的倒排索引 + BM25
+    放大到「<strong>單機放不下</strong>」的規模（→ 索引<em>分片</em> + <em>scatter-gather</em> 查詢），
+    並回答 Web 特有的問題——「哪頁更<strong>權威</strong>？」（→ 在連結圖上算 <em>PageRank</em>）。
+    最終排序＝<strong>相關性（BM25）＋ 權威（PageRank）的融合</strong>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>網頁搜尋 vs 站內搜尋</h3>
+  <ul>
+    <li><strong>站內搜尋</strong>（㉖ Twitter Search）：文件你自己擁有、結構化、無「連結圖」、排序幾乎只看相關性。</li>
+    <li><strong>網頁搜尋</strong>（本題）：文件來自<em>外部、海量、互相超連結</em>。
+      你得先<strong>爬</strong>（crawl）回來，還要回答「哪些頁更<strong>可信/權威</strong>」——同樣相關時，
+      被很多高品質頁連入的頁該排前面。這就是 PageRank 切入點。</li>
+  </ul>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>爬取網頁、建立可查詢的索引（爬蟲本身是第 ㊲ 題，本題假設文件已抓回）。</li>
+    <li>輸入關鍵字 → 回傳相關網頁，依<strong>相關性 + 權威</strong>排序。</li>
+    <li>支援布林查詢（AND / OR）、可調相關性與權威的權重。</li>
+    <li>近即時：新爬到的頁應在可接受延遲內可被搜到。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：查詢 p99 &lt; 200ms（含 scatter 到所有 shard + gather 合併）。</li>
+    <li><strong>高吞吐</strong>：查詢 QPS 高（讀遠多於寫），熱門查詢重複度高 → 快取效益大。</li>
+    <li><strong>可擴展</strong>：索引大到單機放不下 → 必須<strong>分片</strong>水平擴展。</li>
+    <li><strong>相關性品質</strong>：排序好不好是搜尋引擎的命脈（相關性 + 權威）。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「是站內搜尋還是<strong>網頁</strong>搜尋？」決定了要不要連結圖與 PageRank。
+    若是網頁搜尋，接著問規模——大到要分片嗎？要的話 scatter-gather 與全域統計（df/avgdl）的維護就是重點。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>網頁規模</td><td>可索引網頁 ~500 億</td><td>倒排索引（含位置）約數百 TB ~ PB 級</td></tr>
+    <tr><td>索引分片數</td><td>單 shard 控在 ~50GB 以利查詢延遲</td><td>數百 TB ÷ 50GB ≈ <strong>數千個 shard</strong>（再 ×副本）</td></tr>
+    <tr><td>查詢 QPS</td><td>~10 萬 QPS（峰值）</td><td>每查詢 scatter 到所有 shard → shard 內部 QPS = 外部 QPS（每片都被打）</td></tr>
+    <tr><td>延遲預算</td><td>p99 200ms</td><td>scatter+各 shard 評分 ~100ms + gather 合併 ~30ms + 融合排序/取摘要 ~50ms</td></tr>
+    <tr><td>PageRank</td><td>500 億節點、~數兆條邊</td><td>離線批次（如 MapReduce/Pregel）算，<strong>不在查詢路徑上</strong>，數十次迭代收斂</td></tr>
+    <tr><td>快取命中</td><td>查詢高度集中（長尾 + 熱門）</td><td>熱門查詢快取命中率可 30~60%，直接省掉整個 scatter-gather</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    兩個量級決定設計：① 索引<strong>太大 → 分片 + scatter-gather</strong>；
+    ② PageRank <strong>太重 → 離線預算好</strong>，查詢時只是「查一個分數」。
+    相關性（BM25）即時算、權威（PageRank）離線備好，查詢時融合。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 查詢（讀，超高頻；α/β 調相關性 vs 權威權重）
+GET /api/v1/search?q=distributed+systems&op=or&alpha=0.7&beta=0.3
+→ 200 {
+    "query": "distributed systems",
+    "perShardCandidates": { "0": 12, "1": 9, ... },   # scatter 各片取回幾筆
+    "results": [
+      { "id": 4821, "title": "...", "bm25": 8.91, "pagerank": 0.0123,
+        "score": 0.86 }, ...                            # gather 後融合排序
+    ],
+    "cached": false
+  }
+
+# 提交/更新文件（寫，建索引；含外連 links 供連結圖）
+POST /api/v1/documents   Body: { "url": "...", "title": "...",
+                                  "body": "...", "links": ["url1","url2"] }
+
+# 觸發 PageRank 重算（離線/批次，非查詢路徑）
+POST /api/v1/pagerank    Body: { "damping": 0.85 }
+
+# 狀態（分片分布、PageRank 中繼、快取統計）
+GET /api/v1/state
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code># 文件儲存
+documents
+  doc_id      BIGINT PRIMARY KEY
+  url, title, body
+  out_links   doc_id[]            -- 連到哪些頁（建連結圖用）
+
+# 分片倒排索引：文件依 hash(doc_id) % N 分到 shard
+shard[s].postings   term → { doc_id → tf }     -- 各 shard 只存自己那批
+shard[s].doc_len    doc_id → 詞數              -- BM25 長度正規化用
+# 全域統計（跨 shard）：df(term)、avgdl、N  -- BM25 的 idf 需全域視角
+
+# 連結圖 + PageRank（離線算）
+link_graph          doc_id → [被指向的 doc_id...]
+pagerank            doc_id → 權威分數（冪次迭代收斂結果）
+
+# 查詢結果快取
+query_cache         hash(normalized_query, α, β) → results</code></pre>
+  <div class="box"><span class="label">為何 BM25 的 df/avgdl 要「全域」</span>
+    BM25 的 idf 衡量「一個詞在<strong>整個語料</strong>多稀有」。若每個 shard 只用自己局部的 df，
+    同一個詞在不同 shard 會有不同 idf → 跨 shard 分數不可比、合併會錯。
+    所以 df/avgdl 必須是<strong>全域</strong>（分散維護或近似），各 shard 才能算出可合併的 BM25。
+  </div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code> 建索引（寫）
+   Crawler ──▶ Indexer(切詞) ──▶ 分片倒排索引 [shard0][shard1]...[shardN]
+                                  │
+                  連結圖 ──▶ PageRank(冪次迭代, 離線) ──▶ 權威分數表
+
+ 查詢（讀）
+   Client ─▶ 解析(AND/OR)+查快取 ─(miss)▶ 協調者
+                                            │  scatter（送到所有 shard）
+                          ┌─────────┬───────┴───────┬─────────┐
+                       shard0     shard1          ...        shardN
+                       局部BM25   局部BM25                   局部BM25
+                          └─────────┴──────gather──────┴─────────┘
+                                            │
+                       融合排序  score = α·BM25 + β·PageRank
+                                            │
+                                      寫入查詢快取 ─▶ 回 Client</code></pre>
+  <ol>
+    <li><strong>建索引路徑</strong>：Crawler 抓頁 → Indexer 切詞 → 依 docId 雜湊寫進對應 shard 的倒排索引；連結另存連結圖。</li>
+    <li><strong>PageRank（離線）</strong>：在連結圖上冪次迭代算每頁權威分，存成分數表，<em>不在查詢路徑</em>。</li>
+    <li><strong>查詢路徑</strong>：解析 → 查快取 →（miss）協調者 scatter 到所有 shard → 各 shard 局部 BM25 → gather 合併 → 融合 BM25+PageRank 排序 → 回填快取。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>倒排索引分片與 scatter-gather</h3>
+  <ul>
+    <li><strong>分片</strong>：文件依 <code>hash(doc_id) % N</code> 散到 N 個 shard，每個 shard 只持有自己那批文件的 <code>term → postings</code>。好處是索引可水平擴展、寫入分散。</li>
+    <li><strong>scatter（散開）</strong>：因為某個 term 的文件分散在所有 shard，協調者必須把查詢<em>送到每一個 shard</em>（document-partitioned 分片下，每片都要查）。</li>
+    <li><strong>gather（收集）</strong>：各 shard 在局部索引上用<strong>全域 df/avgdl</strong>算 BM25，取出局部 top-K 候選回傳，協調者合併成全域候選。</li>
+    <li><strong>取捨</strong>：document-partition（依文件分片，本題採用）→ 每查詢打所有 shard、但寫入簡單；term-partition（依詞分片）→ 查詢只打含該詞的 shard、但熱門詞 shard 易成熱點、且多詞查詢要跨片交集，工程更複雜。業界主流是 document-partition。</li>
+  </ul>
+  <h3>PageRank：冪次迭代（本題演算法重點）</h3>
+  <p>把 Web 看成有向圖（頁=節點、連結=邊）。一頁被越多「高權威」頁連入，自己越權威。迭代公式：</p>
+  <pre><code>PR(p) = (1 - d)/N  +  d · Σ_{q→p}  PR(q) / outDeg(q)
+
+ d        = 阻尼係數(0.85)：隨機衝浪者「沿連結走」的機率
+ (1-d)    = 「厭倦後隨機跳到任一頁」的機率（保證收斂、處理孤島）
+ q→p      = 所有指向 p 的頁
+ outDeg(q)= q 的出連結數（把自己的分數平均分給連到的每頁）</code></pre>
+  <ul>
+    <li><strong>冪次迭代</strong>：初始全部 PR=1/N，反覆套公式，直到分數變化（L1 距離）&lt; ε 收斂。數學上是在逼近轉移矩陣的主特徵向量。</li>
+    <li><strong>dangling node</strong>（無出連結的頁，outDeg=0）：分數無處可流會「漏掉」，處理法是把所有 dangling 的質量收集起來、平均灑回全圖（等價它連向所有頁），確保總質量守恆。</li>
+    <li><strong>離線算</strong>：迭代成本高（每輪掃全圖），所以批次預算好存表，查詢時只是查一個分數。</li>
+  </ul>
+  <h3>BM25 + PageRank 融合排序</h3>
+  <ul>
+    <li><strong>BM25</strong> 回答「這頁跟<em>查詢</em>多相關」（詞頻 tf、稀有度 idf、長度正規化）。</li>
+    <li><strong>PageRank</strong> 回答「這頁本身多<em>有份量</em>」（與查詢無關的全域權威）。</li>
+    <li><strong>融合</strong>：兩者量綱不同，先各自正規化到 [0,1]，再 <code>score = α·normBM25 + β·normPageRank</code>。
+      調大 β → 權威頁上升（適合導航類查詢）；調大 α → 純比相關（適合長尾精準查詢）。</li>
+  </ul>
+  <h3>查詢理解</h3>
+  <ul>
+    <li>解析布林運算（AND=交集、OR=聯集）、正規化（小寫、去 stopwords、切詞）。</li>
+    <li>進階（本題點到為止）：拼字校正、同義詞擴展、查詢意圖分類，都在送進索引前的「查詢重寫」階段。</li>
+  </ul>
+  <h3>結果快取</h3>
+  <p>以 <code>hash(正規化查詢 + α + β)</code> 為鍵存結果。查詢分布高度集中（熱門詞重複度高），命中即<strong>跳過整個 scatter-gather</strong>，是最便宜的延遲優化。需配合 TTL / 索引更新時失效。</p>
+  <h3>近即時索引</h3>
+  <p>新爬到的頁先進「增量小索引」（可立即查），背景再合併進主分片並重算受影響的統計；PageRank 則週期性批次重算（連結圖變動慢，容忍延遲）。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td>索引分片數</td><td>單 shard 太大 → 查詢慢；太多 → gather 合併成本高</td><td>把單 shard 控在可接受查詢延遲的大小（如 ~50GB），分片數隨語料線性增長 + 加副本擴讀</td></tr>
+    <tr><td>跨 shard 合併</td><td>scatter 到上千 shard，gather 要等最慢的</td><td>各 shard 只回局部 top-K（減少傳輸）；尾延遲用 hedged request / 部分結果先回</td></tr>
+    <tr><td>長尾查詢</td><td>罕見查詢快取無法命中、每次都全 scatter</td><td>提前計算/快取熱門詞 postings；長尾靠分片平行攤平</td></tr>
+    <tr><td>熱門查詢</td><td>同一查詢被打爆</td><td>查詢結果快取（命中跳過整條路徑）+ 邊緣快取</td></tr>
+    <tr><td>全域統計維護</td><td>df/avgdl 是全域的，分片後難維護</td><td>分散維護或<strong>近似</strong>全域 df（容許小誤差換可擴展）</td></tr>
+    <tr><td>PageRank 規模</td><td>兆級邊、算不動</td><td>離線分散式（Pregel/MapReduce），週期重算，不進查詢路徑</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>相關性 vs 權威（α vs β）</strong>：β 太大 → 萬年熱門頁霸榜、長尾好內容被埋；α 太大 → 內容農場靠關鍵字堆砌也能上。實務還會加上點擊回饋、新鮮度等更多訊號，BM25+PageRank 只是骨架。</li>
+    <li><strong>精確 vs 延遲</strong>：各 shard 只回局部 top-K 是「近似」——理論上可能漏掉某 shard 第 K+1 名其實全域夠前的文件；換來的是傳輸與合併大幅變便宜。實務 K 取夠大即可忽略。</li>
+    <li><strong>分片數 vs 合併成本</strong>：分片越多越能平行、單片越快，但 gather 要協調的片越多、尾延遲風險越高。是一個 U 形權衡。</li>
+    <li><strong>document-partition vs term-partition</strong>：前者每查詢打所有 shard 但簡單、無熱點；後者查詢只打相關 shard 但熱門詞成熱點、多詞查詢跨片複雜。主流選前者。</li>
+    <li><strong>常見追問</strong>：BM25 的 idf 為何要全域？（跨 shard 可比）。PageRank 為何離線？（迭代太重、連結圖變動慢）。dangling node 怎麼處理？（質量灑回全圖）。如何近即時？（增量索引 + 背景合併）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 聚焦<strong>全鏈核心邏輯</strong>（也是面試真正的考點），可用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/PageRank.php</code>　在連結圖上用<strong>冪次迭代</strong>算 PageRank（damping 0.85、處理 dangling node、L1 收斂判定）。</li>
+    <li><code>src/ShardedIndex.php</code>　倒排索引<strong>分片</strong>（crc32(docId)%N）+ <strong>scatter-gather</strong> 查詢（各 shard 用全域 df/avgdl 算局部 BM25）+ <strong>BM25×PageRank 融合排序</strong>（α/β 可調）+ AND/OR 解析 + 查詢結果快取。</li>
+    <li><code>public/index.php</code>　路由：<code>GET /</code>（測試頁）、<code>POST /api/doc</code>、<code>POST /api/pagerank</code>、<code>GET /api/search?q=&amp;alpha=&amp;beta=</code>、<code>GET /api/state</code>；預設塞數篇互相連結的範例文件並算好 PageRank。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8038 -t public
+# 瀏覽器開 http://localhost:8038：
+#   ① 看文件連結圖與 PageRank　② 看分片分布
+#   ③ 同一查詢比「純 BM25」vs「BM25+PageRank 融合」的排序變化
+#   ④ 自己查詢調 α/β、AND/OR，第二次同查詢看 cached:true</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 為<strong>單機模擬多個 shard</strong>（用迴圈代替「平行送到不同機器」），規模小、用 JSON 檔當索引。
+    但<strong>分片、scatter-gather、BM25 評分、PageRank 冪次迭代、BM25×PageRank 融合排序、查詢快取</strong>
+    都是<strong>真實可執行的系統邏輯</strong>。零依賴：僅 PHP 內建 <code>json</code> + <code>hash</code>，
+    切詞用 ASCII <code>strtolower</code> + <code>preg_split</code>，共享狀態用 <code>flock</code>。
+  </div>
+
+  <footer>㊳ Web Search Engine · L 圖/大規模演算法 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 0 898 508" width="898" height="508" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+</defs>
+<rect x="16" y="0" width="898" height="508" fill="#ffffff"/>
+<text x="40" y="24" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">秒殺 / 搶票 — 高階架構（下單寫入=藍 查詢/落單=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="110" width="160" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="120" y="130" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">百萬 User (搶購)</tspan>
+</text>
+<rect x="250" y="110" width="180" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="340" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="340" dy="0">入場令牌 / 排隊</tspan>
+<tspan x="340" dy="18.75">(削峰, 限量發放)</tspan>
+</text>
+<rect x="480" y="110" width="170" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="565" y="122" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">下單服務 (無狀態)</tspan>
+<tspan x="565" dy="18.75">冪等鍵去重</tspan>
+</text>
+<rect x="480" y="270" width="170" height="70" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="565" y="282" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">庫存熱 key (Redis)</tspan>
+<tspan x="565" dy="18.75">remaining 原子扣減</tspan>
+</text>
+<rect x="480" y="420" width="170" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="565" y="432" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="565" dy="0">MQ (非同步落單)</tspan>
+<tspan x="565" dy="18.75">削峰填谷</tspan>
+</text>
+<rect x="730" y="420" width="160" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="810" y="440" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="810" dy="0">訂單 DB (最終一致)</tspan>
+</text>
+<rect x="40" y="270" width="160" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="120" y="282" font-size="15" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="120" dy="0">查庫存 (高頻讀)</tspan>
+<tspan x="120" dy="18.75">走快取</tspan>
+</text>
+<text x="250" y="210" font-size="15" fill="#c2255c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="250" dy="0">★ 防超賣：remaining&gt;0 才扣 (CAS)</tspan>
+</text>
+<text x="480" y="84" font-size="14" fill="#c2255c" text-anchor="start" dominant-baseline="hanging">
+<tspan x="480" dy="0">★ 冪等鍵：重送不重複扣</tspan>
+</text>
+<polyline points="202,142 248,142" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="432,142 478,142" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="565,176 565,268" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="565,342 565,418" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="652,452 728,452" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="120,268 120,178" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="478,300 200,300" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

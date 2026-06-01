@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉜ LSM-tree 儲存引擎 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉜ LSM-tree 儲存引擎：為寫密集而生的儲存結構</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag time">建議 50 分鐘</span>
+    <span class="tag">Design an LSM-tree Storage Engine</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>把隨機寫變成順序寫</strong>」的儲存引擎：寫只 append 到日誌與記憶體，
+    再批次刷成<em>不可變</em>檔，讀時靠 <strong>bloom filter</strong> 與 <strong>compaction</strong> 控制讀放大。
+    這是 RocksDB / LevelDB / Cassandra / HBase 的共同底座，也是「寫優化 vs 讀優化」取捨的經典題。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（為何用 LSM）</a></li>
+      <li><a href="#estimate">規模估算（寫放大 / 空間）</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型（WAL / memtable / SSTable / 稀疏索引 / bloom）</a></li>
+      <li><a href="#arch">高階架構（寫路徑 vs 讀路徑）</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點（LSM vs B-tree）</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>提供 KV 介面：<code>put(key, value)</code>、<code>get(key)</code>、<code>delete(key)</code>。</li>
+    <li>持久化：寫入後即使行程崩潰/斷電也不丟資料。</li>
+    <li>支援範圍掃描（key 有序，可 scan）。</li>
+    <li>刪除：能標記某 key 為已刪除，之後讀不到。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高寫入吞吐</strong>：寫密集場景（時序、日誌、訊息、計數器、Cassandra 類工作負載）。</li>
+    <li><strong>可接受的讀延遲</strong>：讀比 B-tree 稍慢可接受，但要可控（靠 bloom + compaction）。</li>
+    <li><strong>空間可控</strong>：過期/被刪版本要能回收（compaction）。</li>
+    <li><strong>崩潰可復原</strong>：未落盤的寫能由 WAL 重播。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「這是寫密集還是讀密集？」決定選 LSM 還是 B-tree。<strong>寫多 → LSM</strong>（順序寫、寫放大低）；
+    <strong>讀多、要單筆低延遲 → B-tree</strong>（一次樹查找）。把這句講清楚，整題基調就定了。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算 / 意義</th></tr>
+    <tr><td>寫入吞吐</td><td>每筆 200 bytes，5 萬寫/秒</td><td>~10 MB/s 進 WAL（順序寫，HDD 也扛得住）</td></tr>
+    <tr><td>memtable 大小</td><td>64 MB 滿即 flush</td><td>每 ~6 秒產生一個 SSTable</td></tr>
+    <tr><td><strong>寫放大</strong></td><td>leveled，每層放大 ~10×，4 層</td><td>同一筆資料一生會被 compaction 重寫多次 → 寫放大 ~10～30×</td></tr>
+    <tr><td><strong>讀放大</strong></td><td>無 compaction 時，N 個 SSTable</td><td>最壞要查 N 個檔 + memtable；bloom 把多數降到 ~1 次磁碟讀</td></tr>
+    <tr><td><strong>空間放大</strong></td><td>舊版本/tombstone 未回收</td><td>compaction 前可能存多份；壓實後回收</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    LSM 把成本從「寫入當下」<strong>延後</strong>到背景的 compaction。寫變快，但代價是
+    <strong>寫放大</strong>（資料被重寫多次）與 <strong>讀放大</strong>（要查多層）。整題就是在調這三角。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 寫入 / 覆寫
+put(key, value)        # WAL append → memtable[key] = value
+
+# 刪除（不是真的清掉，而是寫 tombstone）
+delete(key)            # WAL append → memtable[key] = TOMBSTONE
+
+# 讀取
+get(key) -> value | NOT_FOUND
+  先查 memtable；未命中則由新到舊掃 SSTable（bloom 先過濾）；
+  第一個命中版本即答案（若是 tombstone → NOT_FOUND）。
+
+# 範圍掃描（key 有序才做得到）
+scan(start, end) -> 合併 memtable 與各 SSTable 的有序串流（取每個 key 最新版本）
+
+# 維運操作
+flush()    # 手動把 memtable 落成 SSTable
+compact()  # 手動觸發 compaction（合併 SSTable、回收舊版本）
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>WAL（write-ahead log，順序 append）
+  每行一筆：{ op: P|D, key, value }     -- 崩潰時重播回 memtable
+
+memtable（記憶體有序表，常用跳表 SkipList / 紅黑樹）
+  key -> value 或 TOMBSTONE             -- 可變，最新的寫都在這
+
+SSTable（Sorted String Table，落盤後不可變）
+  ├─ data：key 有序的 (key, value) 區塊（可分 block + 壓縮）
+  ├─ sparse index：每隔幾個 key 記一個偏移，用來定位 block（不必每個 key 都索引）
+  └─ bloom filter：此 SSTable 含哪些 key 的機率型摘要（常駐記憶體）
+
+manifest：目前有哪些 SSTable、屬於哪一層、key 範圍</code></pre>
+  <div class="box"><span class="label">為何 SSTable 不可變</span>
+    不可變 = 寫成後永不就地修改 → 沒有隨機寫、好快取、好並行讀、compaction 只是「讀舊檔寫新檔再換掉」。
+    「更新」與「刪除」都靠<strong>寫新版本</strong>（含 tombstone）表達，舊版本留待 compaction 回收。
+  </div>
+
+  <h2 id="arch">5. 高階架構（寫路徑 vs 讀路徑）</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>寫路徑（藍）
+  put/delete ─▶ ① WAL append（順序寫，持久化）
+                 └▶ ② memtable（記憶體有序）
+                       └▶（滿門檻）③ flush ─▶ SSTable_n（不可變）+ index + bloom
+                                              清空 memtable、截斷 WAL
+
+讀路徑（綠）
+  get(key) ─▶ memtable 命中？─是─▶ 回值/NOT_FOUND(tombstone)
+                 └─否─▶ 由新到舊：SSTable_n → … → SSTable_1
+                          每個先問 bloom：mightContain?
+                            false → 跳過（不碰磁碟）
+                            true  → 讀該檔；命中即回（含 tombstone）
+
+背景（黃）
+  compaction：合併多個 SSTable ─▶ 丟棄被覆寫/被刪版本 ─▶ 更少更大的檔</code></pre>
+  <ol>
+    <li><strong>寫</strong>：只碰「append 一行日誌 + 改記憶體」，沒有隨機寫 → 寫吞吐高。</li>
+    <li><strong>讀</strong>：memtable 最新；SSTable 由新到舊，bloom 過濾掉絕大多數不含此 key 的檔。</li>
+    <li><strong>背景</strong>：compaction 持續整理，控制 SSTable 數量（讀放大）與空間。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>WAL 與崩潰復原</h3>
+  <p>每次寫<strong>先</strong> append 到 WAL 才改 memtable。memtable 在記憶體，崩潰會丟；但只要 WAL 在，
+  重啟時把 WAL 重播回 memtable 即可復原。flush 成功後該批資料已在不可變 SSTable，WAL 即可截斷。
+  （生產上 WAL 寫入要不要 <code>fsync</code> 是延遲 vs 持久性的取捨。）</p>
+
+  <h3>memtable → SSTable（flush）</h3>
+  <p>memtable 超過門檻（如 64MB）→ 整批<strong>排序</strong>後一次性順序寫成一個 SSTable，
+  同時建稀疏索引與該檔的 bloom filter。期間可先切一個新的 memtable 繼續接寫，不阻塞寫入。</p>
+
+  <h3>bloom filter 省磁碟 I/O</h3>
+  <p>每個 SSTable 配一個常駐記憶體的 bloom filter。讀一個 key 時，先問每個 SSTable 的 bloom
+  「可能有嗎」：<code>false</code> = <strong>一定沒有</strong>，直接跳過、不開檔（省一次磁碟 I/O）；
+  <code>true</code> = 可能有（含<strong>偽陽性</strong>），才真的去讀。沒有 bloom 的話，查一個不存在的 key
+  得把每個 SSTable 都翻一遍，讀放大會爆炸。bloom 不會偽陰性，所以安全。</p>
+
+  <h3>compaction 策略：size-tiered vs leveled</h3>
+  <table>
+    <tr><th>策略</th><th>做法</th><th>偏向</th><th>代表</th></tr>
+    <tr><td><strong>size-tiered</strong></td><td>把大小相近的多個 SSTable 合成更大的一個；同層可有多個重疊 key 範圍</td><td><strong>寫放大低</strong>、空間放大較高、讀放大較高</td><td>Cassandra 預設</td></tr>
+    <tr><td><strong>leveled</strong></td><td>分層 L0/L1/…；每層內 SSTable key 範圍<strong>不重疊</strong>，每層容量約上層 10×</td><td><strong>讀放大低</strong>、空間放大低、寫放大較高</td><td>LevelDB / RocksDB</td></tr>
+  </table>
+  <div class="box"><span class="label">tombstone 何時真的消失</span>
+    刪除只寫一個 tombstone（標記）。compaction 把含此 key 的所有 SSTable 一起合併、且確定沒有更舊副本時，
+    才能把該 key 與 tombstone 一併丟棄。過早丟 tombstone 會讓「已刪的舊值」復活，所以要小心。
+  </div>
+
+  <h3>讀放大 / 寫放大 / 空間放大：三角取捨</h3>
+  <ul>
+    <li><strong>寫放大</strong>：一筆資料被 compaction 重寫的總量倍數。leveled 高、size-tiered 低。</li>
+    <li><strong>讀放大</strong>：一次 get 平均要碰幾個 SSTable。SSTable 越多越糟；compaction 與 bloom 來壓。</li>
+    <li><strong>空間放大</strong>：實際佔用 / 有效資料。舊版本與 tombstone 未回收則高；compaction 來回收。</li>
+    <li>三者<strong>不可能同時最佳</strong>，compaction 策略就是在這三角上選位置。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td>compaction 吃 IO</td><td>背景合併與前台寫搶磁碟頻寬，寫入卡頓（write stall）</td><td>限流 compaction、分離壓實執行緒、用更快磁碟、調整層級觸發門檻</td></tr>
+    <tr><td>讀放大</td><td>SSTable 太多，單次 get 要查很多檔</td><td>加大/更積極 compaction、用 leveled、bloom 調參</td></tr>
+    <tr><td>bloom 調參</td><td>偽陽率太高 → 白讀檔；位元太多 → 吃記憶體</td><td>依每 key bits 與雜湊數 k 平衡偽陽率與記憶體（典型 ~10 bits/key, 1% 偽陽）</td></tr>
+    <tr><td>大 value</td><td>value 大時 compaction 重寫成本高</td><td>KV 分離（如 WiscKey，value 另存 log，LSM 只放 key+指標）</td></tr>
+    <tr><td>單機容量</td><td>資料超過單機</td><td>上層按 key range / hash <strong>分片</strong>，每分片各自一棵 LSM（如 Cassandra/HBase）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <table>
+    <tr><th>面向</th><th>LSM-tree</th><th>B-tree</th></tr>
+    <tr><td>寫入</td><td>順序 append → <strong>快、寫放大低</strong></td><td>就地更新 → 隨機寫、頁分裂，寫放大高</td></tr>
+    <tr><td>讀取</td><td>可能查多層 SSTable（讀放大），靠 bloom 緩解</td><td>一次樹查找 → <strong>讀延遲低且穩定</strong></td></tr>
+    <tr><td>空間</td><td>舊版本/tombstone 需 compaction 回收</td><td>就地更新，空間放大低</td></tr>
+    <tr><td>背景成本</td><td>compaction 持續吃 IO/CPU</td><td>幾乎無背景重寫</td></tr>
+    <tr><td>適用</td><td>寫密集、時序、計數、訊息</td><td>讀密集、交易型、需穩定點查</td></tr>
+  </table>
+  <ul>
+    <li><strong>誰在用 LSM</strong>：RocksDB、LevelDB、Cassandra、HBase、ScyllaDB、InfluxDB、Kafka 索引等。</li>
+    <li><strong>誰在用 B-tree</strong>：MySQL InnoDB、PostgreSQL、多數傳統關聯式 DB 的索引。</li>
+    <li><strong>常見追問</strong>：① 為何不用 fsync 每筆？（延遲 vs 持久性）② tombstone 何時可丟？（確定沒更舊副本）
+      ③ 讀放大怎麼壓？（bloom + compaction + leveled）④ 範圍掃描怎麼做？（多路有序歸併取最新版本）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 把 LSM-tree 的<strong>核心邏輯</strong>用零依賴 PHP 實作，可直接跑：</p>
+  <ul>
+    <li><code>src/Bloom.php</code>　Bloom filter（位元陣列 + 雙重雜湊 crc32/fnv1a32）；<code>add</code> / <code>mightContain</code>，示範「查不到的 key 不用碰磁碟」與偽陽性。</li>
+    <li><code>src/LsmEngine.php</code>　WAL（崩潰復原）、memtable（有序、tombstone 刪除）、flush（→ 不可變 SSTable + 稀疏索引 + bloom）、get（memtable → 由新到舊掃 SSTable，bloom 先過濾）、compaction（size-tiered 簡化版：合併並丟棄被刪/被覆寫版本）；以 <code>flock</code> 保護共享狀態。</li>
+    <li><code>public/index.php</code>　路由與測試頁：put/get/delete、看 memtable 內容、SSTable 清單、手動 flush 與 compaction、bloom 命中/跳過統計。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8032 -t public
+# 連續 put 多筆觸發自動 flush；del 一個 key；get 不存在的 key 看 bloom 跳過；compact 後再 get</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的 <strong>SSTable 以 JSON 檔模擬</strong>（真實系統是排序後的二進位 block + 索引）；但
+    <strong>WAL、memtable、flush、bloom filter、compaction、tombstone</strong> 的邏輯<strong>皆為真實可執行</strong>，
+    為單機教學示意，未實作真實的 leveled 分層 compaction 與 block 壓縮。
+  </div>
+
+  <footer>㉜ LSM-tree Storage Engine · K 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -147,7 +147,8 @@ revoked_tokens               -- 撤銷名單（黑名單）
     本 demo 為教學清晰存原文。授權碼表很適合放 Redis：天生短命、用 TTL 自動清。</div>
 
   <h2 id="arch">5. 高階架構（三方角色）</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code>  ┌────────┐   ①導向 /authorize    ┌──────────────────────┐
   │ 使用者  │ ───────────────────▶ │  Authorization Server │  (發 code / token、
   │ +Client │ ◀─② 302 回 code───── │   /authorize /token   │   存 code 表+refresh 表)

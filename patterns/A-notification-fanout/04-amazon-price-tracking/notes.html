@@ -126,7 +126,8 @@ alerts (已發提醒，去重/冪等)
   <div class="box"><span class="label">為何用 ZSET 做反向索引</span>價格匹配的本質是<strong>區間查詢</strong>：「新價 P 來了，誰的 target ≥ P？」。若用「掃描每條 watch 比大小」是 O(watcher) 線性掃描；用以 threshold 為 score 的 sorted set，一次 <code>ZRANGEBYSCORE sku P +inf</code> 即取出所有達標者，這就是把「條件匹配」變成「<strong>反向索引 + 區間查</strong>」的精髓。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 外部來源 ──▶ 價格擷取器(分層輪詢/CDC) ──▶ 價格事件匯流排(Kafka)
                                                   │
                                                   ▼

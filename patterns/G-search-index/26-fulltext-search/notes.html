@@ -114,7 +114,8 @@ stats: { N: 文件總數, avgdl: 平均文件長度 }</code></pre>
   <div class="box"><span class="label">為何要存 doc 長度與 avgdl</span>BM25 會用「文件長度 / 平均長度」做<strong>長度正規化</strong>——長文件天生會命中較多詞，需要懲罰，避免長文一律排前面。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 寫(新貼文) ─▶ Ingest ─▶ 分析器(tokenize) ─▶ 建倒排索引 ─▶ Index Shard 1..M（含副本）
                                                               ▲
  讀(查詢) ──▶ Query 解析 ─▶ scatter 到各 shard ─▶ 各 shard 取 postings + BM25 評分

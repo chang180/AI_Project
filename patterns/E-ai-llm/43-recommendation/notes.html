@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊸ 推薦系統 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅴 AI/LLM 系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊸ 推薦系統：召回 + 排序的兩階段架構</h1>
+  <p class="subtitle">
+    <span class="tag group">E AI/LLM</span>
+    <span class="tag time">建議 50 分鐘</span>
+    <span class="tag">Design a Recommendation System</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>從數百萬 item 中，為每個 user 即時挑出最相關的 Top-N</strong>」的綜合題。
+    難點不在「能不能算相似度」，而在 <em>規模</em>——百萬級 item × 千萬級 user × 數十毫秒延遲預算下，
+    不可能對全庫即時打分。面試真正考的是<strong>兩階段架構：先用便宜的「召回」把候選縮到數百，再用昂貴的「排序」精挑</strong>，
+    並處理冷啟動、多樣性與回饋迴路。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><strong>個人化推薦</strong>：給定 user，回傳 Top-N 個他最可能感興趣的 item（首頁信息流、「猜你喜歡」、相關商品）。</li>
+    <li><strong>從互動學習</strong>：以使用者的曝光 / 點擊 / 購買 / 停留等<strong>隱性回饋</strong>當訓練訊號（顯性評分稀少）。</li>
+    <li><strong>冷啟動</strong>：新 user（沒互動）、新 item（沒人看過）都要有合理結果。</li>
+    <li><strong>多樣性與探索</strong>：不能只推同一類，要留一部分名額探索使用者可能喜歡的新領域。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>低延遲</strong>：線上推薦 p99 &lt; 100ms（召回 + 排序合計），不能讓使用者等。</li>
+    <li><strong>大規模</strong>：item 百萬~千萬、user 千萬~億；不可能即時對全庫打分。</li>
+    <li><strong>新鮮度</strong>：使用者剛點過的東西要能快速反映到下一次推薦（回饋迴路）。</li>
+    <li><strong>可評估</strong>：用 CTR / 轉換率 / 停留時長 / 多樣性等線上指標衡量好壞，並支援 A/B test。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「item 規模多大、延遲預算多少？」這決定能不能對全庫即時打分。<strong>一旦 item 上百萬、延遲只有數十毫秒，就必須走「召回→排序」兩階段</strong>——這是整題的主軸，因為它把「便宜地縮小候選集」與「昂貴地精準排序」拆開，各自獨立擴展。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>user / item 規模</td><td>5000 萬 user、200 萬 item</td><td>互動矩陣極稀疏（&lt;0.1% 填充）</td></tr>
+    <tr><td>推薦請求（讀）</td><td>每 user 每日刷 10 次</td><td>5 億次/日 ≈ 6k QPS（峰值 ×5 ≈ 30k）</td></tr>
+    <tr><td>候選數</td><td>召回每路取數百，聯集去重</td><td>~500 候選進排序（從 200 萬縮 4000 倍）</td></tr>
+    <tr><td>線上延遲預算</td><td>p99 &lt; 100ms</td><td>召回 ~20ms（ANN/查表）+ 排序 ~30ms（500 個打分）+ 餘裕</td></tr>
+    <tr><td>互動事件（寫）</td><td>每 user 每日 ~50 次互動</td><td>25 億事件/日 → 串流寫入、離線聚合</td></tr>
+    <tr><td>特徵存儲</td><td>item 向量 200 萬 × 64 維</td><td>~0.5 GB，可常駐記憶體 / 低延遲 KV</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>瓶頸是<strong>「item 規模 ÷ 延遲預算」</strong>：200 萬 item 不可能在 100ms 內逐一精排。解法是<strong>召回先把候選砍到數百</strong>（用近似、查表這類 O(log N)/O(1) 操作），<strong>排序只對這數百個做昂貴的多特徵打分</strong>。離線把重活（訓練相似度、算 embedding）做完，線上只查表。</div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 取推薦（讀，超高頻，關鍵路徑）
+GET /api/v1/recommend?user=u_123&n=20&scene=home
+→ 200 {
+     "user": "u_123",
+     "cold_start": false,
+     "items": [ {"item":"i_55","score":0.83,"reason":"與你買過的耳機相似"}, ... ]
+   }
+
+# 回報互動（寫，事件，非同步進串流）
+POST /api/v1/interaction
+Body: { "user":"u_123", "item":"i_55", "type":"click" }   # type: view/click/buy...
+
+# 取相似 item（item-to-item，商品詳情頁「相關商品」用）
+GET /api/v1/items/{id}/similar?n=10
+</code></pre>
+  <div class="box"><span class="label">設計重點</span>推薦結果可帶 <code>reason</code>（可解釋性）與 <code>cold_start</code> 標記；互動回報走獨立的事件端點，<strong>不阻塞</strong>推薦讀路徑，下游再批次/即時更新特徵。</div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>interactions (互動記錄，append-only，高頻寫 → 走串流)
+  user_id, item_id, type, ts        -- type 隱性權重：view&lt;click&lt;buy
+
+item_similarity (item-item 共現/相似度，離線算好)
+  src_item, dst_item, score         -- 給協同過濾召回查表用（每 item 存 top-k 鄰居）
+
+item_embeddings (item 向量，離線訓練)
+  item_id, vector(64)               -- 建 ANN 索引（HNSW/IVF）供向量召回
+
+features (特徵存儲 / feature store，線上低延遲讀)
+  user_features  user_id  -> {近期類別偏好, 活躍度, ...}
+  item_features  item_id  -> {熱門度, 新鮮度, 類別, CTR, ...}</code></pre>
+  <div class="box"><span class="label">為何分開</span>互動是<strong>高頻 append-only</strong>，走串流寫資料湖供離線訓練；item-item 相似度與 embedding 是<strong>離線批次算好</strong>的衍生資料；特徵存儲是<strong>線上讀</strong>的低延遲 KV。線上服務<em>只讀不算</em>——把訓練/算特徵的重活全留在離線，這是低延遲的根本。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>離線（批次）
+  互動事件 ──▶ 訓練 item-item 相似度 + item embedding ──▶ 特徵存儲 / ANN 索引
+
+線上（一次請求）
+  推薦請求(user)
+       │
+       ▼
+  ① 召回 Recall ── 協同過濾(查相似表) + Embedding ANN(向量最近鄰) ──▶ 數百候選(聯集去重)
+       │                                                              │
+       │（新 user 無互動 → 冷啟動）                                    ▼
+       └────────────────▶ 熱門 fallback ───────────────▶ ② 排序 Ranking
+                                                          多特徵打分(召回分/相似度/熱門/新鮮)
+                                                                      │
+                                                                      ▼
+                                                              Top-N 推薦清單</code></pre>
+  <ol>
+    <li><strong>離線管線</strong>：吃互動事件，訓練 item-item 相似度與 item embedding，寫入特徵存儲與 ANN 索引（小時級 / 天級重算）。</li>
+    <li><strong>召回（候選生成）</strong>：多路並行——協同過濾查「相似 item 表」、embedding 走 ANN 找向量最近鄰；各取數百，聯集去重、排除已看過的。</li>
+    <li><strong>排序（精排）</strong>：對數百候選用多特徵模型打分，取 Top-N。<strong>召回求廣度與速度，排序求精度。</strong></li>
+    <li><strong>冷啟動</strong>：新 user 走熱門 fallback；新 item 靠內容/類別 embedding 也能被 ANN 召回。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>協同過濾（Collaborative Filtering）</h3>
+  <ul>
+    <li><strong>核心直覺</strong>：「跟你品味相近的人喜歡的，你也可能喜歡」（user-based）或「跟你買過的東西相似的東西」（item-based）。工業界多用 <strong>item-based</strong>：item 數比 user 穩定、相似度可離線算好查表，線上快。</li>
+    <li><strong>item-item 相似度</strong>：把每個 item 表示成「哪些 user 互動過」的向量，兩 item 的 <strong>cosine 相似度</strong>越高代表越常被同一批人互動。對 user 互動過的每個 item，撈出它的相似 item 當候選，召回分 = Σ(使用者對來源 item 的權重 × 相似度)。</li>
+    <li><strong>限制</strong>：對沒人互動過的<em>新 item</em> 無能為力（沒有共現），這正是要搭配 embedding/內容召回的原因。</li>
+  </ul>
+  <h3>Embedding + ANN 召回</h3>
+  <ul>
+    <li><strong>向量化</strong>：把 user、item 嵌入到同一個向量空間（雙塔模型 two-tower / 矩陣分解 / 圖嵌入）；相關的 user 與 item 向量內積大。</li>
+    <li><strong>ANN（近似最近鄰）</strong>：把 user 向量丟進 item 向量索引找最近鄰即為候選。全庫暴力找是 O(N)，用 <strong>HNSW / IVF</strong> 索引降到近似 O(log N)，這是百萬級即時召回的關鍵。</li>
+    <li><strong>補 CF 的不足</strong>：embedding 能憑「內容/類別相似」召回<em>沒有共現紀錄</em>的新 item（CF 做不到）。兩路召回互補。</li>
+  </ul>
+  <h3>排序的特徵與模型</h3>
+  <ul>
+    <li><strong>特徵</strong>：召回分、user-item 相似度、item 熱門度、新鮮度、類別匹配、上下文（時段/裝置/場景）、實時 CTR…。</li>
+    <li><strong>模型</strong>：從邏輯回歸 → GBDT（如 LightGBM）→ 深度排序（Wide&amp;Deep / DIN）。目標常是預測 CTR / 轉換率。本 demo 用<strong>線性加權</strong>示意，框架與真模型一致（換的是打分函式）。</li>
+  </ul>
+  <h3>線上 / 離線特徵一致性</h3>
+  <p>排序模型訓練時用的特徵，必須與線上推論時讀到的特徵<strong>定義一致</strong>，否則「訓練/服務偏移」（training-serving skew）會讓線上效果遠差於離線評估。對策：<strong>共用特徵存儲</strong>、特徵以同一份程式碼產生、記錄特徵快照。</p>
+  <h3>冷啟動</h3>
+  <ul>
+    <li><strong>新 user</strong>：沒互動 → 個人化召回失效 → 退回<strong>熱門 / 趨勢 item</strong>，並盡快用首次互動啟動個人化。</li>
+    <li><strong>新 item</strong>：沒共現 → CF 撈不到 → 靠<strong>內容/類別 embedding</strong> 讓 ANN 仍能召回；並用 exploration 給它曝光機會累積數據。</li>
+  </ul>
+  <h3>多樣性 / 探索（Exploration）</h3>
+  <p>純按分數排會陷入「同質化 / 回聲室」。對策：排序後做<strong>多樣性重排</strong>（如 MMR、打散同類別），並保留一部分名額做 <strong>exploration</strong>（ε-greedy / bandit）探索使用者潛在興趣，平衡「利用已知偏好」與「探索新領域」。</p>
+  <h3>回饋迴路（Feedback Loop）</h3>
+  <p>使用者對推薦結果的點擊/購買回流成新互動 → 更新特徵與相似度 → 影響下一次推薦。需注意<strong>偏差</strong>：模型只看得到「被推薦過的 item 的回饋」，會自我強化（曝光偏差）；要靠 exploration 與去偏（如 IPS）緩解。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>階段</th><th>瓶頸</th><th>對策</th></tr>
+    <tr><td>候選生成規模</td><td>item 百萬，無法即時逐一打分</td><td>多路召回各取數百；ANN 索引 + 相似度查表把 O(N) 砍掉</td></tr>
+    <tr><td>線上特徵延遲</td><td>排序要讀大量 user/item 特徵</td><td>特徵存儲常駐記憶體/低延遲 KV；批次預取；特徵裁剪</td></tr>
+    <tr><td>即時更新 vs 批次</td><td>剛點的東西沒反映到推薦</td><td>離線批次算大盤 + 即時串流更新近期特徵（lambda/實時特徵）</td></tr>
+    <tr><td>ANN 索引</td><td>向量更新/重建索引成本高</td><td>HNSW 增量插入；分片向量庫；定期離線重建 + 增量補丁</td></tr>
+    <tr><td>排序算力</td><td>每請求對數百候選打分</td><td>候選數上限、模型量化/蒸餾、GPU 批次推論</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>召回廣度 vs 排序精度</strong>：召回放太寬 → 排序負擔大且引入噪音；放太窄 → 好 item 根本進不了排序（<em>召回沒撈到，排序再強也救不回</em>）。實務多路召回 + 控候選數。</li>
+    <li><strong>即時 vs 批次</strong>：批次（離線重算）穩定省算力但有延遲；即時（串流更新）新鮮但工程複雜。常見折衷：<strong>離線算大盤 + 實時補近期特徵</strong>。</li>
+    <li><strong>個人化 vs 多樣性</strong>：一味迎合歷史偏好會同質化、陷回聲室；需多樣性重排與 exploration 換取長期留存。</li>
+    <li><strong>精確 vs 延遲</strong>：更大的排序模型/更多特徵更準，但吃延遲與算力；ANN 用「近似」換速度（犧牲一點召回率）。在 p99 預算內找平衡。</li>
+    <li><strong>常見追問</strong>：召回沒撈到怎麼辦？→ 多路召回 + 內容召回兜底。如何評估？→ 線上 CTR/轉換/留存 + A/B test，離線用 AUC/NDCG。冷啟動？→ 熱門 fallback + 內容 embedding + exploration。如何防回聲室/曝光偏差？→ 多樣性重排 + exploration + 去偏。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重於<strong>系統核心邏輯</strong>（也是面試真正的考點）：兩階段「召回 → 排序」與冷啟動，可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/Store.php</code>　互動記錄 + item 中繼資料/特徵（JSON 檔，<code>flock</code> 保護寫入）；預設塞 5 個 user 與多筆互動。</li>
+    <li><code>src/Recommender.php</code>　兩階段核心：item-item cosine 相似度、<strong>協同過濾召回</strong>、<strong>Embedding ANN 召回</strong>、<strong>多特徵排序</strong>、<strong>冷啟動熱門 fallback</strong>。</li>
+    <li><code>public/index.php</code>　路由 + 深色測試頁：列 user 與互動、對某 user 看「召回候選 → 排序 Top-N」兩階段、對新 user 看冷啟動熱門。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8043 -t public
+# 瀏覽器開 http://localhost:8043
+# 點 u1（3C 重度）→ 看 CF+ANN 召回候選 → 排序 Top-N
+# 輸入沒互動過的新名字（如 newbie）→ 看冷啟動退回熱門</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 的 <strong>協同過濾（user-item → item-item cosine）、兩階段召回排序、多特徵打分、冷啟動熱門 fallback、互動回饋更新熱門度皆為真實可執行邏輯</strong>；
+    但 item embedding 用 <strong>category one-hot 示意</strong>（非訓練出的稠密向量）、ANN 為<strong>暴力全掃</strong>（非真正的 HNSW/IVF 索引）、排序為<strong>線性加權</strong>（非 GBDT/深度排序模型），且資料為<strong>小型互動集</strong>。要接真模型，只需把 <code>itemEmbeddings()</code> 換成向量庫、把 <code>rank()</code> 換成排序模型推論，<strong>兩階段框架與冷啟動邏輯完全不變</strong>。
+  </div>
+
+  <footer>㊸ 推薦系統 · E 組 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

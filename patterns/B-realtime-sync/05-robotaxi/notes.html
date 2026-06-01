@@ -119,7 +119,8 @@ location_history (冷，append-only → Kafka → 時序庫)
   <div class="box"><span class="label">為何分開</span>「司機當前位置」每秒被覆寫且只查最新 → 放記憶體地理索引；「行程紀錄」需持久化與一致性 → 主庫；「歷史軌跡」是高頻 append → 串流到時序庫。三類資料的讀寫特性完全不同，混在一起會互相拖垮。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 乘客 App ──叫車──▶ API GW ──▶ 媒合引擎(Matcher) ──查附近──▶ 地理空間索引(GeoIndex)
                                      │  原子指派(鎖/CAS)        ▲
                                      ▼                          │ 位置更新

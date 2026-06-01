@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊲ 網頁爬蟲 Web Crawler · 系統設計筆記</title>
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../index.html">← 回總覽</a>
+  <a href="../README.md">🅻 圖/大規模演算法</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊲ 網頁爬蟲 Web Crawler：從種子到十億頁的抓取管線</h1>
+  <p class="subtitle">
+    <span class="tag group">L 圖/演算法</span>
+    <span class="tag time">建議 48 分鐘</span>
+    <span class="tag">Design a Web Crawler</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>一個跑在巨大圖（網頁超連結圖）上的分散式 BFS</strong>」：
+    從種子出發、不斷抓頁→抽連結→去重→排程再抓。面試真正考的不是「怎麼下載一個網頁」，而是
+    <em>幾十億 URL 如何去重（記憶體）</em>、<em>如何當個有禮貌的訪客（politeness）</em>、
+    <em>如何分散式分片又不互相打架</em>、以及<em>頁面會變，何時重抓（freshness）</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API / 介面設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li>給一組<strong>種子 URL</strong>，沿超連結遞迴抓取網頁，下載並儲存內容（供搜尋引擎建索引 / 監控頁面變動）。</li>
+    <li>從抓到的 HTML 抽出外連 link，加入待爬清單（frontier）。</li>
+    <li><strong>URL 去重</strong>：同一頁不重複抓（網頁圖充滿回連與環）。</li>
+    <li><strong>遵守 robots.txt</strong> 與 <strong>crawl-delay</strong>（禮貌性，不打垮對方站台）。</li>
+    <li><strong>重抓</strong>：頁面會變，依新鮮度（freshness）排程重新抓取。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>可擴展</strong>：從幾千頁到<strong>十億級頁面</strong>，水平擴展抓取與去重。</li>
+    <li><strong>禮貌</strong>：對單一 domain 的抓取速率受控（這是法律/道德與封 IP 風險的核心）。</li>
+    <li><strong>強健</strong>：能容忍壞頁、超時、重複、爬蟲陷阱（無限 URL）。</li>
+    <li><strong>新鮮</strong>：重要/常變頁面要更勤重抓。</li>
+    <li><strong>可去重 / 不漏</strong>：去重要省記憶體又不能漏抓太多。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問</span>
+    「爬來做什麼？」決定取捨。<strong>建搜尋索引</strong>＝廣度優先、覆蓋率與新鮮度重要；
+    <strong>監控特定站</strong>＝深度/針對性、重抓頻率高；<strong>訓練語料</strong>＝量大、去重與品質過濾重要。
+    再問「範圍（全網 vs 特定站）、深度上限、要不要尊重 robots、單機還是分散式」。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>目標頁數</td><td>10 億頁，1 個月爬完</td><td>10⁹ / (30×86400) ≈ <strong>~400 頁/秒</strong>（峰值 ×3 ≈ 1200）</td></tr>
+    <tr><td>頻寬</td><td>每頁平均 100 KB</td><td>400 × 100KB ≈ <strong>40 MB/s ≈ 320 Mbps</strong> 下載</td></tr>
+    <tr><td>內容儲存</td><td>每頁壓縮後 ~30 KB</td><td>10⁹ × 30KB ≈ <strong>30 TB</strong>（單輪）</td></tr>
+    <tr><td>URL 去重結構</td><td>10 億 URL，精確 set 每筆 ~64 B</td><td>≈ <strong>64 GB</strong>（放不下單機）→ bloom：1% 偽陽性僅需 ~<strong>1.2 GB</strong></td></tr>
+    <tr><td>Frontier 規模</td><td>外連分支因子 ~10</td><td>frontier 可瞬間爆量 → 需可溢寫到磁碟/分散式佇列</td></tr>
+    <tr><td>重抓頻率</td><td>新聞頁每天、靜態頁每月</td><td>依頁面變更率分層排程，攤平重抓流量</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    兩個數字主導整題：<strong>去重結構 64 GB 放不進單機記憶體</strong>（→ bloom filter / 分散式去重）、
+    <strong>對單一 domain 不能太快</strong>（→ politeness / 分片）。其餘都是工程化。</div>
+
+  <h2 id="api">3. API / 介面設計</h2>
+  <p>爬蟲多半是<strong>內部批次/常駐系統</strong>而非對外 API，介面以「元件間契約」為主：</p>
+  <pre><code># 提交種子 / 控制（管理面）
+POST /crawler/seeds          Body: { "urls": ["https://a.com"], "max_depth": 5 }
+POST /crawler/jobs/{id}/pause | resume
+GET  /crawler/stats          → { fetched, frontier_size, dedup_size, qps, per_domain }
+
+# 內部元件契約（概念）
+Frontier.enqueue(url, priority)      # 加入待爬（依優先序/分片）
+Frontier.dequeue() -> url            # 取出下一個可抓的 url（已過 politeness 檢查）
+Dedup.seen(url) -> bool              # bloom 先擋，命中再查精確集合
+Fetcher.fetch(url) -> (status, html) # 受 per-domain 速率限制
+Parser.extractLinks(html) -> url[]   # 正規化後回傳外連
+Scheduler.scheduleRecrawl(url, freshness)
+</code></pre>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>frontier（待爬佇列，依 domain 分片；可溢寫磁碟）
+  shard_id, url, depth, priority, enqueued_at
+
+url_seen（去重；兩層）
+  bloom_filter        -- 記憶體中，省空間的近似集合（可能偽陽性）
+  url_fingerprints    -- 精確集合（hash(url)），bloom 命中時二次確認
+
+pages（已抓內容中繼）
+  url_hash PRIMARY KEY, url, fetched_at, content_hash,
+  next_recrawl_at, fetch_count, http_status
+
+domains（per-domain 禮貌狀態）
+  domain PRIMARY KEY, last_fetch_at, crawl_delay, robots_rules, shard_id</code></pre>
+  <div class="box"><span class="label">為何 per-domain 狀態要集中</span>
+    politeness 是「對同一 host 的速率限制」。若同一 domain 的 URL 散落在多台抓取機，就會多台同時猛打它。
+    所以<strong>依 domain 雜湊分片</strong>，把同一 domain 的所有 URL 與其 last_fetch 狀態集中到同一個 shard/worker，
+    速率限制才有意義。</div>
+
+  <h2 id="arch">5. 高階架構</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>  種子 ──▶ ┌──────────┐   取出   ┌─────────┐  HTML  ┌────────┐
+           │ Frontier │ ───────▶ │ Fetcher │ ─────▶ │ Parser │
+           │（分片佇列）│ ◀─新URL── │（限速）  │        │（抽link）│
+           └────┬─────┘          └────┬────┘        └───┬────┘
+                │                      │ politeness       │ links
+          回填  │                per-domain last_fetch    │
+                │                                          ▼
+                │            ┌───────────────┐      ┌──────────┐
+                └───(新)──── │ URL 去重        │ ◀─── │ 正規化    │
+                  bloom+精確  │ bloom + 精確set │      └──────────┘
+                             └───────────────┘
+   內容 ──▶ 內容儲存（壓縮/物件儲存）；已抓頁 ──▶ 重抓排程（freshness）──▶ 回 Frontier</code></pre>
+  <ol>
+    <li><strong>Frontier</strong>：待爬 URL 佇列，依 domain 分片；BFS 用 FIFO，重要性爬蟲用優先佇列。</li>
+    <li><strong>Fetcher</strong>：下載頁面，受 per-domain crawl-delay 速率限制；無狀態可大量水平擴展。</li>
+    <li><strong>Parser</strong>：解析 HTML、抽出 <code>&lt;a href&gt;</code>、做 URL 正規化（去 fragment、排序 query、補相對路徑）。</li>
+    <li><strong>URL 去重</strong>：正規化後的 URL 先過 bloom（省記憶體），命中再查精確集合，沒見過才回填 Frontier。</li>
+    <li><strong>內容儲存</strong>：壓縮後存物件儲存；中繼（fetched_at / content_hash）進 DB 供重抓判斷。</li>
+    <li><strong>重抓排程</strong>：依 freshness（頁面變更率）排 next_recrawl_at，到期重新入 Frontier。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+  <h3>Frontier：BFS vs 優先佇列</h3>
+  <ul>
+    <li><strong>BFS（FIFO）</strong>：天然廣度優先，覆蓋面廣、實作簡單，適合通用爬全網。</li>
+    <li><strong>優先佇列</strong>：依 PageRank / 更新頻率 / 重要性排序，先爬高價值頁；但需估價與更複雜的佇列。</li>
+    <li>Frontier 會瞬間爆量（分支因子 ~10），必須能<strong>溢寫到磁碟或分散式佇列（如 Kafka）</strong>，不能只靠記憶體。</li>
+  </ul>
+  <h3>URL 去重：bloom filter 省記憶體（本題重點）</h3>
+  <ul>
+    <li>精確集合（hash set）10 億 URL ≈ 64 GB，單機放不下。</li>
+    <li><strong>Bloom filter</strong>：位元陣列 + k 個雜湊。<code>add</code> 把 k 個位元設 1；<code>mightContain</code> 檢查那 k 位是否全 1。</li>
+    <li><strong>無偽陰性</strong>（說沒見過就一定沒見過）、<strong>有偽陽性</strong>（說可能見過，其實沒有）。1% 偽陽性 10 億 URL 僅需 ~1.2 GB。</li>
+    <li>偽陽性的後果＝<em>把某個沒爬過的新 URL 誤判成爬過 → 少爬一頁</em>，通常可接受。</li>
+    <li>要近乎不漏：bloom 命中時再查一個<strong>精確集合 / DB</strong>二次確認（demo 採此策略）。</li>
+  </ul>
+  <h3>Politeness / robots.txt / crawl-delay</h3>
+  <ul>
+    <li>抓每個 domain 前先讀並快取 <code>robots.txt</code>，遵守 Disallow 與 <code>Crawl-delay</code>。</li>
+    <li>per-domain 記 <code>last_fetch_at</code>，同 domain 兩次抓取間隔須 ≥ crawl-delay；太密則該 URL 被<strong>延後重排</strong>。</li>
+    <li>用 per-host token bucket 控速；超速會被對方封 IP，也不道德。</li>
+  </ul>
+  <h3>分散式 frontier：依 domain 分片</h3>
+  <ul>
+    <li>把 URL <strong>依 domain 雜湊</strong>分到 N 個 shard（<code>hash(domain) % N</code>），<strong>同 domain → 同 shard</strong>。</li>
+    <li>好處：每個 domain 的 politeness 狀態集中在單一 shard/worker，速率限制才生效，不會多機同時打同站。</li>
+    <li>壞處：<strong>熱門大站（如 youtube.com）</strong>會讓某 shard 過載 → 需對巨站再做子分片或專屬 worker。</li>
+  </ul>
+  <h3>陷阱：無限 URL / 爬蟲陷阱、重抓 freshness</h3>
+  <ul>
+    <li><strong>爬蟲陷阱</strong>：動態產生無限連結（如萬年月曆 <code>?date=…</code>、無限分頁）會把 frontier 撐爆 → 用<strong>最大深度、每站 URL 數上限、URL 正規化、模式偵測</strong>防護。</li>
+    <li><strong>Freshness</strong>：頁面會變，依變更率分層重抓（新聞每天、靜態每月）；用 <code>content_hash</code> 比對判斷是否真的變了，攤平重抓流量。</li>
+  </ul>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>說明</th><th>對策</th></tr>
+    <tr><td>DNS 解析</td><td>每次抓取要解析 host，DNS 易成熱點/瓶頸</td><td>自建 DNS 快取 / 本地解析器，批次預解析</td></tr>
+    <tr><td>頻寬</td><td>下載量巨大（數十～數百 Gbps）</td><td>多區域抓取節點就近抓、壓縮、只抓需要的內容類型</td></tr>
+    <tr><td>去重結構規模</td><td>10 億+ URL 的集合超出單機</td><td>bloom filter（近似）+ 分散式分片去重；可分層 bloom</td></tr>
+    <tr><td>熱門站集中</td><td>大站連結極多，單 shard 過載且受 politeness 限速</td><td>巨站子分片 / 專屬 worker；按站台容量調整 crawl-delay</td></tr>
+    <tr><td>Frontier 爆量</td><td>分支因子高，記憶體裝不下</td><td>分散式佇列（Kafka）+ 溢寫磁碟 + 優先序丟棄低價值 URL</td></tr>
+    <tr><td>協調與容錯</td><td>worker 掛掉、重複抓、進度遺失</td><td>frontier/去重持久化、at-least-once + 去重保證冪等</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>廣度 vs 深度</strong>：BFS 覆蓋廣、適合建索引；DFS/深度限制適合針對性抓站。多數通用爬蟲走 BFS + 深度上限。</li>
+    <li><strong>即時 vs 批次</strong>：即時爬（如新聞/監控）延遲低但持續耗資源；批次爬吞吐高、排程友善但新鮮度差。常混合：重要頁即時、長尾批次。</li>
+    <li><strong>bloom 偽陽性 vs 精確去重記憶體</strong>：bloom 省記憶體但偶爾漏抓（偽陽性）；精確集合不漏但 64 GB 放不下。折衷＝<strong>bloom 先擋 + 命中再查精確</strong>。</li>
+    <li><strong>禮貌 vs 速度</strong>：crawl-delay 拉高抓得慢但安全；拉低抓得快但風險封 IP/被告。依站台規模動態調整。</li>
+    <li><strong>常見追問</strong>：如何避免重複抓相同內容不同 URL？→ <strong>內容指紋（content_hash / simhash）</strong>去重。如何處理 JS 渲染頁？→ headless 瀏覽器抓（貴，選擇性用）。如何分散式協調 frontier？→ 依 domain 分片 + 持久化佇列。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 著重<strong>爬蟲的系統邏輯</strong>（也是十億級頁面真正的考點），可實際用 PHP 內建伺服器跑起來：</p>
+  <ul>
+    <li><code>src/BloomFilter.php</code>　位元陣列 + k 雜湊（double hashing）；<code>add</code>/<code>mightContain</code>，並估算偽陽性率，示範 URL 去重的省記憶體概念。</li>
+    <li><code>src/Crawler.php</code>　內建確定性「假網路圖」+ <strong>BFS frontier</strong> + <strong>bloom + 精確 seen 二次確認去重</strong> + <strong>per-domain politeness/crawl-delay</strong> + <strong>依 domain 分片的分散式 frontier</strong> + <strong>freshness 重抓排程</strong> + 深度上限防爬蟲陷阱。</li>
+    <li><code>public/index.php</code>　路由：seed / crawl（步進）/ state / reset，附測試頁可看 frontier、visited、bloom 統計、politeness 延後、shard 指派。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8037 -t public
+# 瀏覽器開 http://localhost:8037：先 seed，再反覆按 crawl 看 frontier/visited 成長、去重、politeness、分片</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo <strong>不連真網路</strong>，用 process 內建的假網路圖（url→內容+外連 links）做確定性爬取，方便觀察與測試；
+    但 <strong>BFS frontier、bloom filter 去重（含偽陽性二次確認）、politeness/crawl-delay、依 domain 分片的分散式 frontier、freshness 重抓排程、爬蟲陷阱深度限制等核心邏輯皆為真實可執行</strong>。
+    要換成真實抓取，只需把 <code>Crawler::sampleWeb()</code> 換成「對 url 發 HTTP GET、解析 HTML 抽 link」，其餘邏輯不變。
+  </div>
+
+  <footer>㊲ Web Crawler · L 組 圖/大規模演算法 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

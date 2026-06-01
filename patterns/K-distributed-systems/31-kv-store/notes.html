@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉛ 分散式鍵值儲存 · 系統設計筆記</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉛ 分散式鍵值儲存：一致性雜湊 × Quorum × 向量時鐘</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag time">建議 55 分鐘</span>
+    <span class="tag">Design a Distributed Key-Value Store</span>
+  </p>
+
+  <div class="box tip">
+    <span class="label">一句話定位</span>
+    本質是「<strong>去中心化、可水平擴展、高可用（AP）的鍵值儲存</strong>」——也就是 Amazon Dynamo / Cassandra 那一類。
+    面試真正考的不是 <code>get/put</code> API，而是三件事如何咬合：
+    <em>一致性雜湊（資料放哪、加機器怎麼搬）</em>、<em>quorum N/R/W（容錯與一致性旋鈕）</em>、
+    <em>向量時鐘（並發寫怎麼調和而不丟資料）</em>。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#req">需求釐清（功能 / 非功能 / CAP）</a></li>
+      <li><a href="#estimate">規模估算</a></li>
+      <li><a href="#api">API 設計</a></li>
+      <li><a href="#data">資料模型</a></li>
+      <li><a href="#arch">高階架構（去中心化）</a></li>
+      <li><a href="#deep">核心元件深入</a></li>
+      <li><a href="#scale">擴展與瓶頸</a></li>
+      <li><a href="#tradeoff">取捨與面試重點</a></li>
+      <li><a href="#demo">PHP Demo 說明</a></li>
+    </ol>
+  </div>
+
+  <h2 id="req">1. 需求釐清</h2>
+  <h3>功能性需求</h3>
+  <ul>
+    <li><code>put(key, value)</code> / <code>get(key)</code>：簡單的鍵值介面（value 是不透明的 blob）。</li>
+    <li>資料自動分散到多台節點，<strong>水平擴展</strong>到數百~數千節點。</li>
+    <li>每筆資料有 <strong>多副本</strong>（典型 N=3），單點故障不丟資料、不中斷服務。</li>
+    <li>加 / 移除節點時，<strong>只搬動少量資料</strong>，且服務不中斷（線上重平衡）。</li>
+  </ul>
+  <h3>非功能性需求</h3>
+  <ul>
+    <li><strong>高可用（always writeable）</strong>：Dynamo 的核心需求——購物車「加入」永遠要成功，哪怕分區也照寫。</li>
+    <li><strong>低延遲</strong>：p99 個位數毫秒；任一節點都能當協調者，就近處理。</li>
+    <li><strong>可調一致性</strong>：用 N/R/W 旋鈕在「一致性」與「可用性/延遲」之間滑動。</li>
+    <li><strong>去中心化</strong>：無單一 master，避免單點瓶頸與單點故障。</li>
+  </ul>
+  <div class="box warn">
+    <span class="label">面試開場必問：CAP 取捨</span>
+    網路分區（P）無法避免，必須在 <strong>C（一致性）</strong> 與 <strong>A（可用性）</strong> 之間選。
+    本題走 <strong>AP（如 Dynamo / Cassandra）</strong>：分區時仍可讀寫，事後再用向量時鐘 / read repair / 反熵讓資料「<strong>最終一致</strong>」。
+    若面試要的是強一致（CP），那是另一類系統（如 Spanner / ZooKeeper / etcd 用 Paxos/Raft），設計完全不同——務必先確認。
+  </div>
+
+  <h2 id="estimate">2. 規模估算</h2>
+  <table>
+    <tr><th>指標</th><th>假設</th><th>推算</th></tr>
+    <tr><td>資料量</td><td>10 億 key × 每筆 1 KB</td><td>原始 ~1 TB；N=3 副本 → <strong>~3 TB</strong></td></tr>
+    <tr><td>吞吐</td><td>50 萬 ops/s（讀寫各半）</td><td>分散到 100 節點 → 每節點 ~5k ops/s</td></tr>
+    <tr><td>單節點容量</td><td>每台 ~1 TB SSD</td><td>3 TB / 1 TB ≈ 至少 3~5 台起；留成長空間取 10+ 台</td></tr>
+    <tr><td>vnode 數</td><td>每實體節點 100~256 個 vnode</td><td>環上點夠密 → 負載偏差 &lt; 幾個 %</td></tr>
+    <tr><td>副本與 quorum</td><td>N=3, R=2, W=2</td><td>W+R&gt;N 成立；可容忍 1 節點故障仍讀寫</td></tr>
+  </table>
+  <div class="box tip"><span class="label">關鍵洞察</span>
+    儲存與吞吐都靠「<strong>把 key 空間切碎、均勻散佈到很多節點</strong>」來線性擴展；
+    難點不在單機效能，而在「<strong>切碎的策略</strong>」（一致性雜湊）與「<strong>副本一致性</strong>」（quorum + 衝突調和）。
+  </div>
+
+  <h2 id="api">3. API 設計</h2>
+  <pre><code># 寫入（協調者可為任一節點）
+PUT /kv/{key}
+Body: { "value": "...", "context": "&lt;上次讀到的向量時鐘&gt;" }
+→ 200 { "version": { "A": 2, "B": 1 } }     # 回傳新的向量時鐘
+
+# 讀取
+GET /kv/{key}
+→ 200 { "values": [ { "value": "...", "version": {"A":2} } ],   # 正常：單一版本
+        "context": "..." }
+→ 200 { "values": [ {"value":"red","version":{"A":1}},          # 衝突：多個 sibling
+                    {"value":"blue","version":{"B":1}} ] }       # 由應用層合併後再 put 回去
+
+# 刪除（其實是寫一個 tombstone 墓碑標記）
+DELETE /kv/{key}
+</code></pre>
+  <div class="box"><span class="label">為何 get 要回 context</span>
+    這是「<strong>讀-修改-寫</strong>」的因果鏈：客戶端把上次讀到的向量時鐘（context）在 put 時帶回，
+    系統才知道這次寫是「基於哪個版本」，據此判斷是覆蓋舊版還是產生新 sibling。Dynamo 購物車就是這樣合併的。
+  </div>
+
+  <h2 id="data">4. 資料模型</h2>
+  <pre><code>每個 key 對應一個或多個「版本」（並發時會有多個 sibling）：
+  key → [ { value, vector_clock }, ... ]
+        vector_clock = { node_id: counter }    # 如 {A:2, B:1}
+
+一致性雜湊環（每節點放多個 vnode）：
+  ring: 環座標(0~2^32-1) → 實體節點
+  preference list(key) = 從 hash(key) 順時針，前 N 個「不同實體節點」
+
+節點本地儲存（真實系統）：
+  memtable（記憶體） + SSTable（磁碟，LSM-tree）+ commit log
+  Merkle tree（每段 key range 一棵）→ 副本間快速比對差異做反熵</code></pre>
+  <div class="box"><span class="label">為何是 LSM-tree</span>
+    KV 寫入極重，LSM-tree（先寫記憶體 + 順序追加，背景 compaction）把隨機寫轉成順序寫，吞吐遠勝 B-tree。
+    Cassandra / RocksDB / LevelDB 皆此架構。本題重點在分散層，單機儲存引擎點到為止即可。
+  </div>
+
+  <h2 id="arch">5. 高階架構（去中心化）</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <pre><code>           hash(key) 落在環上某點
+ client ──▶ 任一節點(協調者) ──▶ 一致性雜湊環 ──▶ preference list = [A, B, C]
+                  │                                    │
+                  ├── put：寫 N 個副本，收到 W 個 ack 即回成功 ─────┐
+                  └── get：讀 R 個副本，比向量時鐘調和 + read repair │
+                                                                    ▼
+                          A ◀── gossip ──▶ B ◀── gossip ──▶ C   (節點互相同步成員/狀態)
+                          每節點: memtable+SSTable, Merkle tree(反熵)</code></pre>
+  <ol>
+    <li><strong>無 master</strong>：任一節點都能當協調者，用一致性雜湊自行算出 key 該寫去哪 N 台。</li>
+    <li><strong>gossip 協定</strong>：節點間週期性交換「誰活著、環長怎樣」的成員資訊，去中心化地維護叢集視圖。</li>
+    <li><strong>協調者轉發</strong>：協調者把 put/get 轉發給 preference list 上的副本，依 W/R 收集回應。</li>
+  </ol>
+
+  <h2 id="deep">6. 核心元件深入</h2>
+
+  <h3>① 一致性雜湊 + 虛擬節點（vnode）</h3>
+  <ul>
+    <li><strong>問題</strong>：<code>hash(key) % N</code> 一旦 N 變動，幾乎所有 key 重映射 → 雪崩、大搬遷。</li>
+    <li><strong>一致性雜湊</strong>：節點與 key 都映射到同一個環，key 順時針找第一個節點。加/移除節點只影響「<strong>環上相鄰一段</strong>」的 key（約 1/N）。</li>
+    <li><strong>vnode 解資料傾斜</strong>：每個實體節點只放 1 點時分佈不均，少數節點扛太多。讓每節點放 V 個 vnode（<code>hash("A#0"), hash("A#1")…</code>）均勻散佈，負載偏差大幅下降；移除節點時負擔也較平均地分給其它節點，<strong>異質硬體</strong>還能按容量配不同數量的 vnode。</li>
+  </ul>
+
+  <h3>② Quorum N / R / W</h3>
+  <ul>
+    <li><strong>N</strong>＝副本數（如 3）；<strong>W</strong>＝寫要幾個 ack 才算成功；<strong>R</strong>＝讀要讀幾個副本。</li>
+    <li><strong>核心不等式 <code>W + R &gt; N</code></strong>：保證「寫的副本集合」與「讀的副本集合」<strong>必定重疊</strong>至少一個節點 → 讀一定看得到最新的寫（在向量時鐘調和後）。</li>
+    <li>旋鈕怎麼調：<code>W=N, R=1</code> 讀快寫慢（讀多寫少場景）；<code>W=1, R=N</code> 寫快讀慢、寫最高可用；<code>W=R=2, N=3</code> 平衡且容忍 1 故障。</li>
+    <li><strong>寬鬆 quorum（sloppy quorum）</strong>：當 preference list 上有節點故障，就寫到環上下一個健康節點（搭配 hinted handoff），維持「永遠可寫」。</li>
+  </ul>
+
+  <h3>③ 向量時鐘 vs LWW</h3>
+  <ul>
+    <li><strong>向量時鐘</strong>＝<code>{node: counter}</code>，協調者寫入時把自己分量 +1。比較兩版本：每分量都 ≤ 且至少一個 &lt; → <strong>happens-before</strong>（舊，丟掉）；互有大小 → <strong>並發衝突</strong>，保留為 <strong>sibling</strong> 交給應用層合併（如購物車取聯集）。</li>
+    <li><strong>LWW（last-write-wins）</strong>：只比時間戳，誰新誰贏。簡單，但時鐘不同步或真正並發時會<strong>靜默丟寫</strong>。Cassandra 預設用 LWW（cell 級時間戳）換取簡單；Dynamo 用向量時鐘換取不丟寫。</li>
+  </ul>
+
+  <h3>④ Read Repair 與 Hinted Handoff</h3>
+  <ul>
+    <li><strong>read repair</strong>：get 時若發現某些副本落後，順手把它們補成最新（調和後）版本——讀路徑上的被動修復。</li>
+    <li><strong>hinted handoff</strong>：目標副本當機時，協調者把資料暫存到一個「代收」健康節點並打上「這是給 C 的」提示；C 復活後，代收節點把暫存交還給 C——保障寫可用性與最終副本數。</li>
+  </ul>
+
+  <h3>⑤ Merkle Tree 反熵（anti-entropy）</h3>
+  <p>副本長期偏差怎麼補齊？每個 key range 建一棵 <strong>Merkle tree</strong>（葉子是資料雜湊，往上逐層雜湊）。兩副本只要<strong>從根往下比對雜湊</strong>，相同的子樹整段跳過，快速定位差異段並同步，省去逐筆掃描。這是背景持續跑的「補洞」機制。</p>
+
+  <h2 id="scale">7. 擴展與瓶頸</h2>
+  <table>
+    <tr><th>瓶頸</th><th>症狀</th><th>對策</th></tr>
+    <tr><td>加節點重平衡</td><td>搬資料影響線上流量</td><td>一致性雜湊只搬 ~1/N；vnode 讓搬遷來源分散；限流背景遷移</td></tr>
+    <tr><td>熱 key</td><td>某 key 被狂讀寫，單副本組過載</td><td>應用層加隨機後綴打散；前置快取；該 key 提高 N</td></tr>
+    <tr><td>分區/故障時的可用性</td><td>嚴格 quorum 湊不到 W</td><td>sloppy quorum + hinted handoff，維持可寫，事後修復</td></tr>
+    <tr><td>sibling 爆炸</td><td>長期不合併，版本越堆越多</td><td>應用層讀到就合併再寫回；向量時鐘加時間戳剪枝（Dynamo 的做法）</td></tr>
+    <tr><td>墓碑（tombstone）堆積</td><td>刪除標記拖慢掃描</td><td>設定 GC grace 後 compaction 清除（注意別讓已刪資料復活）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">8. 取捨與面試重點</h2>
+  <ul>
+    <li><strong>強一致 vs 最終一致</strong>：本題選最終一致（AP）換高可用低延遲；要強一致就改用 Raft/Paxos 複製（CP），但會犧牲分區時的可用性與部分延遲。</li>
+    <li><strong>向量時鐘 vs LWW</strong>：向量時鐘不丟寫但複雜（sibling 要應用層處理、版本會膨脹）；LWW 簡單但會丟並發寫。依業務能否容忍丟寫來選。</li>
+    <li><strong>W/R 的選擇即一致性旋鈕</strong>：講得出「為什麼 W+R&gt;N」並能依讀寫比例給出 N/R/W 組合，是這題的得分點。</li>
+    <li><strong>常見追問</strong>：怎麼偵測節點死活？（gossip + 心跳）怎麼避免遷移風暴？（vnode + 限流）刪除為何要墓碑？（否則反熵會把已刪資料從落後副本「復活」）。</li>
+  </ul>
+
+  <h2 id="demo">9. PHP Demo 說明</h2>
+  <p>本題 demo 在<strong>單一 PHP process 內模擬一個多節點叢集</strong>，把分散式 KV 真正的考點跑起來：</p>
+  <ul>
+    <li><code>src/ConsistentHashRing.php</code>　一致性雜湊環 + vnode：<code>hash(key)</code>（crc32）順時針查找、preference list（前 N 個不同實體節點）、加/移除節點只重映射少量 key。</li>
+    <li><code>src/VectorClock.php</code>　向量時鐘：<code>increment</code> / <code>compare</code>（happens-before vs 並發）/ <code>merge</code>。</li>
+    <li><code>src/Cluster.php</code>　叢集核心：<code>put</code>（quorum W + hinted handoff）、<code>get</code>（quorum R + 向量時鐘調和 + read repair + sibling）、節點 up/down/add/remove；各節點 KV 存 <code>data/node_*.json</code>，以 <code>flock</code> 原子化。</li>
+    <li><code>public/index.php</code>　路由 + 測試頁：看環/vnode 分佈、查 preference list、put/get、切換節點 up/down 看 hinted handoff、製造並發寫看向量時鐘 sibling。</li>
+  </ul>
+  <pre><code># 啟動
+cd demo
+php -S localhost:8031 -t public
+# 瀏覽器開 http://localhost:8031
+# 試：put 幾筆 → get（走 R quorum）→ 用 down 製造分割做並發寫看 sibling → 加節點 D、down C 看 hinted handoff</code></pre>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 是<strong>單一 process 模擬多節點</strong>：<strong>沒有</strong>真實網路、<strong>沒有</strong> gossip 定時心跳、<strong>沒有</strong> Merkle tree 反熵背景程序。
+    但<strong>一致性雜湊 + vnode、quorum N/R/W、向量時鐘衝突偵測、read repair、hinted handoff 的邏輯皆為真實可執行</strong>——這正是本題的核心考點。
+    要變成真叢集，把「各節點一個 JSON 檔」換成「各節點一支 RPC 服務」即可，核心演算法不變。僅用 <code>json + hash(crc32)</code> 擴充，每檔 <code>declare(strict_types=1);</code>。
+  </div>
+
+  <footer>㉛ 分散式鍵值儲存 · K 組（分散式資料儲存）· 系統設計學習專案</footer>
+</div>
+</body>
+</html>

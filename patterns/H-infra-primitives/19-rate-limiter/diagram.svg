@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="16 6 768 442" width="768" height="442" font-family="system-ui,'Segoe UI','Microsoft JhengHei',sans-serif">
+<defs>
+<marker id="ah760da0" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1971c2"/></marker>
+<marker id="ah78c166" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2f9e44"/></marker>
+<marker id="ah60a55d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#e8590c"/></marker>
+</defs>
+<rect x="16" y="6" width="768" height="442" fill="#ffffff"/>
+<text x="40" y="30" font-size="22" fill="#1e1e1e" text-anchor="start" dominant-baseline="hanging">
+<tspan x="40" dy="0">分散式限流器 — 高階架構（請求/寫=藍 放行=綠 基建=黃）</tspan>
+</text>
+<rect x="40" y="200" width="150" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="115" y="220" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="115" dy="0">客戶端 (請求)</tspan>
+</text>
+<rect x="280" y="200" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="370" y="213" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="370" dy="0">API Gateway</tspan>
+<tspan x="370" dy="20">(限流中介)</tspan>
+</text>
+<rect x="560" y="200" width="200" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="660" y="213" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="660" dy="0">Redis</tspan>
+<tspan x="660" dy="20">(原子計數/令牌桶)</tspan>
+</text>
+<rect x="560" y="60" width="200" height="64" rx="8" fill="#ffec99" stroke="#e8590c" stroke-width="2"/>
+<text x="660" y="80" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="660" dy="0">限流規則設定</tspan>
+</text>
+<rect x="280" y="360" width="180" height="64" rx="8" fill="#b2f2bb" stroke="#2f9e44" stroke-width="2"/>
+<text x="370" y="380" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="370" dy="0">後端服務 (放行)</tspan>
+</text>
+<rect x="40" y="360" width="180" height="64" rx="8" fill="#a5d8ff" stroke="#1971c2" stroke-width="2"/>
+<text x="130" y="373" font-size="16" fill="#1e1e1e" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="130" dy="0">429 拒絕</tspan>
+<tspan x="130" dy="20">+ Retry-After</tspan>
+</text>
+<polyline points="192,232 278,232" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="462,226 558,226" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="558,240 462,240" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="660,124 660,200" fill="none" stroke="#e8590c" stroke-width="2" marker-end="url(#ah60a55d)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="370,264 370,360" fill="none" stroke="#2f9e44" stroke-width="2" marker-end="url(#ah78c166)" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="300,264 140,360" fill="none" stroke="#1971c2" stroke-width="2" marker-end="url(#ah760da0)" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="515" y="168" font-size="13" fill="#1971c2" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="515" dy="0">原子計數</tspan>
+</text>
+<text x="420" y="300" font-size="13" fill="#2f9e44" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="420" dy="0">放行</tspan>
+</text>
+<text x="190" y="300" font-size="13" fill="#1971c2" text-anchor="middle" dominant-baseline="hanging">
+<tspan x="190" dy="0">超限</tspan>
+</text>
+</svg>

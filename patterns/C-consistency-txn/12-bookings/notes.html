@@ -127,7 +127,8 @@ bookings (確認後的正式訂單)
   <div class="box warn"><span class="label">關鍵設計：把「日期區間」攤平成「每日一列」</span>不要把可訂與否塞在一個 <code>rooms</code> 欄位。攤成 <code>room_inventory(room_id, date)</code> 後，預訂 6/1–6/4 就是鎖/更新 6/1、6/2、6/3 三列（退房日不佔），<strong>(room_id, date) 主鍵的唯一性本身就是防超賣的最後一道防線</strong>。</div>
 
   <h2 id="arch">5. 高階架構</h2>
-  <a class="diagram-link" href="diagram.excalidraw">🖼️ 開啟 Excalidraw 架構圖（diagram.excalidraw）</a>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
   <pre><code> 搜尋(讀) ─▶ 搜尋服務 ─▶ 讀副本 / 快取(房況)      （最終一致，容忍短暫過期）
                                   ▲
                                   │ 變更事件
