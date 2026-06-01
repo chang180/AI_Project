@@ -73,6 +73,7 @@
       <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
       <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
       <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#code">掀開引擎蓋：核心程式怎麼寫的</a></li>
       <li><a href="#quiz">考考自己</a></li>
       <li><a href="#recap">30 秒回顧</a></li>
     </ol>
@@ -342,7 +343,85 @@ php -S localhost:8004 -t public
   </ol>
   <div class="box"><span class="label">玩的時候想一下</span>價格剛好降到門檻 → 觸發一次後，把價格<strong>再壓低一點點</strong>，看它<strong>會不會再發</strong>（不會！因為在冷卻中）——這就是<strong>去抖</strong>。再把價格<strong>拉高過「回升安全線」再壓低</strong>，看它是不是又能觸發了——這就是<strong>遲滯帶 re-arm</strong>。</div>
 
-  <h2 id="quiz">13. 考考自己</h2>
+  <h2 id="code">13. 掀開引擎蓋：核心程式怎麼寫的</h2>
+  <p>玩過 demo 了，來掀開引擎蓋看看「那幾關到底是<strong>哪幾段程式</strong>做的」。
+  好消息：核心只有<strong>三個小檔</strong>，剛好對應前面講的工作。<strong>不用會 PHP</strong>，我把程式翻成白話、只留關鍵那幾行，看註解就懂。</p>
+  <div class="analogy">
+    <span class="label">🔧 三個檔 = 三個小幫手</span>
+    <strong>PriceFeed</strong>（拿價格的巡邏員，含變更偵測）→ <strong>Watchlist</strong>（那本排好序的名冊＝反向索引）→ <strong>AlertEngine</strong>（決定「要不要響」的去抖大腦）。價格一來，就照這個順序跑一遍。
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">1</span>變更偵測：沒變就丟掉（PriceFeed）</h3>
+    <p>新價格進來的第一關，先問一句「<strong>真的變了嗎？</strong>」。沒變就直接丟，不去吵後面的人。</p>
+<pre><code>function push(商品, 新價) {
+    上次價 = 記錄裡這件商品的價格
+    if (上次價 和 新價 幾乎一樣)
+        return 沒事;          // ← 沒變 → 丟掉，下游完全不會被打擾
+    記錄[商品] = 新價           // 真的變了才更新、往下送
+    return { 商品, 新價, 上次價 }
+}</code></pre>
+    <p class="codecaption">就這一行 <code>if</code>，把「其實沒變」的雜訊擋在門外。少了它，一堆「價格沒動」的空事件會白白灌爆後面每一關。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>名冊匹配：翻到那頁往後撈（Watchlist）</h3>
+    <p>先看一個小聰明：不管你設「<strong>降到 2400</strong>」還是「<strong>跌 15%</strong>」，建立追蹤時都先換算成<strong>同一個「觸發價」</strong>：</p>
+<pre><code>觸發價 = (門檻是跌幅%) ? 基準價 × (1 - 跌幅/100)   // 例：3000 跌15% → 2550
+                       : 目標價                  // 例：直接就是 2400</code></pre>
+    <p class="codecaption">兩種門檻統一成一個「絕對觸發價」後，就能塞進同一本名冊，用<strong>同一種比較</strong>處理——這是讓系統變簡單的關鍵一步。</p>
+    <p>然後匹配就是這麼一句：</p>
+<pre><code>function 找出誰在等(商品, 現價) {
+    回傳所有「同一件商品 且 現價 &lt;= 它的觸發價」的追蹤
+}</code></pre>
+    <p class="codecaption">這就是前面說的「<strong>翻到 2400 那頁、往後一撈</strong>」。demo 為了好懂用一個迴圈過濾；真實系統把它換成 Redis 的 <strong>ZSET（排好序的名冊）</strong>，用 <code>ZRANGEBYSCORE</code> 一次 O(log N) 撈出所有達標的人——<strong>邏輯一模一樣</strong>，只是換更快的工具。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>去抖大腦：門鈴按一次別連響（AlertEngine）</h3>
+    <p>這是<strong>全題的心臟</strong>。每個達標的人，先問「<strong>它現在是哪一檔？</strong>」再決定要不要真的發：</p>
+<pre><code>if (這個人達標了) {
+    if (狀態 == ARMED) {           // ← 只有「待命」才會真的響
+        狀態 = TRIGGERED
+        冷卻到 = 現在 + 30 秒
+        發出通知(...)              // 響一聲！
+        狀態 = COOLDOWN            // ← 響完馬上進「冷卻中」
+    }
+    // 已經是 COOLDOWN？就算還在門檻下，也不發 → 抖動被吸收
+} else {                          // 沒達標（價格回升了）
+    回升安全線 = 觸發價 × 1.05     // ← 遲滯帶：要漲過這條線才算數
+    if (狀態==COOLDOWN 且 現價 &gt;= 回升安全線 且 冷卻時間已過)
+        狀態 = ARMED              // 重新待命，下次降價才會再響
+}</code></pre>
+    <p class="codecaption">前面講的「ARMED → TRIGGERED → COOLDOWN → 回 ARMED」整套<strong>就是這段 <code>if</code></strong>。三檔狀態 + 冷卻 30 秒 + 回升安全線（×1.05），全在這裡。這也是面試官最愛追問的一段。</p>
+    <p class="pause">💭 停一下：為什麼「響完」要馬上把狀態設成 COOLDOWN，而不是留在 TRIGGERED？</p>
+    <details class="qa"><summary>看答案</summary>
+      TRIGGERED 只是「正在響」的<strong>瞬間</strong>狀態；真正<strong>存起來</strong>的是 COOLDOWN（冷卻中）。這樣下一筆價格進來、看到這個人是 COOLDOWN，就知道「剛響過，別再吵」——抖動才會被吸收。</details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>冪等：同一次只發一封（AlertEngine 的發送）</h3>
+    <p>真的要發了，最後一道保險：<strong>同一次達標，絕不發成兩封</strong>。</p>
+<pre><code>週期 = 現在時間 ÷ 30秒（取整）       // 同一個冷卻週期算「同一次」
+鑰匙 = hash(追蹤編號 + 週期)
+if (這把鑰匙發過了) return 跳過;     // ← 冪等：同一次只發一次
+記下這把鑰匙;  真的送出通知</code></pre>
+    <p class="codecaption">就算上游因為「寧可重送也不漏送」（at-least-once）重複丟了同一筆，投遞層一看「這把鑰匙已存在」就跳過。這就是把<strong>「至少一次」變成「剛好一次」的體驗</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">🧭 把程式對回前面的關卡</span>
+    <table>
+      <tr><th>關卡（前面講的）</th><th>哪個檔</th><th>關鍵那段</th></tr>
+      <tr><td>① 拿價格 + 變更偵測</td><td>PriceFeed</td><td><code>push()</code> 的那行 if</td></tr>
+      <tr><td>② 匹配誰在等</td><td>Watchlist</td><td><code>找出誰在等()</code>（反向索引）</td></tr>
+      <tr><td>③ 去抖（響一聲就好）</td><td>AlertEngine</td><td>ARMED / COOLDOWN 的 if</td></tr>
+      <tr><td>④ 不重發</td><td>AlertEngine</td><td>發送前的「鑰匙」檢查</td></tr>
+    </table>
+  </div>
+  <p>👉 重點：真實系統會把「JSON 檔 + 迴圈過濾」換成「分片資料庫 + Redis ZSET + Kafka 佇列」，
+  但<strong>上面這幾段判斷邏輯一字都不用改</strong>。所以讀懂這個小 demo，你就讀懂了這題的核心。</p>
+
+  <h2 id="quiz">14. 考考自己</h2>
   <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
   <details class="qa"><summary>Q1：用「徵人啟事配對」解釋，這題的核心難關是什麼？</summary>
     一筆新價（職缺開價）來了，要瞬間從上千萬個「在等某個價」的人裡，找出「這個價剛好踩中門檻」的所有人。不能逐一問每個人，要用「反過來、排好序」的方式一翻就命中——這就是條件匹配 + 反向索引。</details>
@@ -359,7 +438,7 @@ php -S localhost:8004 -t public
   <details class="qa"><summary>Q7（工程）：使用者把目標價改掉，系統要更新哪兩個地方？</summary>
     ① 反向索引（名冊）裡他的排序分數要改，因為位置變了；② 他的狀態要重設回 ARMED（待命），新門檻才能正常觸發。</details>
 
-  <h2 id="recap">14. 30 秒回顧</h2>
+  <h2 id="recap">15. 30 秒回顧</h2>
   <div class="recap">
     <p style="margin-top:0"><strong>價格追蹤 = 幫幾千萬人盯著降價的自動管家。</strong></p>
     <p><strong>4 個關卡：</strong>① 分層<strong>拿價格</strong> → ② 用排好序的名冊（反向索引）<strong>匹配誰在等</strong> → ③ <strong>去抖</strong>（門鈴按一次別連響）→ ④ 一群工人<strong>同時推播</strong>（fan-out）。</p>
