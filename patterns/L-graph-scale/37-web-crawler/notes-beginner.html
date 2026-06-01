@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊲ 網頁爬蟲 Web Crawler · 初學者友善版</title>
+<link rel="stylesheet" href="../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../index.html">← 回總覽</a>
+  <a href="../README.md">🅻 圖/大規模演算法</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊲ 網頁爬蟲 Web Crawler · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">L 圖/演算法</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「順著連結爬」就能逛遍整個網路？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 4 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你是個<strong>超勤奮的剪報員</strong>。老闆給你<strong>一份網址清單</strong>（叫「種子」），要你：打開每一頁、把整頁影印存檔，
+  順便把那頁上<strong>提到的每個連結</strong>都抄下來，接著一個一個再去開、再影印、再抄連結……一直滾下去，
+  直到把<strong>整個網路</strong>都剪報完。</p>
+  <p>網頁爬蟲（Google、Bing 背後那隻）就是在做這件事——把全世界的網頁<strong>自動抓回來存好</strong>，搜尋引擎才有東西可以查。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    網頁爬蟲 = <strong>順著連結一直加好友的剪報機器人</strong>：從幾個種子網址出發 → 抓頁面 → 把頁面上的連結加進「待爬清單」 → 一層層往外爬，
+    過程中要<strong>不重複、有禮貌、還能分給很多台機器一起做</strong>。
+  </div>
+
+  <h2 id="why">2. 為什麼「順著連結爬」就能逛遍整個網路？</h2>
+  <p>關鍵在一個你天天在用的生活經驗——<strong>加好友</strong>。</p>
+  <div class="analogy">
+    <span class="label">👥 一層層加好友</span>
+    想認識全校的人？你<strong>不用</strong>拿到全校名冊。你只要從<strong>幾個朋友</strong>（種子）開始，
+    看他們的<strong>好友清單</strong>，把上面的人都加進來；再看這些新朋友的好友清單，繼續加……
+    只要大家彼此都有連到，遲早能透過「朋友的朋友」<strong>連到全校每一個人</strong>。
+  </div>
+  <p>網路就是這樣一張<strong>大網</strong>：每個網頁是一個「人」，頁面上的每個<strong>連結</strong>就是一條「好友關係」。
+  爬蟲只要從種子出發、順著連結一直走，就能走遍整張網。工程上把「先把眼前這層的好友全加完，再往下一層」這種爬法叫
+  <strong>BFS（廣度優先）</strong>——一圈一圈往外擴，而不是一頭栽進某條路走到黑。</p>
+  <p class="pause">💭 停一下：你只拿到「一個」朋友的名字，最後卻能連到全校的人。為什麼不必一開始就拿到全校名冊？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為每個人的好友清單會「接力」帶出更多人——朋友的朋友的朋友……只要這張關係網是連通的，從一個點出發就能擴散到整張網。網頁也一樣：你不必擁有「全網網址表」，順著連結爬，連結會自己帶你去到下一頁。種子只是「起點」，不是「全部」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「分散式爬蟲」嚇到。整件事就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>待爬清單：手上那疊「還沒去開的網址」</h3>
+    <p>爬蟲手上永遠有一疊「<strong>還沒去開的網址</strong>」，工程上叫 <strong>frontier（待爬清單）</strong>。
+    每抓完一頁、抽出新連結，就把新網址<strong>排到清單後面</strong>；要爬時就從<strong>前面拿一個</strong>出來開。</p>
+    <div class="analogy"><span class="label">📋 比喻：待辦清單</span>
+      就像你的<strong>待辦事項清單</strong>：做完一件事常常會冒出新的待辦，你把新的寫到清單下面，再從上面挑下一件來做。先進先出、一圈圈往外，就是 BFS。</div>
+    <p>👉 這疊清單會<strong>爆炸性變長</strong>（一頁就帶出十幾個新連結），所以它不能只放在腦袋裡（記憶體），裝不下時要能<strong>溢出去寫到硬碟或排隊系統</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>去重：「這頁我是不是爬過了？」</h3>
+    <p>網路到處是<strong>互相連回去的環</strong>（A 連 B、B 又連回 A）。如果不檢查，爬蟲會<strong>同一頁爬到天荒地老</strong>、原地打轉。
+    所以每拿到一個網址，要先問：「<strong>這個我爬過了嗎？</strong>」</p>
+    <div class="analogy">
+      <span class="label">📓 比喻：超省紙的「打勾備忘」</span>
+      最直覺的做法是準備一本<strong>大冊子</strong>，爬過的網址全抄進去，每次翻查。但網址有<strong>幾十億個</strong>，這本冊子大到<strong>桌上擺不下</strong>（單機記憶體裝不下）。
+      於是改用一種<strong>超省空間的快速備忘</strong>叫 <strong>bloom filter</strong>：它不抄完整網址，只在一張小卡上「打幾個勾」來記住「這個大概看過了」。
+    </div>
+    <p>bloom filter 的脾氣很特別，記住這兩句就好：</p>
+    <ul>
+      <li>它說「<strong>沒看過</strong>」→ <strong>一定沒看過</strong>（很可靠，絕不會把新頁誤當舊頁而漏抓……反過來才會）。</li>
+      <li>它說「<strong>可能看過</strong>」→ <strong>有時候會認錯</strong>（偶爾把沒爬過的新頁誤判成爬過 → 少爬那一頁，通常可接受）。</li>
+    </ul>
+    <p>想幾乎不漏？bloom 說「可能看過」時，<strong>再去翻一次真正的精確名冊</strong>確認一下就好。<strong>省空間的近似先擋，命中再精查。</strong></p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>禮貌：別對同一個網站「狂敲門」</h3>
+    <p>如果你 1 秒鐘對同一個網站開幾百頁，等於<strong>瘋狂按它家門鈴</strong>——對方伺服器會被你打趴，輕則<strong>封鎖你的 IP</strong>，重則惹上麻煩。</p>
+    <div class="analogy">
+      <span class="label">🔔 比喻：當個有禮貌的訪客</span>
+      去別人家拜訪，你不會<strong>對著門鈴猛按不放</strong>。你會按一下、等人來應門、聊完再走。
+      而且門口常貼張紙條（<strong>robots.txt</strong>）寫「哪些房間不歡迎參觀、來訪請間隔幾秒」——有禮貌的客人會<strong>讀紙條、照規矩來</strong>。
+    </div>
+    <p>這就叫 <strong>politeness（禮貌）</strong>：抓每個網站前先讀它的 <strong>robots.txt</strong>（規矩），同一個網站兩次抓取之間要<strong>隔一段時間（crawl-delay）</strong>，太密就把這個網址<strong>延後再排</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>分工：待爬清單分給很多台機器</h3>
+    <p>幾十億頁，一台機器爬到下輩子。要<strong>很多台機器一起爬</strong>。但這裡有個陷阱：如果隨便分，可能<strong>三台機器同時去敲同一個網站</strong>——禮貌就破功了。</p>
+    <div class="analogy">
+      <span class="label">📮 比喻：依「地址」分郵差</span>
+      郵局分信不會亂分，而是<strong>依地址分區</strong>：同一個社區的信全交給<strong>同一個郵差</strong>。
+      這樣每個郵差才知道「我今天去過這社區了，等等再來」，不會三個郵差同一小時擠在同一個門口。
+    </div>
+    <p>所以爬蟲<strong>依「網站（domain）」分片</strong>：同一個網站的所有網址，<strong>都交給同一台機器</strong>。
+    這樣那台機器才管得住「我剛剛敲過這站，要隔幾秒再敲」——<strong>禮貌規則才生效</strong>。這就是<strong>分散式 frontier</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 從種子出發、把連結加進<strong>待爬清單</strong>一層層爬 → ② 用 bloom filter <strong>去重</strong>不重爬 → ③ 對每個網站講<strong>禮貌</strong>別狂敲 → ④ 依網站<strong>分給很多台機器</strong>一起做。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 4 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕四件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「原地鬼打牆」</span>
+    網路全是互連的環，不去重就會<strong>同一頁爬到天荒地老</strong>，永遠爬不完。所以<strong>去重是命脈</strong>——但完整名冊太大裝不下，只好用 bloom filter 這種<strong>省空間的近似備忘</strong>，偶爾少爬一頁換來「裝得下」。<em>記得住 &gt; 記得完美。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「被網站封鎖」</span>
+    對同一個網站抓太快 → <strong>被封 IP、甚至挨告</strong>。所以「<strong>禮貌</strong>」是硬規定：讀 robots.txt、控速、同站慢慢來。<em>抓得慢一點，總比被擋在門外抓不到好。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「掉進陷阱爬不出來」</span>
+    有些網站會<strong>自動生出無限多個假連結</strong>（像萬年月曆「下一天、下一天……」永遠按不完），會把待爬清單<strong>撐爆</strong>。
+    所以要設<strong>最大深度、每站網址上限</strong>，並把長得像的網址<strong>正規化合併</strong>，免得被拖進無底洞。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「抓回來的是過期舊聞」</span>
+    網頁會變（新聞每天更新、商品改價）。只抓一次就再也不回頭，存的就是<strong>過期資料</strong>。
+    所以要安排<strong>重抓（freshness）</strong>：常變的頁勤快回去看，靜態頁久久看一次。<em>新鮮 vs 省力，要拿捏。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，跟著「一頁的旅程」走一圈：</p>
+  <ul>
+    <li>📋 <strong>待爬清單（Frontier）</strong>吐出一個還沒爬的網址 →</li>
+    <li>⬇️ <strong>抓取器（Fetcher）</strong>把那頁下載回來（抓之前先看「對這站禮貌嗎？間隔夠了嗎？」）→</li>
+    <li>✂️ <strong>解析器（Parser）</strong>把整頁讀過，<strong>抽出上面所有連結</strong>，並把網址洗乾淨（正規化）→</li>
+    <li>🔁 每個新連結問<strong>去重</strong>：「爬過沒？」沒爬過的才<strong>放回待爬清單</strong>（清單就這樣一圈圈長大）→</li>
+    <li>💾 抓回的整頁內容<strong>壓縮存進倉庫</strong>；同時記下「何時該回來重抓」交給<strong>重抓排程</strong>。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>種子 URL（seed）</td><td>老闆給你的「第一份網址清單」，爬蟲的起點</td></tr>
+    <tr><td>BFS（廣度優先）</td><td>一圈圈往外加好友：先把這層連結爬完，再爬下一層</td></tr>
+    <tr><td>Frontier（待爬清單）</td><td>手上那疊「還沒去開的網址」待辦清單</td></tr>
+    <tr><td>Fetcher（抓取器）</td><td>真的去把網頁下載回來的那隻手</td></tr>
+    <tr><td>Parser（解析器）</td><td>讀完整頁、把上面的連結抽出來的那隻手</td></tr>
+    <tr><td>去重（dedup）</td><td>「這頁爬過沒？」避免原地鬼打牆</td></tr>
+    <tr><td>bloom filter</td><td>超省空間的「打勾備忘」：說沒看過一定準，說看過偶爾認錯</td></tr>
+    <tr><td>偽陽性</td><td>bloom 把「沒爬過的新頁」誤判成「爬過」→ 少爬那一頁</td></tr>
+    <tr><td>politeness（禮貌）</td><td>別對同一站狂敲門：讀 robots、同站隔幾秒再抓</td></tr>
+    <tr><td>robots.txt</td><td>網站門口貼的紙條：哪裡別爬、來訪請間隔幾秒</td></tr>
+    <tr><td>crawl-delay</td><td>同一站兩次抓取之間「至少要隔的秒數」</td></tr>
+    <tr><td>分片（sharding）</td><td>依網站把待爬清單分給不同機器（同站→同機）</td></tr>
+    <tr><td>正規化（normalize）</td><td>把長得不一樣其實同一頁的網址洗成同一個樣子</td></tr>
+    <tr><td>freshness（新鮮度）</td><td>頁面會變，安排「多久回來重抓一次」</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：搬家前先估幾箱</span>
+    搬家前你會先估「大概幾箱東西」，才決定<strong>叫多大的貨車、租多大倉庫</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>要爬多少頁、多久爬完</td><td>10 億頁，1 個月爬完</td><td>≈ 每秒爬 ~400 頁（尖峰再 ×3），單台辦不到 → 要很多台</td></tr>
+    <tr><td>要多大的網路頻寬</td><td>每頁平均 100 KB</td><td>≈ 每秒下載 40 MB（320 Mbps），下載量很可觀</td></tr>
+    <tr><td>抓回來要存多少</td><td>每頁壓縮後 ~30 KB</td><td>10 億頁 ≈ <strong>30 TB</strong>，一輪就這麼多</td></tr>
+    <tr><td>「爬過名冊」要多大記憶體</td><td>10 億網址、每筆完整存 ~64 B</td><td>≈ <strong>64 GB</strong>，單機塞不下 → 改用 bloom，1% 認錯率只要 ~<strong>1.2 GB</strong></td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：兩個數字決定整題</span>
+    其實整題就被兩件事卡住：<strong>(1)「爬過名冊」64 GB 桌上擺不下</strong> → 所以要 bloom filter／分散式去重；
+    <strong>(2) 對同一個網站不能抓太快</strong> → 所以要禮貌＋依網站分片。其餘都是把這兩件事工程化而已。
+  </div>
+  <p class="pause">💭 停一下：「精確名冊 64 GB」對比「bloom filter 1.2 GB」差了 50 倍。我們用什麼換到這個便宜？</p>
+  <details class="qa"><summary>看答案</summary>
+    用「<strong>偶爾認錯</strong>」換到的。bloom filter 不存完整網址、只打幾個勾，所以超省空間；代價是它有時會把「沒爬過的新頁」誤判成「爬過」（偽陽性），讓我們少爬那一頁。對搜尋引擎來說，幾十億頁裡偶爾少抓一頁影響很小，用 50 倍的記憶體節省去換，非常划算。真要補救，bloom 說「可能看過」時再翻一次精確名冊即可。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>爬蟲多半是<strong>關起門來自己跑的內部系統</strong>，不太對外開放。所以它的「點餐單」分兩種：一種給管理員下指令，一種是內部零件彼此講話。</p>
+  <pre><code>① 管理員：丟種子 / 看進度
+   POST /crawler/seeds   給我：{ 網址清單, 最大深度 } ← 開工！
+   GET  /crawler/stats   我回：{ 爬了幾頁, 待爬清單多長, 每秒幾頁, 各網站速率 }</code></pre>
+  <p class="codecaption">就像跟剪報員說「這份清單開始剪」，隨時可以問他「剪到哪了、還剩幾張」。</p>
+  <pre><code>② 內部零件互相講話（概念）
+   待爬清單.放進去(網址)      把新連結排進待辦
+   待爬清單.拿一個()          取出下一個「已通過禮貌檢查」的網址
+   去重.看過了嗎(網址) → 是/否  先問 bloom，命中再查精確名冊
+   抓取器.抓(網址)            下載頁面（受該網站速率限制）
+   解析器.抽連結(HTML)        洗乾淨後回傳頁面上的外連
+   排程.安排重抓(網址, 新鮮度)  決定多久後回來再抓一次</code></pre>
+  <p class="codecaption">注意「待爬清單.拿一個()」拿出來的，一定是<strong>已經通過禮貌檢查</strong>的網址——還沒到 crawl-delay 的會先被擋著、延後。這樣抓取器只管抓，不用自己操心禮貌。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：四本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題剛好四本，<strong>正對應前面四個關卡</strong>：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📋</span>待爬簿（還沒爬的網址）</h3>
+    <p>每個待爬網址一列：<code>分片編號、網址、深度、優先序、排進來的時間</code>。
+    <strong>依網站分片</strong>，而且裝不下時要能溢寫到硬碟——因為這本簿子會爆炸性變厚。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">✅</span>爬過簿（去重，兩層）</h3>
+    <p>分兩層：<code>bloom filter</code>（放記憶體、超省空間、會偶爾認錯）＋ <code>精確指紋名冊</code>（bloom 說「可能爬過」時，再翻這本確認）。</p>
+    <div class="analogy"><span class="label">為什麼要兩層？</span>
+      光靠 bloom 會偶爾少爬一頁（認錯）；光靠精確名冊又裝不下（64 GB）。
+      所以<strong>bloom 先擋（快又省），命中時再查精確名冊（準）</strong>——兩層搭配，既省空間又幾乎不漏。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">💾</span>頁面簿（抓回來的內容中繼）</h3>
+    <p>每抓過的頁一列：<code>網址雜湊（主鍵）、網址、抓取時間、<strong>內容指紋</strong>、下次重抓時間、抓過幾次、HTTP 狀態</code>。
+    存<strong>內容指紋</strong>是為了下次回來時能比對「<strong>這頁真的變了嗎？</strong>」沒變就不用重存。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔔</span>網站簿（每個網站的禮貌狀態）</h3>
+    <p>每個網站一列：<code>網站名（主鍵）、上次抓取時間、crawl-delay、robots 規則、分片編號</code>。
+    把同一網站的禮貌狀態<strong>集中在一處</strong>，速率限制才管得住——這也是「為什麼要依網站分片」的根本原因。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>每次抓頁都要先「查網址→IP」（DNS），查到爆</td><td>自己做一份<strong>DNS 快取</strong>、批次預先查好</td></tr>
+    <tr><td>下載量太大，網路頻寬塞滿</td><td>多區域節點<strong>就近抓</strong>、壓縮、只抓需要的類型</td></tr>
+    <tr><td>「爬過名冊」太大，單機裝不下</td><td>用 <strong>bloom filter</strong>（近似）＋ 分散式分片去重</td></tr>
+    <tr><td>熱門大站（如 YouTube）連結爆多，把某台機器壓垮</td><td>對巨站<strong>再細分</strong>或給它<strong>專屬機器</strong></td></tr>
+    <tr><td>待爬清單爆量、記憶體裝不下</td><td>用<strong>排隊系統（如 Kafka）＋ 溢寫硬碟</strong>，低價值網址先丟</td></tr>
+    <tr><td>機器掛掉、重複抓、進度遺失</td><td>清單與去重<strong>存到硬碟</strong>、用「至少抓一次＋去重」保證不亂</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的四個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 廣度 vs 深度</span>
+    BFS（一圈圈往外）覆蓋面廣，適合<strong>建搜尋索引</strong>；DFS／深度限制適合<strong>針對性抓某個站</strong>。多數通用爬蟲走 BFS ＋ 設個深度上限。</div>
+  <div class="fear"><span class="label">⚖️ bloom 認錯 vs 精確名冊太大</span>
+    bloom 省記憶體但偶爾少爬一頁；精確名冊不漏但 64 GB 塞不下。折衷＝<strong>bloom 先擋 ＋ 命中再查精確</strong>，兩全其美。</div>
+  <div class="fear"><span class="label">⚖️ 禮貌 vs 速度</span>
+    crawl-delay 拉長 → 抓得慢但安全；拉短 → 抓得快但可能被封 IP。依站台規模<strong>動態調整</strong>，大站可稍快、小站要溫柔。</div>
+  <div class="fear"><span class="label">⚖️ 即時 vs 批次</span>
+    新聞/監控要<strong>即時爬</strong>（延遲低但一直耗資源）；長尾頁面<strong>批次爬</strong>（吞吐高但新鮮度差）。常混合用：重要頁即時、其餘批次。</div>
+  <details class="qa"><summary>💭 追問：兩個不同網址其實是同一頁內容，怎麼避免重複存？</summary>
+    對「網址」去重擋不住這種（網址不同）。要對「<strong>內容</strong>」算一個指紋（content_hash / simhash），內容一樣就視為同一頁，不重複存。</details>
+  <details class="qa"><summary>💭 追問：有些頁要靠 JavaScript 跑完才看得到內容，怎麼抓？</summary>
+    一般 Fetcher 只下載原始 HTML，抓不到 JS 跑出來的東西。要用「<strong>無頭瀏覽器</strong>」（headless browser）真的把頁面跑一遍再抓——但很耗資源，只對需要的頁選擇性使用。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「待爬清單長大、去重、禮貌、分片」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8037 -t public
+# 然後瀏覽器打開 http://localhost:8037</code></pre>
+  <ol>
+    <li>先按「<strong>seed</strong>」（丟入種子網址，等於給剪報員第一份清單）。</li>
+    <li>反覆按「<strong>crawl</strong>」（一步一步爬），觀察<strong>待爬清單（frontier）和已爬（visited）怎麼長大</strong>。</li>
+    <li>注意看：<strong>bloom 的去重統計</strong>、被 politeness <strong>延後</strong>的網址、每個網址被指派到哪個 <strong>shard（分片）</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>連按 crawl，待爬清單是不是一下子變很長？這就是「一頁帶出十幾個連結」的<strong>分支爆炸</strong>。看看有沒有網址因為「剛抓過同站」而被<strong>延後</strong>——那就是<strong>禮貌（politeness）</strong>在運作。同一個網站的網址是不是都落在同一個 shard？那就是<strong>依網站分片</strong>。</div>
+  <div class="box warn"><span class="label">誠實提醒</span>
+    這個 demo <strong>不連真網路</strong>，用程式內建的「假網路圖」做確定性爬取，方便你觀察。但 BFS 待爬清單、bloom 去重（含認錯後二次確認）、politeness、依網站分片、重抓排程這些<strong>核心邏輯都是真的可執行</strong>——要換成真網路，只要把「查假網路圖」換成「對網址發 HTTP GET、解析 HTML 抽連結」，其餘不變。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「加好友」的比喻解釋，為什麼只給幾個種子網址就能爬遍整個網路？</summary>
+    每個網頁的連結就像一個人的好友清單。從幾個種子（朋友）出發，看他們連到的頁（好友），再看那些頁連到的頁（朋友的朋友）……只要這張網是連通的，一層層往外就能走遍。種子是起點，不是全部。先把這層爬完再下一層，就是 BFS。</details>
+  <details class="qa"><summary>Q2：為什麼不能拿一本「完整名冊」記哪些頁爬過？改用什麼？</summary>
+    幾十億網址完整記下來約 64 GB，單機記憶體裝不下。改用 bloom filter：超省空間的「打勾備忘」，說「沒看過」一定準、說「可能看過」偶爾認錯（誤判→少爬一頁，可接受）。想幾乎不漏，bloom 命中時再翻一次精確名冊確認。</details>
+  <details class="qa"><summary>Q3：politeness（禮貌）是什麼？不做會怎樣？</summary>
+    別對同一個網站抓太快，要讀它的 robots.txt、同站兩次抓取隔一段時間（crawl-delay）。像當有禮貌的訪客、不對門鈴猛按。不做的話會把對方伺服器打趴、被封 IP 甚至挨告。</details>
+  <details class="qa"><summary>Q4：為什麼待爬清單要「依網站」分給不同機器，而不是隨便分？</summary>
+    因為禮貌規則是「對同一個網站別太快」。如果同一網站的網址散在好幾台機器，就會多台同時去敲它，禮貌破功。依網站分片（同站→同機），那台機器才管得住「我剛敲過這站，要隔幾秒再敲」。像郵局依地址分郵差。</details>
+  <details class="qa"><summary>Q5（工程）：bloom filter 用 1.2 GB 取代精確名冊的 64 GB，我們付出了什麼代價？</summary>
+    代價是「偶爾認錯」（偽陽性）：把沒爬過的新頁誤判成爬過，少爬那一頁。對搜尋引擎幾十億頁來說影響很小，用 50 倍記憶體節省去換很划算。要補救就在 bloom 命中時再查精確名冊。</details>
+  <details class="qa"><summary>Q6（工程）：待爬清單（frontier）為什麼不能只放記憶體？怎麼處理？</summary>
+    因為一頁就帶出十幾個新連結，分支爆炸，清單會瞬間爆量、記憶體裝不下。要能溢寫到硬碟或用分散式排隊系統（如 Kafka），並可丟棄低價值網址、設深度與每站上限防爬蟲陷阱。</details>
+  <details class="qa"><summary>Q7（工程）：頁面簿為什麼要存「內容指紋」？重抓時有什麼用？</summary>
+    重抓回來時，拿新內容的指紋跟舊的比對，就能知道「這頁真的變了嗎」。沒變就不用重新存、也能據此調整下次重抓的間隔，攤平重抓流量、省儲存。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>網頁爬蟲 = 順著連結一直加好友的剪報機器人。</strong></p>
+    <p><strong>4 個關卡：</strong>① 從種子出發、把連結加進<strong>待爬清單</strong>一層層爬（BFS）→ ② 用 <strong>bloom filter 去重</strong>不鬼打牆 → ③ 對每個網站講<strong>禮貌</strong>（robots ＋ crawl-delay）→ ④ 依網站<strong>分片</strong>給很多台機器。</p>
+    <p><strong>4 個怕：</strong>怕原地鬼打牆（要去重）、怕被封鎖（要禮貌）、怕掉進無限連結陷阱（設深度上限）、怕抓回舊聞（要重抓）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>整題被兩個數字卡住——「爬過名冊 64 GB 裝不下」（用 bloom）和「對同站不能太快」（用禮貌＋分片）；其餘是四本筆記本（待爬/爬過/頁面/網站）＋找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊲ 網頁爬蟲 Web Crawler · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉖ 全文搜尋引擎 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉖ 全文搜尋引擎 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼不能「一篇篇翻」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像 Twitter 上有 <strong>幾十億則貼文</strong>。你在搜尋框打「<strong>地震</strong>」，按下 Enter——
+  系統要在<strong>不到 0.2 秒內</strong>，從那幾十億則裡，找出<strong>最相關的幾則</strong>排在最前面給你看。</p>
+  <p>全文搜尋引擎就是在做這件事。它的難，難在三點：文件多到爆、要<strong>夠快</strong>、而且找到的還要<strong>「照相關程度排好順序」</strong>——不是隨便列一堆含這個詞的就交差。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    全文搜尋 = <strong>幫幾十億篇文章建一本「超級索引頁」</strong>：你查一個詞，它馬上告訴你「這詞出現在哪幾篇」，再依「誰最相關」排好順序給你。
+  </div>
+
+  <h2 id="why">2. 為什麼不能「一篇篇翻」？</h2>
+  <p>很多人第一個想法是：「搜尋不就是把每篇文章打開來看有沒有這個詞嗎？」——這想法沒錯，但<strong>慢到不能用</strong>。關鍵在一個你早就懂的生活經驗——</p>
+  <div class="analogy">
+    <span class="label">📖 查書末的「索引頁」</span>
+    你想在一本 800 頁的書裡找「光合作用」這四個字。你<strong>不會</strong>從第 1 頁翻到第 800 頁一頁頁找（太慢）。
+    你會翻到<strong>書末的索引頁</strong>，那裡寫著「光合作用…… 第 142、288、501 頁」，你直接翻過去就好。
+  </div>
+  <p>「一篇篇打開來找」在程式裡就是資料庫的 <code>LIKE '%地震%'</code>：要<strong>掃過每一篇</strong>，文件越多越慢，而且找到一堆之後<strong>不知道哪篇最相關</strong>。</p>
+  <p>搜尋引擎用的就是「書末索引頁」這招，名字叫 <strong>倒排索引</strong>。系統<strong>事先</strong>把每篇文章拆成一個個詞，做成一張表：<strong>「某個詞 → 出現在哪幾篇文章」</strong>。
+  之後你查「地震」，它直接翻到那一格，馬上拿到「含地震的文章清單」，<strong>不用碰其他幾十億篇</strong>。</p>
+  <p class="pause">💭 停一下：為什麼叫「<strong>倒排</strong>」索引？跟一般的「文章 → 內含哪些詞」差在哪？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    一般我們想的是「打開一篇文章 → 看它有哪些詞」（文章在前、詞在後）。倒排索引把方向<strong>反過來</strong>：「給一個詞 → 列出含它的文章」（詞在前、文章在後）。因為你搜尋時手上拿著的是「詞」，想要的是「文章」，所以反過來建表才查得快。就像書末索引是「詞 → 頁碼」，不是「頁碼 → 詞」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「搜尋引擎」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>切詞：把文章剁成一個個「詞」</h3>
+    <p>要建索引，得先把文章拆成一個個詞。這一步叫 <strong>tokenize（切詞）</strong>。順手還會做幾件小事：</p>
+    <ul>
+      <li><strong>統一小寫</strong>：讓「Apple」和「apple」算同一個詞。</li>
+      <li><strong>丟掉廢話詞</strong>：像 the、a、is、的、了 這種<strong>每篇都有、毫無辨識度</strong>的字，可以丟掉省空間（這些叫 stopwords）。</li>
+    </ul>
+    <div class="analogy"><span class="label">🍳 比喻</span>就像做菜前<strong>把食材切好洗好</strong>。文章是整顆高麗菜，切詞就是切成一絲一絲，後面才好處理。</div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>建索引：寫出那本「索引頁」</h3>
+    <p>把每個詞登記進「索引頁」：<strong>這個詞，出現在哪幾篇文章</strong>。順便多記兩個小數字，後面排序要用：</p>
+    <ul>
+      <li>這個詞在<strong>那篇文章出現幾次</strong>（出現越多次，通常越相關）。</li>
+      <li>這個詞<strong>總共出現在幾篇文章</strong>（出現在越少篇，代表越「稀有」、越有辨識度）。</li>
+    </ul>
+    <div class="analogy"><span class="label">📇 比喻</span>就是真的在<strong>編一本書末的索引頁</strong>：把整本書讀過一遍，把每個關鍵詞和它出現的頁碼都記下來。編好後，查任何詞都是秒查。</div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查詢：多個詞要「都含」還是「含其一」？</h3>
+    <p>你打的常常不只一個詞，比如「地震 預警」。系統要先問：你是要<strong>兩個詞都含的</strong>，還是<strong>含任一個就好</strong>？</p>
+    <div class="analogy">
+      <span class="label">🎯 比喻：兩張名單對一對</span>
+      索引頁查「地震」給你一張文章清單 A，查「預警」給你另一張清單 B。
+      <ul style="margin:6px 0">
+        <li><strong>AND（都要含）</strong>＝ 兩張清單的<strong>共同部分</strong>（A 和 B 都出現的文章）→ 結果少而精。</li>
+        <li><strong>OR（含其一）</strong>＝ 兩張清單<strong>合起來</strong>（A 或 B 任一出現的）→ 結果多而廣。</li>
+      </ul>
+    </div>
+    <p>還有一種「<strong>片語查詢</strong>」：你加引號搜 <code>"地震 預警"</code>，要這兩個詞<strong>緊鄰、照順序</strong>出現，不能東一個西一個。這就要在索引裡多記每個詞的<strong>位置</strong>（在第幾個字），比對時看它們是不是排在隔壁。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>排序：把「最相關」的排到最前面</h3>
+    <p>找到一堆含這些詞的文章後，最關鍵的一步：<strong>誰排第一？</strong> 排爛了，搜尋就等於沒用。系統用一個叫 <strong>BM25</strong> 的打分公式。它的直覺其實很符合常識——</p>
+    <div class="analogy">
+      <span class="label">⭐ 比喻：哪篇最「切題」？三個常識</span>
+      <ul style="margin:6px 0">
+        <li>🔁 這個詞在某篇<strong>出現越多次</strong> → 那篇越可能在講這件事 → 加分。</li>
+        <li>💎 這個詞本身<strong>越罕見</strong>（很少文章用到）→ 一旦出現就越有辨識度 → 加重分。（「的」到處都有，加分趨近於 0）</li>
+        <li>📏 同樣含 5 次，<strong>短文章</strong>比長文章更切題（長文塞一堆詞本來就容易碰到）→ 短文加分、長文要打折。</li>
+      </ul>
+    </div>
+    <p>把每個查詢詞的分數加起來，分數高的排前面，取前幾名（Top-K）回給你。<strong>這就是你 Google 一下、最相關的排最上面的祕密。</strong></p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>切詞</strong>把文章剁成詞 → ② <strong>建索引頁</strong>記「詞 → 哪幾篇」 → ③ 查詢時做 <strong>AND/OR</strong>清單對一對 → ④ 用 <strong>BM25</strong> 把最相關的排最前面。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「排錯順序」</span>
+    找到含某詞的文章是基本功（索引頁一翻就有），<strong>真正的考驗是排序</strong>。如果把不相關的爛文章排在前面，使用者翻兩頁就走了，搜尋形同虛設。所以 <strong>BM25 排序品質</strong>是這題的核心，<em>排得準 &gt; 找得到</em>。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「慢」</span>
+    搜尋要<strong>每次都在 0.2 秒內</strong>回應，慢了使用者就跑了。這就是為什麼絕對不能「一篇篇翻」（那是 O(全部文章)），而要靠<strong>事先建好的索引頁</strong>（查詢只碰「命中的那幾篇」）。<em>事先多花力氣建索引，換查詢飛快。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「裝不下 / 跟不上」</span>
+    幾十億篇文章的索引，一台機器<strong>記憶體裝不下</strong>；而且每分鐘還有幾百萬則新貼文要<strong>馬上能被搜到</strong>。所以索引要<strong>切成很多片</strong>分給多台機器（分片），新貼文要能<strong>幾秒內進索引</strong>（近即時）。<em>太大就分開放、太慢就邊寫邊讓人搜。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分成「寫」和「讀」兩條路：</p>
+  <ul>
+    <li>✍️ <strong>寫（有新貼文）</strong>：新貼文進來 → 🔪 <strong>切詞</strong>剁成詞 → 📇 寫進<strong>索引頁</strong>（更新「詞 → 哪幾篇」）→ 分散存到好幾片<strong>索引分片</strong>。</li>
+    <li>🔍 <strong>讀（有人搜尋）</strong>：查詢字串也先<strong>切詞</strong> → 同時問<strong>每一片索引</strong>「你那有沒有？」（scatter，撒出去）→ 各片各自用 <strong>BM25 打分</strong> → 把各片結果<strong>收回來合併、全域排序</strong>（gather，收回來）→ 回傳<strong>最相關的前幾名</strong>給你。</li>
+  </ul>
+  <div class="box"><span class="label">記這個畫面</span>「撒出去問每一片、再收回來合併排序」就是 <strong>scatter-gather</strong>。像老師出一題，叫每一組各自找答案（撒），再把各組答案收齊、選出最好的（收）。</div>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>倒排索引</td><td>書末的「索引頁」：某個詞 → 出現在哪幾篇文章</td></tr>
+    <tr><td>tokenize（切詞）</td><td>把文章剁成一個個詞（順便小寫化、丟廢話詞）</td></tr>
+    <tr><td>stopwords</td><td>「的、了、the、is」這種每篇都有、沒辨識度的廢話詞</td></tr>
+    <tr><td>postings list</td><td>某個詞那一格的內容：含它的文章清單（＋出現次數）</td></tr>
+    <tr><td>TF（詞頻）</td><td>某個詞在某篇文章裡出現幾次</td></tr>
+    <tr><td>DF / IDF</td><td>某個詞總共出現在幾篇；越罕見的詞 → 加重分</td></tr>
+    <tr><td>BM25</td><td>相關性打分公式：罕見＋出現多次＋文章短 → 排越前面</td></tr>
+    <tr><td>AND / OR</td><td>多個詞「都要含」／「含其一」（兩張清單取交集／聯集）</td></tr>
+    <tr><td>片語查詢</td><td>加引號搜，要詞緊鄰照順序出現（要存「位置」）</td></tr>
+    <tr><td>分片 (shard)</td><td>索引太大裝不下，切成好幾片分給多台機器</td></tr>
+    <tr><td>scatter-gather</td><td>撒出去問每一片、再收回來合併排序</td></tr>
+    <tr><td>近即時 (refresh)</td><td>新貼文幾秒內就進索引、被搜得到</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少新貼文（寫）</td><td>~5 億則/日 → 平均每秒約 6 千、尖峰約 1.7 萬</td><td>寫得很兇，索引要邊寫邊扛</td></tr>
+    <tr><td>每天多少次搜尋（讀）</td><td>~2 億次/日 → 尖峰約每秒 7 千</td><td>讀也很兇，要靠副本分攤</td></tr>
+    <tr><td>原文有多大</td><td>5 億 × 每則 300 位元組 ≈ <strong>每天 150 GB</strong></td><td>累積很快，一台機器裝不下</td></tr>
+    <tr><td>索引頁有多大</td><td>大約是原文的 0.3～0.5 倍 → 每天約 50～75 GB</td><td>索引也很大 → 一定要分片</td></tr>
+    <tr><td>不同的詞有幾個（詞典）</td><td>數百萬～數千萬個</td><td>相對小，可整本放記憶體，加速查找</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：兩頭都很重</span>
+    這系統<strong>「寫」和「讀」都很大</strong>：新貼文一直灌進來（要建索引），搜尋也一直進來（要查索引）。
+    所以不像有些系統只擔心讀或只擔心寫——這題<strong>兩頭都要顧</strong>，這也是為什麼非分片＋副本不可。
+  </div>
+  <p class="pause">💭 停一下：為什麼「不同的詞」雖然有上千萬個，卻可以整本放進記憶體，但「索引頁全部內容」卻不行？</p>
+  <details class="qa"><summary>看答案</summary>
+    「不同的詞」只是<strong>詞的清單本身</strong>（像目錄的詞條），上千萬個也不過幾百 MB，記憶體放得下。但「索引頁全部內容」是<strong>每個詞 + 它出現在哪幾億篇文章的清單</strong>，那是好幾百 GB，遠超一台機器的記憶體——所以詞典可常駐記憶體加速，但完整索引必須分片存到很多台機器（甚至落地到磁碟）。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住兩張「點餐單」：一張<strong>放東西進去</strong>（寫），一張<strong>搜東西出來</strong>（讀）。</p>
+  <pre><code>① 放一篇新文章進索引（寫）
+   POST /api/v1/documents
+   給我：{ 標題, 內文, 作者, 時間 }
+   我回：201「收進來了，編號 12345」</code></pre>
+  <p class="codecaption">系統收到後，會默默把這篇文章<strong>切詞、寫進索引頁</strong>，讓它之後搜得到。</p>
+  <pre><code>② 搜尋（讀，最常用）
+   GET /api/v1/search?q=倒排+索引&op=and&page=1&size=10
+   ─ q：要搜的字   ─ op=and/or：都要含 / 含其一
+   ─ page/size：第幾頁、每頁幾筆（分頁）
+   我回：{ 共幾筆, 結果:[ {編號, 分數, 標題, 命中的關鍵字} ... ] }</code></pre>
+  <p class="codecaption">注意回傳裡每筆都有一個 <code>分數</code>（score）——那就是 BM25 算出來的相關性，<strong>分數高的排前面</strong>。還會把命中的關鍵字<strong>標亮</strong>（highlight）讓你一眼看到為什麼這篇被選上。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：四本筆記本</span>
+    系統要把資料記在「筆記本」裡。這題的核心就四本，全部都是為了「查得快、排得準」：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📇</span>索引頁（最核心：詞 → 哪幾篇）</h3>
+    <p>每個詞一格，裡面放<strong>含它的文章清單</strong>，每篇記上「出現幾次、在第幾個字（位置）」。例如：</p>
+    <pre><code>"索引" → [ 第1篇(出現3次, 位置5,12,40), 第7篇(出現1次, 位置2) ]
+"搜尋" → [ 第1篇(出現2次), 第3篇(出現5次), 第7篇(出現1次) ]</code></pre>
+    <p>記「位置」是為了<strong>片語查詢</strong>（看兩個詞是不是排隔壁）；不需要片語就能省下這部分。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📕</span>詞典（所有不同的詞 + 指向它在索引頁的位置）</h3>
+    <p>像書的<strong>目錄</strong>：列出所有出現過的詞，每個詞記「總共出現在幾篇」（df，BM25 算稀有度要用）和「去哪找它的清單」。因為相對小，可整本放記憶體。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📗</span>原文簿（編號 → 原本的文章內容）</h3>
+    <p>索引頁只放「詞」，但搜尋結果要<strong>顯示原本的標題內文</strong>給你看，所以要另外存原文。這裡還會記每篇的<strong>長度（幾個詞）</strong>——BM25 要拿它跟「平均長度」比，幫長文打折。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📘</span>全集統計（總共幾篇、平均多長）</h3>
+    <p>只有兩個數字：<code>總文章數 N</code> 和 <code>平均文章長度</code>。BM25 公式裡<strong>稀有度</strong>要用 N、<strong>長度打折</strong>要用平均長度，所以全域記著這兩個值。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>索引太大，一台機器記憶體裝不下</td><td>把索引<strong>切成好幾片（分片）</strong>分給多台機器</td></tr>
+    <tr><td>分片多了，一次查詢要問很多片</td><td><strong>scatter-gather</strong>：同時問所有片，再把結果收回來合併排序</td></tr>
+    <tr><td>新貼文要馬上搜得到，但重建索引很慢</td><td>新貼文先寫成<strong>小段索引</strong>，每隔約 1 秒讓它可被搜（近即時），背景再慢慢把小段合併成大段</td></tr>
+    <tr><td>熱門關鍵字一直被重複搜、重算</td><td>把熱門查詢的結果<strong>快取</strong>起來（但有新文章時要記得更新）</td></tr>
+    <tr><td>搜尋的人太多（讀很兇）</td><td>每片索引多放幾個<strong>副本</strong>分攤查詢，順便防一台壞掉</td></tr>
+  </table>
+  <div class="box"><span class="label">業界做法：Lucene／Elasticsearch</span>
+    真實世界的搜尋引擎（Lucene，以及包它的 Elasticsearch）把索引存成一段段<strong>「寫好就不再改」的小段（segment）</strong>。新貼文只是<strong>追加一段新的</strong>（所以幾秒內就能搜到），背景再把很多小段合併成大段。因為每段「不會再改」，所以<strong>快取、複製都變得超簡單</strong>。</div>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 精確 vs 相關</span>
+    資料庫 <code>LIKE</code> 能找「一字不差的子字串」但<strong>慢且不會排序</strong>；全文搜尋給的是「<strong>最相關</strong>」的結果——可能不是一字不差，但更有用。搜尋要的是「有用」，不是「死板地精確」。</div>
+  <div class="fear"><span class="label">⚖️ 即時 vs 省力</span>
+    要新貼文<strong>秒級可搜</strong> → 得頻繁產生小段索引（之後讀變慢、要花力氣合併）；要<strong>省力</strong> → 累積一批再一起建（吞吐高，但新貼文要等比較久才搜得到）。</div>
+  <div class="fear"><span class="label">⚖️ 存位置 vs 省空間</span>
+    在索引裡多記每個詞的「位置」 → 能做<strong>片語查詢</strong>（"完全 這樣"）；但索引會<strong>明顯變大、寫入變慢</strong>。用不到片語就別存。</div>
+  <details class="qa"><summary>💭 追問：丟掉廢話詞（stopwords）很省空間，那為什麼有時又不能丟？</summary>
+    因為有些片語<strong>整句都是廢話詞</strong>，例如英文名句 "to be or not to be"（to/be/or/not 幾乎都是 stopwords）。全丟掉就搜不到這個片語了。所以省空間的同時，要小心別傷到片語查詢——這就是取捨。</details>
+  <details class="qa"><summary>💭 追問：那要不要自己從頭刻一個搜尋引擎？</summary>
+    面試時要<strong>講得清楚</strong>倒排索引 + BM25 + 分片副本的原理（證明你懂）；但務實的答案常是「<strong>直接用 Elasticsearch / Lucene</strong>」，把力氣花在設計欄位、分片策略、調校相關性，而不是重造輪子。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小搜尋引擎，讓你親眼看到「索引 + BM25 排序」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8026 -t public
+# 然後瀏覽器打開 http://localhost:8026</code></pre>
+  <ol>
+    <li>它預設已經塞了幾筆範例貼文（等於已經建好索引頁）。</li>
+    <li>在搜尋框打「<strong>inverted index</strong>」，看它列出依<strong>分數排序</strong>的結果和<strong>命中的關鍵字</strong>。</li>
+    <li>切換 <strong>AND / OR</strong>，看結果數量怎麼變（AND 變少而精，OR 變多而廣）。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>看每筆結果旁邊的<strong>分數（score）</strong>——那就是 BM25。試著找一篇<strong>很短、又重複出現那個詞</strong>的貼文，看它是不是排很前面（短＋出現多次＝高分）。再切 AND/OR，體會「兩張清單取交集 vs 聯集」的差別。</div>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    這個 demo 是<strong>單機、用記憶體＋JSON 檔</strong>的教學版：<strong>切詞、倒排索引、BM25 排序、AND/OR 查詢、存檔</strong>都是真的能跑；但<strong>沒有</strong>做分片／副本、位置索引與片語查詢、詞形還原、scatter-gather、近即時 refresh、查詢快取。要上線就把核心換成 Elasticsearch / Lucene，原理一模一樣。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「書末索引頁」解釋，為什麼搜尋不能「一篇篇翻」？</summary>
+    一篇篇翻（資料庫 LIKE）要掃過每一篇，文件越多越慢，且不知道哪篇最相關。搜尋引擎像查書末索引頁：事先做好「詞 → 出現在哪幾篇」的倒排索引，查一個詞直接翻到那一格拿清單，不用碰其他幾十億篇——又快又能附帶相關性資訊。</details>
+  <details class="qa"><summary>Q2：「倒排」是反過來的什麼？</summary>
+    一般想法是「文章 → 內含哪些詞」；倒排索引反過來成「詞 → 含它的文章清單」。因為搜尋時手上拿的是詞、想要的是文章，反過來建表才查得快。</details>
+  <details class="qa"><summary>Q3：BM25 憑哪三個常識決定誰排前面？</summary>
+    ① 詞在某篇出現越多次→那篇越相關（加分）；② 詞本身越罕見（很少文章用到）→越有辨識度（加重分），常見的「的」幾乎不加分；③ 同樣出現次數下，短文章比長文章更切題→短文加分、長文打折（用文章長度 ÷ 平均長度做正規化）。</details>
+  <details class="qa"><summary>Q4：搜「地震 預警」，AND 和 OR 結果差在哪？</summary>
+    把「地震」的文章清單和「預警」的文章清單對一對：AND＝兩張清單的交集（兩個詞都含），結果少而精；OR＝兩張清單的聯集（含任一個），結果多而廣。兩者拿到候選後都用 BM25 排序。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼索引要「分片」，又為什麼查詢要 scatter-gather？</summary>
+    幾十億篇的索引一台機器裝不下，所以切成很多片分給多台機器（分片）。但這樣一次查詢就得問所有片：同時撒出去問每一片（scatter），各片各自用 BM25 打分，再把結果收回來合併、做全域排序取前幾名（gather）。</details>
+  <details class="qa"><summary>Q6（工程）：新貼文每分鐘幾百萬則，怎麼做到「幾秒內就搜得到」又不拖慢系統？</summary>
+    用近即時做法：新貼文先寫成一個小段索引（segment），每隔約 1 秒就讓它可被搜到，不必整個索引重建。背景再慢慢把很多小段合併成大段。因為每段「寫好就不再改」，所以快取與複製都很簡單（這正是 Lucene 的做法）。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼資料模型裡要特別存「文章長度」和「平均文章長度」？</summary>
+    BM25 做長度正規化要用：長文章天生塞更多詞、容易碰到查詢詞，若不處理會一律排前面（不公平）。拿「這篇長度 ÷ 全集平均長度」幫長文打折、短文加分，才能公平比較相關性。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>全文搜尋 = 幫幾十億篇文章建一本「超級索引頁」，查得快又排得準。</strong></p>
+    <p><strong>4 個關卡：</strong>① 切詞把文章剁成詞 → ② 建索引頁（詞→哪幾篇）→ ③ 查詢做 AND/OR 對清單 → ④ 用 BM25 把最相關的排最前面。</p>
+    <p><strong>BM25 三常識：</strong>詞越罕見、在文章出現越多次、文章越短 → 越相關、越該排前面。</p>
+    <p><strong>3 個怕：</strong>怕排錯順序（排序是核心）、怕慢（靠索引別硬翻）、怕裝不下／跟不上（分片＋近即時）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>讀寫兩頭都重 → 用「點餐單(API)」一張寫一張搜 → 四本筆記本（索引頁/詞典/原文/全集統計）→ 索引分片＋scatter-gather＋近即時 refresh，務實做法直接用 Elasticsearch / Lucene。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉖ 全文搜尋引擎 Full-text Search · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

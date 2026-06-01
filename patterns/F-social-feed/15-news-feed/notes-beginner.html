@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑮ News Feed 動態牆 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅵 社交/Feed 分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑮ News Feed 動態牆 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">F 社交/Feed</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#paper">報紙：印好挨家投遞，還是你來報攤現買？</a></li>
+      <li><a href="#steps">把系統拆成 3 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>打開 IG、Threads、臉書，最上面那條一直往下刷、<strong>把你追蹤的人最新動態混在一起</strong>的牆——那就是 News Feed（動態牆）。
+  你追蹤了 200 個人，系統要在你一打開 App 的<strong>瞬間</strong>，把這 200 人最近發的東西，依時間排好端到你面前。</p>
+  <p>聽起來簡單？難就難在：你不是只有 200 人，是<strong>幾億人互相追蹤</strong>；而且大家<strong>刷的次數遠遠多過發文的次數</strong>（你一天發 1 篇，但刷了 50 次）。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    News Feed = <strong>把「你追蹤的人」的最新貼文，又快又新地合成一條牆</strong>。
+    全題的拉鋸就一個問題：<strong>這條牆要「事先幫你拼好」，還是「你來看時才現拼」？</strong>
+  </div>
+
+  <h2 id="paper">2. 報紙：印好挨家投遞，還是你來報攤現買？</h2>
+  <p>這題最核心的取捨，用一個你完全懂的生活經驗就能秒懂——<strong>報紙怎麼到你手上</strong>。有兩種做法：</p>
+  <div class="analogy">
+    <span class="label">📰 做法 A：印好挨家投遞（＝「推」）</span>
+    報社<strong>半夜先把報紙印好、塞進每一戶的信箱</strong>。早上你起床，伸手到信箱<strong>馬上就拿到</strong>，不用等。
+    缺點是：報社半夜很忙，要印幾百萬份、跑幾百萬個信箱。
+  </div>
+  <div class="analogy">
+    <span class="label">🏪 做法 B：你來報攤現買（＝「拉」）</span>
+    報社不主動送，<strong>你想看的時候自己走去報攤，店員當場幫你把今天的內容湊一份給你</strong>。
+    報社很輕鬆（不用挨家送），但<strong>你每次都要等店員現湊</strong>，人多就排隊。
+  </div>
+  <p>News Feed 一模一樣：</p>
+  <ul>
+    <li><strong>推（fan-out on write）</strong>＝「印好投遞」：<strong>有人一發文，系統就立刻把這篇塞進他每個粉絲的信箱（feed）</strong>。你打開 App 時，牆早就拼好了，<strong>讀超快</strong>。代價：發文那一刻系統很忙（要塞進每個粉絲的信箱）。</li>
+    <li><strong>拉（fan-out on read）</strong>＝「報攤現買」：發文時什麼都不做，<strong>等你來看 feed，系統才現場去問「你追蹤了誰」、把他們的新文湊一份</strong>。發文超輕鬆，代價：<strong>每次讀都要現湊，讀很慢</strong>。</li>
+  </ul>
+  <p class="pause">💭 停一下：一般人發一篇文，到底有幾個信箱要塞？這個數字大不大，會不會出事？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    一般人大概 200 個粉絲，所以發 1 篇 → 塞 200 個信箱，還好。但如果是<strong>有 5000 萬粉絲的名人</strong>呢？發 1 篇 → 要塞 <strong>5000 萬個信箱</strong>！系統會被一篇貼文卡死。這就是下一段的主角——「名人問題」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 3 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 3 關，一關比一關有趣：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>推：發文時，先幫每個粉絲把貼文塞進信箱</h3>
+    <p>預設大家都用「<strong>推</strong>」（印好投遞）。你一發文，系統就<strong>對你的每一個粉絲</strong>，把這篇貼文的編號放進他的信箱（feed 快取）。</p>
+    <div class="analogy"><span class="label">📮 比喻</span>就像報社半夜挨家投遞。好處是：粉絲早上打開信箱（讀 feed）<strong>東西已經在裡面了，零等待</strong>。這就是為什麼預設選推——因為<strong>讀的次數遠多於發文</strong>，把麻煩搬到「發文時」處理最划算。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>名人問題：千萬粉的人發文，信箱塞不完</h3>
+    <p>推很美好，直到出現<strong>有 5000 萬粉絲的名人</strong>。他發一篇文，系統要<strong>瞬間塞 5000 萬個信箱</strong>——這一篇就能把系統拖垮。</p>
+    <div class="analogy">
+      <span class="label">🌟 比喻：報社遇到「全國都訂的頭版」</span>
+      平常投遞還好，但如果有一份內容是<strong>全國 5000 萬戶都要</strong>，報社半夜根本印不完、送不完。
+      這時聰明的做法是：<strong>這份特別的內容「不主動送」，改放在報攤</strong>，誰想看自己來拿。
+    </div>
+    <p>所以名人改用「<strong>拉</strong>」：名人發文時<strong>不塞任何信箱</strong>，只放在他自己的貼文庫。等你來看 feed，系統才<strong>現場去名人那裡拉</strong>他的最新貼文。名人人數少、又有快取攤平，這樣就不會被寫爆。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>Hybrid：一般人用推、名人用拉，讀時合在一起</h3>
+    <p>業界真正的做法叫 <strong>Hybrid（混合）</strong>，其實就是把前兩關合起來：</p>
+    <ul>
+      <li>你追蹤的<strong>一般人</strong> → 他們的貼文<strong>早就推進你信箱了</strong>（直接拿，超快）。</li>
+      <li>你追蹤的<strong>名人</strong> → 讀的時候<strong>現場去拉</strong>他們的最新貼文。</li>
+      <li>系統把這兩堆<strong>合併、依時間排好</strong>，就是你看到的那條牆。</li>
+    </ul>
+    <div class="analogy"><span class="label">🥗 比喻：自助餐 + 現點</span>常吃的菜<strong>事先擺好（推）</strong>你直接夾；招牌大菜<strong>現點現做（拉）</strong>。最後同一個盤子上桌——你根本分不出哪道是先擺的、哪道是現做的。</div>
+    <p>這個「一篇貼文 → 分發給一群粉絲」的動作，工程上就叫 <strong>fan-out（扇出）</strong>。發文時就分發叫「on write（推）」，讀時才分發叫「on read（拉）」。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① 一般人<strong>發文時先推</strong>進每個粉絲信箱（讀超快）→ ② 但<strong>名人會把信箱塞爆</strong>，改成讀時才拉 → ③ <strong>Hybrid</strong>：推來的＋拉名人的，讀時合併排序。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「讀太慢」</span>
+    你打開 App，牆要<strong>立刻</strong>出現（慢半秒你就煩了）。所以預設用<strong>推</strong>——事先把牆拼好放信箱，讀的時候直接端出來，不用現算。<em>讀快壓倒一切，因為讀的次數遠多於寫。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「名人把寫端塞爆」</span>
+    純推遇到千萬粉名人會「<strong>一篇發文 → 千萬次塞信箱</strong>」直接爆掉。所以名人<strong>改用拉</strong>，不主動塞。<em>這就是純推唯一、但致命的例外。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「白做工」</span>
+    很多粉絲是<strong>殭屍粉、長期不上線</strong>，把貼文推進他們信箱根本沒人看，純粹浪費。所以對<strong>不活躍的人也改用拉</strong>（他哪天真的登入，再現場湊給他）。<em>能省的寫入就省。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分「發文」和「讀牆」兩條路：</p>
+  <ul>
+    <li>✍️ <strong>有人發文</strong> → 先寫進<strong>貼文庫</strong>（這是唯一的真相來源）。</li>
+    <li>🤖 <strong>分發工人（fan-out worker）</strong>看一下：作者是一般人還是名人？
+      <ul>
+        <li>一般人 → <strong>把貼文編號推進每個粉絲的信箱（feed 快取）</strong>。</li>
+        <li>名人 → <strong>跳過</strong>，什麼都不推。</li>
+      </ul>
+    </li>
+    <li>📱 <strong>你來讀牆</strong> → Feed 服務做兩件事：
+      <ul>
+        <li>直接拿<strong>你信箱裡推好的</strong>（一般人的貼文）→</li>
+        <li>再<strong>現場去拉你追的名人</strong>的最新貼文 →</li>
+        <li>兩堆<strong>合併、依時間排序</strong>，端給你。</li>
+      </ul>
+    </li>
+  </ul>
+  <div class="box"><span class="label">小提醒</span>信箱裡其實<strong>只存貼文編號</strong>，不存內文。內文統一放貼文庫，要顯示時再用編號去回填。為什麼？下一段資料模型會講。</div>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>News Feed</td><td>把你追蹤的人最新貼文合成的那條動態牆</td></tr>
+    <tr><td>推 / fan-out on write</td><td>「印好挨家投遞」：發文時就塞進每個粉絲信箱</td></tr>
+    <tr><td>拉 / fan-out on read</td><td>「你來報攤現買」：讀時才現場湊一份</td></tr>
+    <tr><td>Hybrid（混合）</td><td>一般人用推、名人用拉，讀時合併</td></tr>
+    <tr><td>名人問題（寫放大）</td><td>千萬粉的人一發文 → 千萬次塞信箱，把寫端塞爆</td></tr>
+    <tr><td>feed 快取</td><td>每個人的「信箱」，放推進來的貼文編號</td></tr>
+    <tr><td>貼文庫（posts）</td><td>所有貼文內文的唯一真相來源</td></tr>
+    <tr><td>hydrate（回填）</td><td>拿著編號去貼文庫把內文撈出來顯示</td></tr>
+    <tr><td>k 路合併</td><td>把好幾串「各自排好時間」的貼文，併成一條最新的牆</td></tr>
+    <tr><td>最終一致</td><td>新貼文晚個幾秒才出現在牆上，可以接受</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>cursor（游標分頁）</td><td>記住「上次刷到哪」，下拉時從那裡接著拿</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少人在用</td><td>2 億人</td><td>規模很大，單機絕對不夠</td></tr>
+    <tr><td>發文（寫）有多頻繁</td><td>每秒約 230 篇</td><td>寫其實不多</td></tr>
+    <tr><td>刷牆（讀）有多頻繁</td><td>每秒 2~7 萬次</td><td><strong>讀比寫多上百倍</strong> → 要把讀做到極快</td></tr>
+    <tr><td>一般人發 1 篇要塞幾個信箱</td><td>約 200 個（平均粉絲數）</td><td>還可以接受，所以一般人用推</td></tr>
+    <tr><td>名人發 1 篇要塞幾個信箱</td><td>最多 <strong>5000 萬個</strong></td><td>會爆！名人一定要改拉</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">⚖️ 關鍵洞察：讀寫天平嚴重偏一邊</span>
+    讀比寫多<strong>上百倍</strong>。所以聰明的做法是<strong>把麻煩搬到「比較少發生」的寫端</strong>（發文時先把牆拼好），
+    讓「超常發生」的讀端輕鬆到只要伸手拿信箱。<strong>但名人會讓寫端的成本爆炸</strong>——這就是整題的張力來源。
+  </div>
+  <p class="pause">💭 停一下：既然推「讀很快」這麼好，為什麼不乾脆<strong>全部都用推</strong>，連名人也推？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為名人粉絲太多。一個 5000 萬粉的名人發 1 篇，純推就要做 5000 萬次寫入，瞬間把系統塞爆、延遲飆高，還可能拖累其他人的發文。所以名人必須<strong>例外改拉</strong>——這正是 Hybrid 存在的理由：用<strong>粉絲數門檻</strong>把人分成「一般人（推）」和「名人（拉）」。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」：</p>
+  <pre><code>① 追蹤 / 取消追蹤（改變「誰追誰」的關係）
+   POST   /follow   給我：{ 誰(follower), 追誰(followee) }
+   DELETE /follow   取消追蹤</code></pre>
+  <p class="codecaption">這只是記下「人和人的追蹤關係」，是後面推、拉都要查的基礎名單。</p>
+  <pre><code>② 發文（會觸發 fan-out 分發）
+   POST /posts   給我：{ 作者, 內文 }
+   我回：201 { 貼文編號, 這篇用 "推" 還是 "拉" }</code></pre>
+  <p class="codecaption">系統收到後會<strong>看作者是不是名人</strong>，決定要「立刻推進每個粉絲信箱」還是「先放著、等人來拉」。真實系統會<strong>非同步</strong>處理推這件事——發文 API 先回「收到」，背景再慢慢塞信箱，不讓你卡著等。</p>
+  <pre><code>③ 讀牆（最高頻、最該快的一張單）
+   GET /feed?user_id=我&limit=20&cursor=上次刷到哪
+   我回：{ 一串貼文, 每筆標了 來源:"推來的" 或 "即時拉的", 下一頁游標 }</code></pre>
+  <p class="codecaption">正式系統不會回傳「來源」這欄；這裡<strong>刻意露出來</strong>，方便你眼睛看到「這筆是事先推好的、那筆是現場拉名人的」——這正是本題 demo 要呈現的重點。<code>cursor</code> 是「書籤」，記住你上次下拉到哪，再往下刷就從那裡接。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：四本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題只要四本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">👤</span>使用者簿（誰是名人）</h3>
+    <p>每個人一列：<code>使用者ID、是不是名人</code>。粉絲數超過門檻就自動標成名人——這欄<strong>直接決定他發文要用推還是拉</strong>。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔗</span>追蹤簿（誰追誰）</h3>
+    <p>記 <code>(追蹤者, 被追蹤者)</code>。它要從<strong>兩個方向</strong>查：拉的時候問「<strong>我追了誰</strong>」、推的時候問「<strong>我有哪些粉絲</strong>」。所以兩個方向都要建索引，才查得快。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>貼文庫（內文的唯一真相）</h3>
+    <p>每篇貼文一列：<code>貼文編號、作者、內文、發文時間</code>。<strong>內文只存在這一本</strong>。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📬</span>信箱簿（每個人的 feed 快取）</h3>
+    <p><code>使用者 → [貼文編號, 貼文編號, ...]</code>，只保留<strong>最新 N 筆</strong>。這是「推」寫入的地方，正式系統用 Redis 放，讀超快。</p>
+    <div class="analogy"><span class="label">為什麼信箱只存「編號」不存內文？</span>
+      因為一篇名人貼文會出現在<strong>千萬個人的牆上</strong>。如果每個信箱都存一份內文，<strong>同一段話被複製千萬份</strong>，超浪費；而且改一個錯字要改千萬處。
+      只存編號，要顯示時再<strong>拿編號去貼文庫撈內文（叫 hydrate / 回填）</strong>——內文永遠只有一份、改一次就好。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>名人發文 → 要塞千萬個信箱</td><td><strong>名人改拉</strong>，根本不塞；他的貼文額外快取，讓所有讀者共用</td></tr>
+    <tr><td>發文 API 卡著等「塞完所有信箱」</td><td>發文只寫貼文庫，塞信箱的工作<strong>丟給背景工人非同步做</strong>（晚幾秒沒關係）</td></tr>
+    <tr><td>重度追蹤者：追了上千人，純拉每次都要現湊</td><td>一般人的部分<strong>早就推好了</strong>，只需現場拉「少數幾個名人」</td></tr>
+    <tr><td>信箱存全部歷史貼文 → 爆量</td><td>只留<strong>最新 N 筆</strong>，更舊的退化成拉模型回補</td></tr>
+    <tr><td>把貼文推給長期不上線的殭屍粉</td><td>對<strong>不活躍的人改拉</strong>，他登入時才現湊，省下大量白做工</td></tr>
+    <tr><td>同一篇名人貼文被超多牆引用</td><td>內文<strong>單獨快取一份</strong>，每個信箱只存編號，再批次回填</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 推 vs 拉</span>
+    推＝把成本搬到「發文時」、讀超快；拉＝發文超輕、但每次讀都要現湊。核心就是<strong>把讀寫不對稱往便宜的那一邊壓</strong>。因為讀遠多於寫，所以預設選推。</div>
+  <div class="fear"><span class="label">⚖️ 為什麼一定要 Hybrid</span>
+    純推被<strong>名人寫放大</strong>擊穿；純拉被<strong>重度追蹤者讀放大</strong>拖垮。所以依粉絲數門檻分流：一般人推、名人拉，<strong>各取所長</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 要不要等到「完全即時」</span>
+    feed 可以<strong>最終一致</strong>——新貼文晚個幾秒才出現在你牆上，沒人會在意。換來的是<strong>更高吞吐與可用性</strong>（不用強求同步即時）。</div>
+  <details class="qa"><summary>💭 追問：使用者「剛追蹤一個名人」，怎麼立刻看到他以前的舊文？</summary>
+    拉模型天然就解決了——讀牆時本來就會<strong>現場去名人那裡拉最新貼文</strong>，所以一追蹤馬上就看得到。若是推模型，反而還要特地回填，麻煩。</details>
+  <details class="qa"><summary>💭 追問：往下無限刷（分頁）怎麼做才不會錯亂？</summary>
+    用 <strong>cursor（游標）</strong>記住「上次刷到哪一篇」，下一頁從那篇之後接著拿。不要用「第幾筆開始（offset）」，因為牆一直有新文插進來，用編號數會錯位、重複或漏掉。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「推 / 拉 / Hybrid」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8015 -t public
+# 然後瀏覽器打開 http://localhost:8015</code></pre>
+  <ol>
+    <li>先<strong>建立追蹤關係</strong>，記得放一個<strong>高粉絲的名人</strong>進去。</li>
+    <li>讓<strong>幾個人發文</strong>（包含那個名人）。</li>
+    <li>挑一個使用者<strong>讀他的 feed</strong>，觀察：哪些貼文是「<strong>推來的</strong>」、哪些是「<strong>即時拉的</strong>」、合併排序後長怎樣。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把某個人的粉絲調到超過名人門檻，看他發文的策略是不是從「推」變成「拉」？這就是 <strong>Hybrid 的分流</strong>在運作。再看讀 feed 時，名人的貼文是不是<strong>讀的當下才被拉進來</strong>、和事先推好的混在一起依時間排好——那就是 <strong>k 路合併</strong>。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「報紙」的比喻，解釋「推」和「拉」差在哪？</summary>
+    推＝報社半夜印好挨家投遞，你早上開信箱馬上拿到（讀快，但發報時很忙）。拉＝報社不送，你想看自己去報攤，店員當場幫你湊一份（發報輕鬆，但你每次要等現湊）。News Feed 的推＝發文時就塞進每個粉絲信箱；拉＝讀時才現場聚合。</details>
+  <details class="qa"><summary>Q2：為什麼預設要用「推」而不是「拉」？</summary>
+    因為讀的次數遠多於發文（常達 100:1）。用推把麻煩搬到「比較少發生的發文時」，讓「超常發生的讀」快到只要伸手拿信箱。把讀寫不對稱往便宜那邊壓。</details>
+  <details class="qa"><summary>Q3：「名人問題」是什麼？為什麼純推會爆？</summary>
+    名人有千萬粉。純推時，他發 1 篇就要對每個粉絲塞信箱＝千萬次寫入，瞬間把寫端塞爆、延遲飆高。所以名人必須例外改用拉。</details>
+  <details class="qa"><summary>Q4：Hybrid 是怎麼同時用推和拉的？</summary>
+    依粉絲數門檻分流：一般人用推（貼文早就在你信箱）、名人用拉（讀時才現場去拉）。讀牆時把「推來的」和「拉名人的」兩堆合併、依時間排序，端給你。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼信箱（feed 快取）只存「貼文編號」，不存內文？</summary>
+    因為一篇貼文會出現在千萬份牆上。存內文＝同一段話被複製千萬份，浪費儲存、改字要改千萬處。只存編號，內文統一放貼文庫一份，顯示時再用編號回填（hydrate）。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼發文 API 要「先回收到、背景再慢慢塞信箱」？</summary>
+    因為塞信箱（fan-out）可能要對很多粉絲做，同步做會拖慢發文。改成發文只寫貼文庫＋丟個事件，背景工人非同步把貼文推進各信箱。晚幾秒出現可接受（最終一致）。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼分頁要用 cursor（游標）而不是 offset（第幾筆）？</summary>
+    因為牆一直有新貼文插進來。用「第幾筆開始」會因為位置變動而錯位、重複或漏看。用 cursor 記住「上次那篇的編號／時間」，從它之後接著拿，才穩定。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>News Feed = 把你追蹤的人最新貼文，又快又新地合成一條牆。</strong></p>
+    <p><strong>核心比喻：</strong>報紙是「印好挨家投遞（推）」還是「你來報攤現買（拉）」。</p>
+    <p><strong>3 個關卡：</strong>① 一般人<strong>發文時先推</strong>進粉絲信箱（讀快）→ ② <strong>名人會把信箱塞爆</strong>，改成讀時才拉 → ③ <strong>Hybrid</strong>：推來的＋拉名人的，讀時合併排序。</p>
+    <p><strong>3 個怕：</strong>怕讀慢（預設用推）、怕名人塞爆寫端（名人改拉）、怕白做工（不活躍的人也改拉）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>讀比寫多上百倍 → 用「點餐單(API)」溝通、發文先回收到再背景推 → 四本筆記本（使用者/追蹤/貼文庫/信箱）＋信箱只存編號 → 找出名人這個塞車環節，用 Hybrid 拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑮ News Feed 動態牆 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

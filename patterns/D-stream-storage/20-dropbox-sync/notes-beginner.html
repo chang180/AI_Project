@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑳ Dropbox 檔案同步 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑳ Dropbox 檔案同步 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼不能「整個檔案重傳」就好？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在<strong>公司電腦</strong>改了一份報告，回到家打開<strong>筆電</strong>，發現報告<strong>自動就是最新版</strong>了——你什麼都沒做。
+  這就是 Dropbox（或 Google Drive、iCloud）在幫你做的事：讓你<strong>每一台裝置上的檔案，永遠長一樣</strong>。</p>
+  <p>聽起來很簡單對吧？「不就是把檔案傳上雲端，再傳下來」。但魔鬼藏在三個地方：你的檔案可能<strong>幾百 GB</strong>、
+  你<strong>只改了一行字</strong>、而且你可能<strong>兩台電腦同時在改同一份檔</strong>。把這三件事做好，才是這題真正的難點。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    Dropbox = <strong>把檔案切成小塊的聰明同步</strong>：相同的塊只存一份（省空間）、只傳改動的塊（省頻寬）、
+    兩邊同時改就<strong>兩份都留</strong>（不偷偷蓋掉你的心血）。
+  </div>
+
+  <h2 id="why">2. 為什麼不能「整個檔案重傳」就好？</h2>
+  <p>很多人第一個念頭是：「檔案改了，就把整個檔重新傳上去不就好了？」我們用一個你天天在做的事來看為什麼不行——</p>
+  <div class="analogy">
+    <span class="label">📄 寄一份 300 頁的報告</span>
+    你寫了一份 <strong>300 頁</strong>的報告寄給同事。後來你<strong>只改了第 5 頁的一個錯字</strong>。
+    這時你會把<strong>整本 300 頁</strong>重新印、重新寄一次嗎？太蠢了。你只會<strong>把改過的那一頁，重寄給他</strong>就好。
+  </div>
+  <p>檔案同步一模一樣。一個 1 GB 的影片你只剪掉幾秒，若每次都重傳整個 1 GB，你的網路會被塞爆，雲端也存了一堆幾乎一樣的東西。</p>
+  <p>所以這題的核心精神就是：<strong>「不要重來、只處理有變的那一小部分」</strong>。為了做到這件事，系統先把每個檔案<strong>切成很多小塊</strong>
+  （像把報告拆成一頁一頁），之後所有的聰明操作，都是建立在「以小塊為單位」之上。</p>
+  <p class="pause">💭 停一下：如果系統是「以整個檔案」為單位，而不是「以小塊」為單位，前面說的「只寄改動那頁」還辦得到嗎？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    辦不到。如果單位是「整個檔案」，那系統眼中只有「檔案變了 / 沒變」兩種狀態，一變就只能整檔重傳。
+    只有先把檔案<strong>切成小塊</strong>，系統才看得見「哪幾塊變了、哪幾塊沒變」，才有辦法只傳那幾塊。<strong>切塊是這整題的地基。</strong>
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 4 關，每一關都對應一個你已經懂的生活直覺：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>分塊：把檔案切成一頁一頁</h3>
+    <p>第一步，把檔案<strong>切成固定大小的小塊</strong>（例如每塊 4 MB）。一個 1 GB 的檔案就被切成大約 256 塊。</p>
+    <div class="analogy"><span class="label">📚 比喻</span>就像把一本厚厚的書<strong>拆成一頁一頁</strong>。拆開後，每一頁都可以單獨被檢查、單獨被處理——這是後面所有魔法的前提。</div>
+    <p>每一塊都會算出一個<strong>「指紋」</strong>（一段叫 sha256 的代碼）。內容一樣的塊，指紋就一樣；內容只要差一個字，指紋就完全不同。記住這個「指紋」，下一關馬上要用。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>去重：一樣的塊，只存一份</h3>
+    <p>切好塊、算好指紋後，系統會發現：很多塊的<strong>內容其實一模一樣</strong>。可能是同一份檔案的重複段落，也可能是<strong>不同人</strong>都存了同一個熱門影片。</p>
+    <div class="analogy">
+      <span class="label">✍️ 比喻：相同段落不重抄</span>
+      抄筆記時，如果有一段話<strong>跟前面寫過的完全一樣</strong>，你不會笨笨地再抄一遍，你會寫「<strong>同上</strong>」。
+      系統也一樣：看到指紋已經存過的塊，就<strong>不再存第二份</strong>，只記一筆「我用的是那塊」。
+    </div>
+    <p>這招叫 <strong>去重（dedup）</strong>。因為「指紋一樣 = 內容一樣」，系統上傳前會<strong>先問雲端：「這幾個指紋你有沒有？」</strong>
+    雲端只回「我缺這幾塊」，你就只傳缺的。光這一招，就能省下接近一半的儲存空間。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>增量同步：只寄改動的那幾頁（delta）</h3>
+    <p>這一關就是把「寄報告只寄改動頁」變成真的。檔案改過後，系統把新版本重新切塊，跟<strong>上次的塊清單比一比</strong>，
+    找出<strong>哪幾塊是新的</strong>，就只傳這幾塊。</p>
+    <div class="analogy">
+      <span class="label">📑 比喻：改報告只寄修改頁</span>
+      300 頁報告只改了第 5 頁 → 第 5 頁的指紋變了，其他 299 頁的指紋<strong>都沒變</strong>。
+      系統一比對就知道「只有第 5 頁是新的」，於是<strong>只傳第 5 頁</strong>。頻寬成本只跟「你改了多少」有關，跟「檔案多大」無關。
+    </div>
+    <p>這招叫 <strong>增量同步（delta sync）</strong>。改 1 GB 大檔的一小段，可能只傳幾 MB。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>衝突處理：兩邊同時改，兩份都留</h3>
+    <p>最棘手的一關。你在<strong>公司電腦</strong>改了報告，同事在<strong>家裡</strong>也改了同一份（兩人都還沒同步到對方的版本）。
+    現在雲端收到兩個都說「我是基於版本 7 改的」的新版本——<strong>該聽誰的？</strong></p>
+    <div class="analogy">
+      <span class="label">🍴 比喻：別偷偷把對方的菜倒掉</span>
+      兩個人各自煮了一鍋湯要放進同一個鍋位。系統<strong>不會偷偷把先到的那鍋倒掉</strong>，
+      而是<strong>兩鍋都留下來</strong>，其中一鍋標上「（衝突副本）」，讓你自己決定要哪個、還是兩個都要。
+    </div>
+    <p>這叫<strong>衝突副本（conflicted copy）</strong>。系統靠每個版本附帶的「<strong>我是基於哪一版改的</strong>」資訊，
+    判斷出「有人搶先提交了」，於是把較晚那份另存一份，例如 <code>report (裝置B 的衝突副本).docx</code>。
+    核心原則：<strong>寧可留兩份讓你煩，也絕不偷偷蓋掉你的心血。</strong></p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>切塊</strong>（拆成一頁頁）→ ② <strong>去重</strong>（一樣的塊只存一份）→ ③ <strong>增量同步</strong>（只傳改動的塊）→ ④ <strong>衝突就留兩份</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「弄丟你的檔案」</span>
+    照片、論文一旦弄丟就回不來了，這是最不可原諒的事。所以耐久性<strong>壓倒一切</strong>：每塊內容都<strong>存好幾份在不同地方</strong>，
+    機房失火都不能掉。這就是為什麼承諾「資料幾乎不可能遺失」（11 個 9 的等級）。<em>可以慢，不能丟。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「偷偷蓋掉你的心血」</span>
+    兩邊同時改，如果系統自作主張只留一份、把另一份默默丟掉，使用者會崩潰（「我寫一整晚的東西不見了！」）。
+    所以衝突時<strong>寧可留兩份</strong>讓你自己選，<strong>絕不靜默覆蓋</strong>。<em>寧可多一份，不可少一份。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「把網路與硬碟塞爆」</span>
+    如果每次小改都重傳整檔、每份重複內容都存一遍，頻寬和儲存成本會爆炸到付不起。
+    所以才要<strong>分塊 + 去重 + 增量同步</strong>，讓成本只正比於「真正變動的量」，而不是「檔案的大小」。<em>只處理有變的，別重來。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，跟著一次同步的旅程走：</p>
+  <ul>
+    <li>💻 你的裝置把檔案<strong>切成小塊、算好指紋</strong> →</li>
+    <li>❓ 先問雲端「<strong>這些指紋你有沒有？</strong>」雲端回「我缺這幾塊」（去重） →</li>
+    <li>📤 只<strong>上傳缺的那幾塊</strong>到 <strong>Blob 倉庫</strong>（存內容本體，每塊存好幾份保命） →</li>
+    <li>📒 同時更新 <strong>Metadata 帳本</strong>：「這個檔案的新版本 = 這串塊的順序」 →</li>
+    <li>🔔 <strong>通知服務</strong>透過長連線告訴你<strong>其他裝置</strong>：「有新版本了，快來拉」 →</li>
+    <li>📥 其他裝置<strong>只下載自己還缺的塊</strong>，拼回完整檔案。</li>
+  </ul>
+  <p>注意圖裡「內容本體（Blob）」和「帳本（Metadata）」是<strong>分開的兩個倉庫</strong>——這個分家很關鍵，名詞表之後 Part 2 會解釋為什麼。</p>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>chunk（分塊）</td><td>檔案切出來的「一頁」，固定大小的小塊</td></tr>
+    <tr><td>hash / sha256</td><td>每塊內容的「指紋」：內容一樣指紋就一樣</td></tr>
+    <tr><td>內容定址</td><td>用「指紋」當地址來存取塊（同內容 → 同地址）</td></tr>
+    <tr><td>dedup（去重）</td><td>「相同段落不重抄」：一樣的塊只存一份</td></tr>
+    <tr><td>delta sync（增量同步）</td><td>「改報告只寄修改頁」：只傳變動的塊</td></tr>
+    <tr><td>衝突副本</td><td>兩邊同時改 → 兩份都留，一份標「衝突副本」</td></tr>
+    <tr><td>版本向量</td><td>每版附帶「我基於哪版改的」，用來判斷誰跟誰衝突</td></tr>
+    <tr><td>metadata（後設資料）</td><td>「帳本」：記檔案有哪些版本、每版是哪串塊</td></tr>
+    <tr><td>blob 物件儲存</td><td>「倉庫」：存塊的內容本體，量大、要超耐久</td></tr>
+    <tr><td>ref_count（引用計數）</td><td>「這塊被幾個檔用著」，沒人用了才能清掉</td></tr>
+    <tr><td>斷點續傳</td><td>傳到一半斷線，重連後只補沒傳完的塊</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>分片（sharding）</td><td>資料太多，拆到很多台機器分開放</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>有多少使用者</td><td>5 億註冊、5000 萬天天用</td><td>每人多裝置（手機 + 電腦）要同步</td></tr>
+    <tr><td>總共多少檔案</td><td>每人 5000 檔 → 約 2.5 兆檔</td><td>帳本一台機器裝不下，必須分到很多台</td></tr>
+    <tr><td>要存多少資料</td><td>每人 50 GB → 共約 25 EB</td><td>天文數字，所以「省空間」是錢的問題</td></tr>
+    <tr><td>去重能省多少</td><td>不同人重複率約 30%~50%</td><td>實體空間可省近一半 → 直接省一半的錢</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💰 關鍵洞察：成本花在「存」和「傳」</span>
+    這系統最燒錢的地方，是<strong>存那 25 EB 的資料</strong>和<strong>傳輸的網路頻寬</strong>。
+    所以整個設計都圍著省這兩樣轉：用<strong>去重</strong>省儲存、用<strong>增量同步</strong>省頻寬。省下來的，全是真金白銀。
+  </div>
+  <p class="pause">💭 停一下：為什麼「去重」對 Dropbox 來說，不只是技術問題，更是「錢」的問題？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為要存的資料是 EB 等級的天文數字，存愈多花愈多錢。去重讓「不同人存的同一個熱門影片只存一份」，
+    重複率 30%~50% 意味著實體儲存能省下近一半——這直接砍掉接近一半的硬碟成本。在這種規模下，<strong>省空間 = 省錢</strong>。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」，剛好對應前面的關卡：</p>
+  <pre><code>① 上傳前先問：這些塊你有沒有？（去重的關鍵一步）
+   POST /files/{檔案}/chunks:check
+   給我：{ 一串塊的指紋 }
+   我回：{ 我缺這幾塊 } ← 你只要傳缺的就好</code></pre>
+  <p class="codecaption">這就是「<strong>同上、不重抄</strong>」的精神：先問清楚雲端缺什麼，<strong>只傳缺的</strong>，同時省下頻寬和儲存。</p>
+  <pre><code>② 上傳缺的塊（用「指紋」當地址）
+   PUT /chunks/{指紋}   Body: 塊的內容
+   → 已經有了就「不重複存」（這就是去重）</code></pre>
+  <p class="codecaption">為什麼用指紋當地址？因為<strong>內容一樣指紋就一樣</strong>，同一個指紋傳第二次系統直接當「已有」忽略——天然去重，還順便支援斷點續傳（斷線後重問一次缺哪些，只補沒傳完的）。</p>
+  <pre><code>③ 提交新版本：送出「這版是哪串塊 + 我基於第幾版改的」
+   POST /files/{檔案}/commit
+   給我：{ 基底版本=7, 塊清單=[指紋1, 指紋2, ...] }
+   我回：{ 新版本=8 }
+   或回：409 衝突 { 伺服器已是第9版, 幫你存了「衝突副本」 }</code></pre>
+  <p class="codecaption">關鍵在那個「<strong>基底版本=7</strong>」：如果雲端發現自己已經是第 9 版（有人搶先提交了），就知道<strong>發生衝突</strong>，於是不硬蓋，改成幫你存一份衝突副本。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：帳本與倉庫分家</span>
+    系統把資料分成兩種東西：一本<strong>薄薄的「帳本」</strong>（記每個檔案有哪些版本、每版是哪串塊），
+    和一座<strong>巨大的「倉庫」</strong>（存塊的內容本體）。這兩樣<strong>分開放</strong>，是這題最重要的設計之一。
+  </div>
+  <div class="step">
+    <h3><span class="badge">📒</span>帳本（Metadata）：記檔案的目錄與版本</h3>
+    <p>每個檔案記：<code>檔案ID、擁有者、路徑、最新版本</code>；每個版本記：<code>這版是「哪串塊（有順序的指紋清單）」、誰提交的、基於哪版</code>。</p>
+    <div class="analogy"><span class="label">為什麼帳本只存「指紋清單」不存內容？</span>
+      因為一個檔案 = <strong>一串塊照順序拼起來</strong>。帳本只要記「第 1 塊用指紋A、第 2 塊用指紋B……」這串<strong>目錄</strong>，
+      要還原檔案時照著清單去倉庫一塊塊拿來拼就好。帳本小、查得快；內容大、放倉庫。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📦</span>倉庫（Blob）：存塊的內容本體</h3>
+    <p>每塊記：<code>指紋（當地址）、大小、被幾個版本用著(ref_count)、實際存在哪</code>。塊的內容本體放在「物件儲存」，每塊存好幾份保命。</p>
+    <div class="analogy"><span class="label">為什麼要記「被幾個版本用著」(ref_count)？</span>
+      同一塊可能被很多檔案、很多版本共用（去重的結果）。所以刪檔時<strong>不能馬上把塊清掉</strong>，
+      要先看「還有沒有別人在用」——這個計數歸零了，才能安全回收，否則會誤刪別人還在用的內容。</div>
+  </div>
+  <div class="box"><span class="label">為什麼帳本與倉庫一定要分家？</span>
+    帳本<strong>小、改得頻繁、要能精準查詢</strong>（適合放關聯式資料庫）；倉庫<strong>大、塊一旦存了就不再改、要超級耐久</strong>（適合放物件儲存）。
+    兩者個性相反，分開放才能各自用最適合的方式擴展與最佳化。</div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>帳本太大：兆級檔案一台機器裝不下</td><td>依擁有者把帳本<strong>拆到很多台機器</strong>（分片）；同帳號資料放同一台好交易</td></tr>
+    <tr><td>倉庫要存 EB 級、還不能弄丟</td><td>每塊<strong>存好幾份在不同地點</strong>；很少用的冷資料搬到便宜倉庫</td></tr>
+    <tr><td>大檔整傳塞滿上行頻寬</td><td><strong>分塊 + 去重 + 增量同步</strong>，成本只正比於變動量</td></tr>
+    <tr><td>千萬裝置都掛著等通知</td><td>通知用<strong>長連線</strong>而非一直輪詢；以使用者為單位推「該拉取」訊號</td></tr>
+    <tr><td>刪檔時誤刪了還有人在用的共用塊</td><td>用<strong>引用計數</strong>，歸零再加一段寬限期才真的清掉</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 怎麼切塊？固定大小 vs 看內容切</span>
+    <strong>固定大小切</strong>（每 4 MB 一刀）最簡單，但在檔案<strong>開頭插一個字</strong>，後面所有刀口全位移，導致幾乎整檔都變「新塊」要重傳。
+    進階作法是<strong>看內容特徵決定切點（CDC）</strong>，插字只影響鄰近一兩塊，去重效果好很多。<em>（面試講得出 CDC 是加分點。）</em></div>
+  <div class="fear"><span class="label">⚖️ 跨使用者去重：省錢 vs 隱私</span>
+    讓「不同人的相同塊也只存一份」最省空間，但有隱私隱憂：別人只要猜中指紋就能「秒傳」，等於洩漏「某人是否擁有某檔」。
+    所以隱私敏感的系統，常<strong>只在同一個使用者內去重</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 強一致 vs 最終一致</span>
+    同一檔的版本提交，在單一帳本分片內可以做到<strong>強一致</strong>（用來精準偵測衝突）；但裝置之間的同步是<strong>最終一致</strong>——
+    靠「通知 + 各自拉取」慢慢收斂，延遲個幾秒可以接受。</div>
+  <details class="qa"><summary>💭 追問：大檔上傳到一半斷線了，怎麼辦？</summary>
+    因為上傳是<strong>以塊為單位、用指紋當地址</strong>，重連後只要重跑一次 <code>chunks:check</code>，
+    已經傳上去的塊會被回報為「已存在」，系統就只<strong>續傳剩下沒傳完的塊</strong>，不用從頭來。這就是斷點續傳，是分塊的天然好處。</details>
+  <details class="qa"><summary>💭 追問：兩台裝置都離線、各自改了同一檔，上線後會怎樣？</summary>
+    兩邊都帶著「我基於第 7 版改的」上線。系統用<strong>版本向量</strong>判斷出這是<strong>真衝突</strong>（不是單純某邊落後），
+    於是<strong>不覆蓋</strong>，把較晚那份另存成「衝突副本」，兩份都保留給使用者決定。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「分塊 + 去重 + 增量 + 衝突」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8020 -t public
+# 然後瀏覽器打開 http://localhost:8020</code></pre>
+  <ol>
+    <li>貼一段文字當作「檔案」<strong>上傳</strong> → 看它被切成幾塊、每塊的指紋。</li>
+    <li><strong>小改一下內容</strong>再上傳 → 觀察：只有變動的塊被當成「新塊」（顯示 delta 差集與去重率）。</li>
+    <li>模擬<strong>兩台裝置基於同一版各自修改</strong> → 看系統偵測到衝突、產生衝突副本。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>同一段內容上傳兩次，第二次是不是「沒有新增任何塊」？這就是<strong>去重</strong>。
+  只改一個字再傳，是不是只多了一兩塊、其他塊都沿用？這就是<strong>增量同步</strong>。兩邊基於同版各改一次，是不是兩份都被留下？這就是<strong>衝突副本</strong>。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「寄 300 頁報告」解釋，為什麼不能每次都整檔重傳？</summary>
+    報告只改了第 5 頁，沒人會把整本 300 頁重印重寄，只會重寄改過那一頁。檔案同步一樣：先把檔案切成小塊，只傳變動的塊，頻寬成本只跟「改了多少」有關，跟「檔案多大」無關。</details>
+  <details class="qa"><summary>Q2：什麼是「去重」？用「抄筆記」的比喻說說看。</summary>
+    抄筆記遇到跟前面一模一樣的段落，會寫「同上」而不重抄。系統靠每塊的「指紋」判斷內容是否相同，指紋已存在的塊就不再存第二份，只記一筆「我用那塊」。相同內容只存一份。</details>
+  <details class="qa"><summary>Q3：增量同步（delta）是怎麼做到「只傳改動」的？</summary>
+    新版本重新切塊後，跟上次的塊清單比對，只有指紋變了的塊才是「新塊」，系統就只傳這些新塊。沒變的塊指紋一樣，雲端早就有了，不必再傳。</details>
+  <details class="qa"><summary>Q4：兩台裝置同時改同一檔，系統為什麼「不直接覆蓋」？</summary>
+    因為偷偷蓋掉會讓使用者弄丟心血（最不可原諒的事）。所以系統靠「我基於哪一版改的」判斷出衝突，把較晚那份另存成「衝突副本」，兩份都留，讓使用者自己決定。</details>
+  <details class="qa"><summary>Q5（工程）：上傳前為什麼要先做 chunks:check「問雲端缺哪些」？</summary>
+    因為很多塊雲端可能已經有（同檔重複段落、或別人傳過的相同內容）。先問清楚只傳缺的（missing），同時省下頻寬和儲存——這是去重與省頻寬的核心動作。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼「帳本（metadata）」和「倉庫（blob）」要分開放？</summary>
+    帳本小、改得頻繁、要能精準查詢，適合放關聯式資料庫；倉庫大、塊存了就不再改、要超級耐久，適合放物件儲存。兩者個性相反，分家才能各自用最適合的方式擴展。</details>
+  <details class="qa"><summary>Q7（工程）：刪檔時為什麼不能馬上把它的塊清掉？怎麼處理？</summary>
+    因為去重的關係，同一塊可能被很多檔案、很多版本共用。要用「引用計數（ref_count）」記「還有幾個人在用」，歸零後再加一段寬限期才真的回收，否則會誤刪別人還在用的內容。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>Dropbox 同步 = 把檔案切成小塊的聰明同步。</strong></p>
+    <p><strong>4 個關卡：</strong>① 切塊（拆成一頁頁）→ ② 去重（相同塊只存一份，像「同上不重抄」）→ ③ 增量同步（只傳改動的塊，像「改報告只寄修改頁」）→ ④ 衝突就留兩份（不偷偷覆蓋）。</p>
+    <p><strong>3 個怕：</strong>怕弄丟檔（多副本保命）、怕偷偷蓋掉心血（衝突留兩份）、怕塞爆網路與硬碟（只處理變動量）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>成本花在「存」與「傳」→ 用「點餐單(API)」先 check 再傳，只傳缺的塊 → 帳本(metadata)與倉庫(blob)分家、各自擴展 → 引用計數管何時能安全清塊。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑳ Dropbox 檔案同步 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

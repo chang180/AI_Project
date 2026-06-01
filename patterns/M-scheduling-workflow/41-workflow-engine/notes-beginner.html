@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊶ 工作流引擎 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅼 排程/工作流</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊶ 工作流引擎 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">M 排程/工作流</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「依序呼叫」不夠用？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 4 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你在買一個網購商品，背後發生一連串事：<strong>預留庫存 → 主管審核 → 扣款 → 出貨 → 通知你</strong>。
+  這串動作有<strong>先後順序</strong>，中間可能<strong>等好幾天</strong>（等主管簽核），任何一步都<strong>可能失敗</strong>（物流 API 掛了、付款逾時）。</p>
+  <p>工作流引擎（像 Temporal、Airflow）就是專門<strong>幫你可靠地把這種「長流程」跑完</strong>的系統。
+  它最厲害的地方是：機器中途斷電重開，它能<strong>從中斷的那一步接著跑</strong>，而不是把已經扣過的款再扣一次。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    工作流引擎 = <strong>一個「有存檔、會收拾善後」的食譜執行管家</strong>：照步驟順序做、做完一步就記帳、斷電重開能接著做、做壞了會反向收拾。
+  </div>
+
+  <h2 id="why">2. 為什麼「依序呼叫」不夠用？</h2>
+  <p>你可能會想：「不就照順序呼叫幾個 API 嗎？寫個程式一行一行做不就好了？」問題出在<strong>真實世界很不乖</strong>——</p>
+  <div class="analogy">
+    <span class="label">🍳 比喻：一個人邊看食譜邊炒菜，中途停電</span>
+    你照食譜炒一道大菜：備料 → 等醬料醃 2 小時 → 下鍋炒 → 裝盤。如果<strong>炒到一半停電</strong>，
+    你重開瓦斯時會記得「我已經備好料、醃好了，現在從『下鍋炒』開始」嗎？還是傻傻地<strong>從備料重來</strong>（食材都浪費了）？
+    普通程式停電重開，就是<strong>整個從頭來</strong>——已經扣的款會再扣一次。
+  </div>
+  <p>而且「等醬料醃 2 小時」這種等待，普通程式會<strong>傻站在那裡佔著爐子</strong>（佔著執行緒），等審批等三天就卡三天，太浪費。
+  工作流引擎把這些麻煩事——<strong>記進度、斷電續跑、失敗重試、失敗善後、長時間等待</strong>——通通幫你扛走，
+  你只要專心寫「食譜步驟」就好。</p>
+  <p class="pause">💭 停一下：為什麼「扣完款後機器掛掉，重開又把款扣一次」是個嚴重問題？普通程式為什麼會這樣？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為普通程式沒有「做到哪一步」的記錄，重開只能從頭跑，於是「扣款」這個會花錢的動作被做了兩次（重複扣款）。工作流引擎靠「每做完一步就記帳」，重開時看帳本知道「款已扣過」，就跳過不重做。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「工作流引擎」嚇到。它的本事其實就是 4 招，一招一招看：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>排順序：把流程畫成「有先後的食譜」</h3>
+    <p>第一步是把流程寫清楚：哪幾步、誰先誰後。這張「步驟先後圖」工程上叫 <strong>DAG</strong>。</p>
+    <div class="analogy">
+      <span class="label">🍲 比喻：食譜的步驟順序</span>
+      做菜有些步驟<strong>必須先做完才能做下一步</strong>：要先「備料」才能「下鍋炒」；但「燒水」和「切菜」可以<strong>同時做</strong>（互不相依）。
+      DAG 就是這張「哪些要排隊、哪些可以一起做」的關係圖。
+    </div>
+    <p>引擎每一輪都看：「哪些步驟<strong>前置都做完了、自己還沒做</strong>？」這些就是「可以開動了（ready）」的步驟，挑出來執行。
+    👉 重點：<strong>「備料完才能炒」——前面沒做完，後面就解鎖不了。</strong></p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>記帳本：每做完一步就「存檔」（durable execution）</h3>
+    <p>這是整個引擎最核心、最神奇的一招。每完成一步，引擎就在一本<strong>只能往後加、不能塗改的帳本</strong>記一筆：「第 X 步做完了，結果是這個」。</p>
+    <div class="analogy">
+      <span class="label">🎮 比喻：有存檔點的遊戲</span>
+      玩遊戲打到一半關機，重開時不會從第一關開始——它<strong>讀取存檔</strong>，把你直接送回上次的進度。
+      引擎也一樣：斷電重開時，它<strong>從頭「重放」帳本</strong>，遇到「這步做過了」就<strong>直接讀帳本裡記的結果、跳過不重做</strong>，
+      很快就「快轉」回中斷的地方，再從那裡繼續。
+    </div>
+    <p>關鍵在那句<strong>「跳過不重做」</strong>：重放只是把進度還原，<strong>不會把已經扣過的款再扣一次</strong>。
+    這套「記帳 + 重放」的招式，工程上叫 <strong>durable execution（持久化執行）</strong>，底層用的記帳法叫<strong>事件溯源</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>善後隊：做壞了就「反向收拾」（重試 + saga 補償）</h3>
+    <p>某一步失敗了怎麼辦？引擎分兩段處理：</p>
+    <ul>
+      <li><strong>先重試</strong>：像逾時這種「可能只是剛好卡到」的小毛病，<strong>等一下再試</strong>，而且每次等更久（第一次等 0.1 秒、再來 0.2、0.4…避免一直猛敲對方）。</li>
+      <li><strong>真的不行就善後</strong>：重試很多次還是死，就認定「這步永久失敗」，啟動<strong>反向收拾</strong>。</li>
+    </ul>
+    <div class="analogy">
+      <span class="label">↩️ 比喻：出貨失敗，把前面做的事倒著收回來</span>
+      訂單流程走到「出貨」失敗了，總不能<strong>錢扣了、貨沒出</strong>就放著。引擎會把<strong>前面已經做過的</strong>動作<strong>倒著一個個收拾</strong>：
+      已扣的款<strong>退回</strong>、已預留的庫存<strong>釋放</strong>。後做的先收拾（像疊盤子，先收最上面那個）。
+    </div>
+    <p>這個「每個會造成後果的步驟，都先準備好一個對應的『反悔動作』」的設計，工程上叫 <strong>saga 補償</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>暫停閘：卡住等人簽名才繼續（人工審批）</h3>
+    <p>有些步驟不是機器能自己做的，要<strong>等真人簽核</strong>（例如大額訂單要等主管核准）。流程跑到這裡就<strong>暫停</strong>。</p>
+    <div class="analogy">
+      <span class="label">✋ 比喻：公文卡在主管桌上</span>
+      公文跑到「待主管簽名」這格就<strong>停住</strong>，主管可能今天不在、明天才簽。聰明的做法是：
+      <strong>把公文放著（記進帳本），承辦人先去忙別的</strong>，不是傻站在主管門口等。等主管簽了（外部送來一個「放行」訊號），流程才繼續往下走。
+    </div>
+    <p>重點：等待時<strong>不佔資源</strong>（不傻站著等），狀態已經寫進帳本，所以就算等三天、中間機器還重開過，<strong>簽核一到照樣能接著跑</strong>。
+    這個「等外部來敲一下才醒」的放行訊號，工程上叫 <strong>signal</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 把流程畫成<strong>有先後的食譜（DAG）</strong> → ② 每步做完就<strong>存檔記帳（重放不重做）</strong> → ③ 失敗先<strong>重試、不行就反向善後（saga）</strong> → ④ 遇審批就<strong>暫停等簽名（signal）</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 4 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕四件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「重複做副作用」</span>
+    最怕的就是<strong>重複扣款、重複出貨</strong>。機器重開、訊息重送都可能讓同一步被做兩次。
+    對策：每步做完就記帳，重做前先查帳本「這步做過沒？」——做過就<strong>跳過</strong>。<em>至少做一次 + 查帳跳過 = 效果上只做一次。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「狀態弄丟」</span>
+    帳本就是這系統的<strong>命根子</strong>。帳本一丟，就不知道做到哪、無法續跑、無法善後。
+    所以帳本<strong>寫下去就絕不能掉</strong>（要落到硬碟、要備份），這比「跑得快」更重要。<em>持久性壓倒一切。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「重放結果對不上」</span>
+    既然要靠「重放帳本」還原進度，那流程碼就<strong>不能依賴每次都不一樣的東西</strong>（像當下時間、亂數、即時去問外部 API）——
+    否則重放時算出來的跟當初不一樣，帳就對不上了。對策：這些「每次不一樣」的事一律當成一個步驟<strong>把結果記進帳本</strong>，重放時讀帳本的舊值。<em>流程必須可重現。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「等待佔著資源」</span>
+    審批等三天，如果這三天一直<strong>佔著一條執行緒傻等</strong>，幾百萬個流程一起等就把機器塞爆了。
+    對策：等待時<strong>把狀態落盤、把資源放掉</strong>，等訊號來了再喚醒重載。<em>等待要「免費」。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀：</p>
+  <ul>
+    <li>📋 <strong>食譜（DAG 定義）</strong>寫好流程有哪幾步、誰先誰後 →</li>
+    <li>🧭 <strong>排程器</strong>每一輪看帳本，挑出「前置都做完、可以開動」的步驟 →</li>
+    <li>🔧 <strong>工人（Worker）</strong>真正去執行那一步（呼叫 API、算東西）→</li>
+    <li>📒 結果寫進<strong>帳本（Event Log）</strong>——這是唯一真相、永不塗改、斷電靠它續跑 →</li>
+    <li>↩️ 失敗 → 先<strong>重試（每次等更久）</strong>，超過上限 → <strong>saga 反向善後</strong>（退款、釋放庫存）→</li>
+    <li>✋ 遇到審批 → <strong>暫停（BLOCKED）</strong>，等外部送來<strong>放行訊號（signal）</strong>才繼續。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>工作流引擎</td><td>幫你可靠跑完「長流程」的管家（Temporal / Airflow）</td></tr>
+    <tr><td>DAG</td><td>「有先後的食譜」：哪些要排隊、哪些可以一起做</td></tr>
+    <tr><td>step（步驟）</td><td>食譜裡的一個動作（備料、下鍋…）</td></tr>
+    <tr><td>durable execution</td><td>「有存檔的執行」：每步記帳、斷電可續跑</td></tr>
+    <tr><td>事件溯源 / Event Log</td><td>那本只加不改的「帳本」，記每一步做了什麼</td></tr>
+    <tr><td>重放（replay）</td><td>重開時讀帳本，把進度「快轉」回中斷點（做過的跳過）</td></tr>
+    <tr><td>冪等 / exactly-once 效果</td><td>同一步做幾次，後果只發生一次（不重複扣款）</td></tr>
+    <tr><td>指數退避重試</td><td>失敗就等一下再試，每次等更久（0.1→0.2→0.4 秒）</td></tr>
+    <tr><td>saga 補償</td><td>做到一半失敗，倒著「反向收拾」（退款、釋放庫存）</td></tr>
+    <tr><td>signal</td><td>外部送來的「放行」訊號（主管按了核准）</td></tr>
+    <tr><td>BLOCKED（暫停）</td><td>流程卡在審批節點等簽名的狀態</td></tr>
+    <tr><td>確定性 / 可重放</td><td>流程不依賴「每次不一樣」的東西，才能正確重放</td></tr>
+    <tr><td>sharding（分片）</td><td>太多流程時，按編號分給好幾台機器各管一批</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>同時有多少流程「在飛」</td><td>100 萬個長流程同時進行</td><td>大多在等審批/計時，不太花 CPU，只佔「帳本狀態」</td></tr>
+    <tr><td>每個流程幾步</td><td>平均 20 步</td><td>共 2000 萬個步驟狀態要追蹤</td></tr>
+    <tr><td>帳本多大</td><td>每流程帳本約 5 KB</td><td>100 萬 × 5KB ≈ 5 GB 活躍狀態（+ 歷史歸檔）</td></tr>
+    <tr><td>等待多久</td><td>審批可達好幾天</td><td>等待<strong>不能</strong>佔著記憶體／執行緒 → 落盤，事件來才喚醒</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：成本在「等與記」，不在「算」</span>
+    這系統最特別的地方：100 萬個流程<strong>大多在「等」</strong>（等簽核、等計時、等外部回覆），幾乎不耗 CPU。
+    真正稀缺的是<strong>「那本帳的容量與不能丟」</strong>。所以整個設計圍繞「<strong>狀態落盤 + 事件來了才喚醒</strong>」，而不是「養一堆執行緒一直跑」。
+  </div>
+  <p class="pause">💭 停一下：100 萬個流程同時在跑，為什麼不需要 100 萬條執行緒一直開著？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為它們大多在「等待」（等審批、等計時器、等外部事件），等待時狀態已寫進帳本、資源被放掉，不佔執行緒。只有「真的有事要做」的那少數步驟才需要工人去跑。等待是「免費」的——這正是長流程能擴展到百萬級的關鍵。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住四張「點餐單」：</p>
+  <pre><code>① 定義一份食譜（DAG：有哪些步驟、誰先誰後、各自的「反悔動作」）
+   POST /api/v1/workflows
+   給我：{ 名稱, 步驟清單[{ id, 前置deps, compensate反悔動作 }] }</code></pre>
+  <p class="codecaption">這就是<strong>把食譜寫下來</strong>。每個步驟可以註明它的「前置」（要先做完誰）和「反悔動作」（萬一要善後時怎麼倒回去）。</p>
+  <pre><code>② 開始煮一道（啟動一個流程實例）
+   POST /api/v1/workflows/{名稱}/start  →  回我一個 run_id（這鍋的編號）</code></pre>
+  <p class="codecaption">同一份食譜可以同時煮很多鍋，每鍋一個 <code>run_id</code> 各記各的帳，互不干擾。</p>
+  <pre><code>③ 對「等簽名」的步驟送放行訊號（signal）
+   POST /api/v1/runs/{run_id}/signal   給我：{ step:"approve", decision:"approve" }</code></pre>
+  <p class="codecaption">這就是<strong>主管按下核准</strong>。訊號一到，引擎下一輪就把那個暫停的步驟喚醒、繼續往下跑。</p>
+  <pre><code>④ 查現在做到哪 / 取消整鍋
+   GET  /api/v1/runs/{run_id}       → 回我每步狀態、重試幾次、帳本
+   POST /api/v1/runs/{run_id}/terminate   → 取消（會觸發 saga 反向善後）</code></pre>
+  <p class="codecaption">查詢能看到「卡在哪一步、重試幾次」（這就是「可觀測」）；取消會<strong>啟動反向收拾</strong>，把已做的倒回去。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：三本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題只要三本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📋</span>食譜簿（流程怎麼走）</h3>
+    <p>每份流程定義一列：<code>名稱、版本、步驟清單（每步的 id、前置 deps、反悔動作 compensate）</code>。
+    這是「死的」設定，描述流程<strong>該怎麼走</strong>。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🍳</span>每鍋簿（哪一鍋、狀態如何）</h3>
+    <p>每啟動一次流程一列：<code>run_id（主鍵）、用哪份食譜、狀態(進行中/完成/失敗)、開始時間</code>。
+    用 <code>run_id</code> 區分每一鍋。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📒</span>帳本（最關鍵：每步發生了什麼）</h3>
+    <p>這就是 Part 1 那本<strong>只能往後加、不能塗改</strong>的帳本：<code>run_id、第幾筆、事件類型、哪一步、結果/重試次數、時間</code>。
+    事件類型像：<code>某步完成 / 某步重試 / 某步失敗 / 某步暫停等審批 / 某步已善後</code>。</p>
+    <div class="analogy"><span class="label">為什麼用「帳本」而不是「一張可改的狀態表」？</span>
+      因為帳本帶來三個超能力：(1) <strong>斷電可續跑</strong>——重放帳本就還原進度；(2) <strong>每次重放結果都一樣</strong>——同一本帳永遠算出同一個狀態；(3) <strong>完整稽核</strong>——每一步何時做、重試幾次都查得到。
+      「目前進度」不是存在某欄位，而是<strong>把整本帳從頭加總出來</strong>的結果。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>百萬個流程同時在飛，一台機器管不完</td><td>按 <code>run_id</code> <strong>分片</strong>，分給好幾台機器各管一批；負責挑步驟的排程器不存狀態，可多開幾台</td></tr>
+    <tr><td>審批等好幾天，狀態不能一直佔記憶體</td><td>等待時<strong>狀態落盤、放掉資源</strong>；用計時器/事件索引，到期或訊號來才喚醒重載</td></tr>
+    <tr><td>要執行的步驟太多，工人忙不過來</td><td>工人和引擎<strong>分開</strong>，工人從「待辦佇列」自己拉活做；不夠就<strong>多請工人</strong>，長短任務分流</td></tr>
+    <tr><td>長壽流程的帳本越記越長，重放變慢</td><td>定期<strong>存個快照</strong>（snapshot）當新起點，或「截舊帳另起新鍋」(continue-as-new)，縮短重放</td></tr>
+    <tr><td>大家都往同一本帳猛寫，寫入塞車</td><td>按 <code>run_id</code> 分片分散寫；順序/批次寫；舊帳歸檔到便宜的儲存</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的四個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 中央指揮 vs 各自接力（編排 vs 編舞）</span>
+    本題是<strong>編排</strong>：有個<strong>中央引擎</strong>掌握全流程，好觀測、好善後，但引擎是焦點與單點考量。
+    另一派「編舞」靠服務間互發事件接力，去中心、鬆耦合，但流程「散」在各處、難追蹤難善後。<strong>需要善後的長流程多選編排。</strong></div>
+  <div class="fear"><span class="label">⚖️ 用程式碼寫流程 vs 用宣告式 DAG</span>
+    程式碼定義（Temporal）<strong>表達力強</strong>（任意分支、迴圈），但要靠規矩保證「可重放」；
+    宣告式 DAG／狀態機（Airflow、Step Functions）<strong>好畫圖、好檢查</strong>，但較不靈活。</div>
+  <div class="fear"><span class="label">⚖️ 同步呼叫 vs 非同步有狀態</span>
+    同步呼叫鏈簡單，但會被<strong>最慢一環卡死</strong>、不耐久等；工作流引擎本質是<strong>非同步、有狀態</strong>，
+    用「記帳落盤」換來「可以等很久、可以斷電續跑」。</div>
+  <details class="qa"><summary>💭 追問：審批等三天，引擎中途掛了怎麼辦？</summary>
+    沒事。狀態都在帳本裡，重開時重放帳本就還原到「暫停等審批」的狀態；等簽核訊號（signal）一到，照樣喚醒繼續跑。</details>
+  <details class="qa"><summary>💭 追問：連「反向善後」本身也失敗了怎麼辦？</summary>
+    善後動作也會記進帳本、也可以重試；如果重試到底還是不行，就標成「需人工介入」的狀態，叫真人來處理（像死信／人工兜底）。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「排序 → 記帳 → 重試 → 善後 → 審批」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8041 -t public
+# 然後瀏覽器打開 http://localhost:8041</code></pre>
+  <ol>
+    <li>先<strong>載入範例食譜</strong>：訂單履約（reserve, charge_prep → approve(審批) → pay → ship → notify）。</li>
+    <li>一直按 <strong>tick（步進）</strong>，看引擎每輪挑出「前置都完成」的步驟往前推。</li>
+    <li>故意<strong>注入 ship 失敗</strong>，看它先重試、超過上限後<strong>反向善後</strong>（退款、釋放庫存）。</li>
+    <li>對 <strong>approve 送一個 signal</strong> 放行，看暫停的審批被喚醒繼續跑；觀察 <code>replayedNoRerun</code>（重放沒重做）。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把同一鍋<strong>重放</strong>一次，看已完成的步驟會不會「再做一次」（不會——它從帳本讀結果跳過）。這就是 <strong>durable execution</strong> 的精髓。把 ship 弄失敗，看善後是不是<strong>倒著</strong>把前面做的收回來——這就是 <strong>saga 補償</strong>。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「停電炒菜」解釋，為什麼普通程式跑長流程會出問題？</summary>
+    普通程式沒記「做到哪一步」，停電重開只能從頭來，於是「扣款」這種花錢的動作被做兩次。工作流引擎靠每步記帳、重開重放帳本，已做的跳過不重做。</details>
+  <details class="qa"><summary>Q2：DAG 是什麼？用食譜的比喻說說看。</summary>
+    DAG 是「有先後的食譜」：有些步驟要先做完才能做下一步（備料完才能炒），有些可以同時做（燒水和切菜）。引擎每輪挑出「前置都完成、自己還沒做」的步驟去執行。</details>
+  <details class="qa"><summary>Q3：durable execution（有存檔的執行）是什麼？用遊戲存檔解釋。</summary>
+    像遊戲打到一半關機，重開讀存檔回到上次進度，不從第一關開始。引擎每步記進帳本，斷電重開時重放帳本、做過的直接讀結果跳過，快轉回中斷點再繼續——重放不重做副作用。</details>
+  <details class="qa"><summary>Q4：saga 補償是什麼？為什麼長流程不能用一般的「資料庫回滾」？</summary>
+    saga = 每個會造成後果的步驟配一個「反悔動作」，失敗時倒著一個個收拾（退款、釋放庫存）。因為長流程跨好幾個服務、跨好幾天，沒辦法用單一資料庫交易一次回滾，只能靠反向補償。</details>
+  <details class="qa"><summary>Q5：人工審批節點怎麼運作？等三天為什麼不浪費資源？</summary>
+    流程跑到審批就暫停（BLOCKED），狀態落盤後放掉資源，不傻站著等。外部送來放行訊號（signal）才喚醒繼續。所以等三天、中間還重開過都沒關係。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼流程碼「不能直接讀當下時間或亂數」？</summary>
+    因為引擎要靠「重放帳本」還原進度，若流程依賴每次都不一樣的東西（時間、亂數、即時問外部），重放算出來的會跟當初對不上，帳就壞了。對策：這些一律當成一個步驟把結果記進帳本，重放時讀帳本的舊值。</details>
+  <details class="qa"><summary>Q7（工程）：100 萬個流程同時在飛，為什麼真正稀缺的是「狀態容量」而不是 CPU？</summary>
+    因為它們大多在等待（審批/計時/外部），等待時不佔執行緒，幾乎不耗 CPU。但每個流程的帳本狀態都得可靠保存、不能丟，所以瓶頸在「持久化狀態的容量與一致性」，整個設計圍繞「狀態落盤 + 事件喚醒」。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>工作流引擎 = 一個「有存檔、會收拾善後」的食譜執行管家。</strong></p>
+    <p><strong>4 個關卡：</strong>① 把流程畫成有先後的<strong>食譜（DAG）</strong> → ② 每步做完就<strong>記帳存檔，重放不重做（durable execution）</strong> → ③ 失敗先重試、不行就<strong>反向善後（saga）</strong> → ④ 遇審批就<strong>暫停等放行訊號（signal）</strong>。</p>
+    <p><strong>4 個怕：</strong>怕重複扣款（記帳跳過＝只做一次）、怕弄丟帳本（持久性壓倒一切）、怕重放對不上（流程要可重現）、怕等待佔資源（等待要免費）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>成本不在「算」在「等與記」 → 用「點餐單(API)」定義食譜/啟動/送 signal/查詢 → 三本筆記本（食譜/每鍋/帳本，帳本只加不改）→ 太大就按 run_id 分片、等待落盤、帳本太長就存快照。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊶ 工作流引擎 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

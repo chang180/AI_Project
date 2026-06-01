@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑧ Webhook 平台 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅰️ 通知/Fan-out 扇出</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑧ Webhook 平台 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">A 通知/Fan-out</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">Webhook 跟「自己一直刷新」差在哪？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 4 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你在網路上開了一間店，用「<strong>綠界 / Stripe</strong>」這類金流服務收款。客人刷卡成功的那一刻，
+  你的<strong>後台系統</strong>需要立刻知道：「這筆付款成功了！」好去出貨、寄收據。</p>
+  <p>問題是：金流公司怎麼「通知」你的系統？它不會打電話給你。它的做法是：你事先<strong>留一個網址</strong>給它，
+  事件一發生，它就<strong>主動打你那個網址</strong>，把消息送上門。這個「事件一發生就打你預留網址」的機制，就叫 <strong>Webhook</strong>。</p>
+  <p>而 Webhook 平台，就是<strong>專門幫一大堆公司做這件「打網址通知」</strong>的系統。難在哪？難在——<strong>你要通知的對象（別人的伺服器）你完全控制不了</strong>：
+  它可能正好當機、可能很慢、可能回你一個錯誤、可能同一通知收到兩次還搞混。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    Webhook 平台 = <strong>一個超可靠的「送信員」</strong>：事件一發生，就把消息<strong>送到對方門口</strong>；
+    對方不在家就<strong>過一陣子再來、再不在就放進待領郵箱</strong>，而且信封上<strong>蓋了防偽鋼印</strong>讓對方確認「這真的是我寄的」。
+  </div>
+
+  <h2 id="why">2. Webhook 跟「自己一直刷新」差在哪？</h2>
+  <p>很多人第一個疑問是：「我自己每隔幾秒去問金流『付款好了沒？』不就好了，幹嘛要它來通知我？」這兩種做法有名字——</p>
+  <div class="analogy">
+    <span class="label">📦 等包裹：一直查 vs 等通知</span>
+    你網購了一個包裹。<strong>做法 A</strong>：每 5 分鐘自己打開物流網站刷新一次「到了沒？到了沒？」——大部分時候都是白問（這叫<strong>輪詢 / polling</strong>）。
+    <strong>做法 B</strong>：留個電話，<strong>包裹到了，物流主動打給你</strong>——你不用一直盯著（這就是 <strong>Webhook</strong>）。
+  </div>
+  <p>Webhook 的好處是<strong>即時又省力</strong>：事件發生「當下」你就知道，平常也不用一直空跑去問。
+  代價是：你必須<strong>留一個「電話號碼」（公開網址）</strong>讓人打得到，而且<strong>送信的責任全落在送信方</strong>——
+  對方沒接到、要不要再打、打幾次，都是 Webhook 平台要扛的。</p>
+  <p>所以這題的本質不是「怎麼發一個 HTTP 請求」（那很簡單），而是：<strong>當對方是個你管不到、隨時會出狀況的人，你要怎麼「把信穩穩送到」？</strong></p>
+  <p class="pause">💭 停一下：如果送信平台「打了一次對方沒回應，就放棄」，會出什麼事？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    對方可能只是<strong>剛好重啟了 3 秒</strong>，或網路抖一下。如果打一次就放棄，這筆「付款成功」的通知就永遠遺失了——對方系統會以為錢沒付、不出貨，客人就客訴。
+    所以送信平台<strong>一定要會重試</strong>：第一次沒接到，過一陣子再打，給對方恢復的機會。這就是後面要講的「指數退避重試」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「平台」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>登記：對方先留下「電話」和「暗號」</h3>
+    <p>客戶（例如某間商店）要先來平台<strong>登記</strong>：「我的接收網址是 <code>https://我家.com/hook</code>，我想收『付款成功』這類事件。」
+    平台登記完，會發給對方<strong>一組只有你我知道的密碼（secret）</strong>。</p>
+    <div class="analogy"><span class="label">🔐 比喻：辦門禁卡時約定的暗號</span>
+      就像你跟管理員約好一個「<strong>只有我們倆知道的暗號</strong>」。以後我送東西來，會用這個暗號<strong>蓋個記號</strong>，你一看就知道「確實是他、不是冒充的」。</div>
+    <p>👉 重點：這組 secret <strong>只在登記當下顯示一次</strong>，之後平台只留加密版。雙方各自保管，用來「蓋鋼印 + 驗鋼印」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>炸開：一個事件 → 通知所有訂閱的人（fan-out）</h3>
+    <p>平台內部發生一個事件（例如 <code>payment.succeeded</code> 付款成功）。可能<strong>不只一個</strong>客戶訂了這類事件——
+    商店要收、會計系統要收、發票系統也要收。</p>
+    <div class="analogy">
+      <span class="label">📣 比喻：群組公告 → 拆成一張張個別待辦</span>
+      你在班群公告一件事，但每個家長都要「個別確認收到」。系統把「一個事件」<strong>拆成一張張「送給某某某」的待辦單</strong>，
+      每張單<strong>各自獨立</strong>——A 送到了不代表 B 也送到了，各送各的、各自重試。
+    </div>
+    <p>這個「<strong>一個事件 → 炸開成很多筆投遞任務</strong>」的動作，就叫 <strong>fan-out（扇出）</strong>。
+    關鍵是：拆開之後<strong>每筆任務命運獨立</strong>——這樣某一筆失敗，不會牽連其他筆。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>蓋鋼印：證明「這信真的是我發的」</h3>
+    <p>送信時，對方怎麼知道這封「付款成功」不是<strong>壞人偽造</strong>的（假裝付款成功騙你出貨）？平台會在信封上「蓋鋼印」。</p>
+    <div class="analogy">
+      <span class="label">🏛️ 比喻：公文蓋鋼印</span>
+      正式公文會壓一個<strong>鋼印</strong>。鋼印是用「公章 + 公文內容」一起壓出來的，所以：①只有有公章的人壓得出來（防偽造）；
+      ②內容只要被改一個字，鋼印就對不上（防竄改）。
+    </div>
+    <p>技術上這個鋼印叫 <strong>HMAC 簽章</strong>：平台拿「<strong>剛剛那組 secret 暗號 + 這封信的內容 + 時間</strong>」一起算出一串亂碼，貼在信封上。
+    對方收到後，用<strong>同一組暗號</strong>照算一遍，<strong>對得上 → 確定是你發的、沒被改過</strong>。沒有暗號的壞人，永遠算不出對的鋼印。</p>
+    <p>順帶解決一個壞招：壞人就算偷錄了一封真的信，想<strong>「重播」</strong>再寄一次騙你（例如重複觸發出貨）怎麼辦？信封上有<strong>時間戳</strong>，
+    對方規定「超過 5 分鐘的舊信一律不收」——就像<strong>支票有兌現期限，過期作廢</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>送達：對方不在就重試，真的不行就丟「待領郵箱」</h3>
+    <p>送信員按了門鈴（發 HTTP），對方有三種反應：</p>
+    <ul>
+      <li>✅ <strong>回 200「收到」</strong> → 完成，這筆任務結束。</li>
+      <li>❓ <strong>沒回應 / 回錯誤碼</strong>（對方當機、太慢、回 500）→ <strong>等一下再來一次</strong>。</li>
+      <li>❌ <strong>來了很多次都不行</strong> → 別再死纏，把這封信丟進「<strong>待領郵箱</strong>」（DLQ），通知客戶自己來處理。</li>
+    </ul>
+    <div class="analogy">
+      <span class="label">📞 比喻：打電話沒人接，間隔越拉越長</span>
+      你打給朋友沒接，不會<strong>每 1 秒狂撥</strong>（很煩、也沒用）。你會<strong>等 1 分鐘再撥，還沒接等 2 分鐘，再 4 分鐘…</strong>
+      給對方喘息和恢復的時間。撥了很多次真的都沒接，就<strong>留言到語音信箱</strong>，不再一直撥。
+    </div>
+    <p>這個「<strong>失敗就重試，而且間隔一次比一次久</strong>」的策略叫 <strong>指數退避（exponential backoff）</strong>；
+    那個放最終失敗訊息的「待領郵箱」叫 <strong>DLQ（死信佇列）</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 對方<strong>登記</strong>網址＋拿暗號 → ② 一個事件<strong>炸開</strong>成多筆獨立投遞（fan-out）→ ③ 每封信<strong>蓋鋼印</strong>（HMAC）防偽防竄改 → ④ <strong>送達/重試/丟待領郵箱</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 4 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕四件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「信被偽造或竄改」</span>
+    如果壞人能假裝平台發「付款成功」，你就會幫他出貨——直接虧錢。所以每封信都要<strong>蓋鋼印（HMAC 簽章）</strong>，
+    對方驗不過就丟掉。<em>沒蓋鋼印的信，一律當詐騙。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「漏送一封信」</span>
+    漏掉一筆「付款成功」，對方就以為沒收到錢、不出貨，客人客訴。所以系統<strong>寧可重複送</strong>（叫 at-least-once，至少送一次）。
+    那重複送、對方收到兩封一樣的怎麼辦？信上帶一個<strong>固定編號</strong>，對方<strong>看到重複編號就只處理一次</strong>（叫冪等去重）。<em>寧可重送，不可漏送。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「一個慢客戶拖垮所有人」</span>
+    假設 A 客戶的伺服器超慢，每封信都要等 30 秒才回。如果送信員<strong>大家擠在同一條隊伍</strong>，那 A 一卡住，後面 B、C、D 的信全部跟著塞住、送不出去。
+    所以要<strong>每個客戶各排各的隊</strong>，A 慢只塞到 A 自己。<em>慢的人請自己慢，別連累別人。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「重試反而把對方打爆」</span>
+    對方剛從當機恢復，結果你<strong>累積的幾萬封信瞬間全衝過去</strong>，又把它打掛了（叫「驚群」）。
+    所以重試要<strong>間隔越拉越長 + 加一點隨機（抖動）</strong>，把信錯開、不要同一秒全到。<em>救人別把人壓死。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>📥 內部發生一個<strong>事件</strong>（付款成功）→ 進到「收件 API」，馬上回「<strong>收到了</strong>」(202)，不讓上游等 →</li>
+    <li>💥 <strong>Fan-out 扇出</strong>：查「誰訂了這事件」，幫每個訂閱者建一張<strong>獨立的投遞待辦單</strong> →</li>
+    <li>🚪 待辦單進<strong>分客戶的隊伍</strong>（每個客戶一條隊，慢的不拖累別人）→</li>
+    <li>🚚 <strong>送信工人</strong>拿單 → <strong>蓋鋼印（HMAC）</strong> → 打對方網址 →</li>
+    <li>✅ 對方回 200 → 標記<strong>送達</strong>；❓ 失敗 → 進<strong>重試排程</strong>（間隔越拉越長）→ 還是不行 → 丟 <strong>DLQ 待領郵箱</strong>。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>Webhook</td><td>「事件一發生，就主動打你預留的網址通知你」——像物流到貨主動打電話給你</td></tr>
+    <tr><td>輪詢 (polling)</td><td>反過來：你自己一直去問「好了沒？」——像一直刷新物流網站</td></tr>
+    <tr><td>端點 (endpoint)</td><td>對方留給你的「接收網址 / 電話號碼」</td></tr>
+    <tr><td>fan-out（扇出）</td><td>一個事件 → 炸開成很多筆「送給某某某」的獨立任務</td></tr>
+    <tr><td>HMAC 簽章</td><td>用「暗號 + 信件內容」壓出的<strong>鋼印</strong>：防偽造、防竄改</td></tr>
+    <tr><td>secret（密鑰）</td><td>只有平台和對方知道的「暗號」，用來蓋鋼印 / 驗鋼印</td></tr>
+    <tr><td>防重放 (replay)</td><td>信上帶時間戳，過期的舊信不收——像支票有兌現期限</td></tr>
+    <tr><td>at-least-once</td><td>「至少送一次」：寧可重送也不漏送</td></tr>
+    <tr><td>冪等 / 去重</td><td>同一個編號的信只處理一次，重複收到不會做兩遍</td></tr>
+    <tr><td>指數退避 + 抖動</td><td>重試間隔一次比一次久（1s→2s→4s），再加點隨機錯開，避免同時打爆對方</td></tr>
+    <tr><td>DLQ（死信佇列）</td><td>怎麼送都送不到的信，丟進的「待領郵箱」，事後人工/自動處理</td></tr>
+    <tr><td>端點隔離 / head-of-line blocking</td><td>每個客戶各排各的隊，慢的客戶不拖垮其他人</td></tr>
+    <tr><td>熔斷器 (circuit breaker)</td><td>對方一直掛，就先「跳電不打了」，過陣子再試探它好了沒</td></tr>
+    <tr><td>SSRF</td><td>客戶亂填內網網址想騙平台幫他打內部系統——要擋掉</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少事件</td><td>1 億筆/日 ≈ 每秒 1000 多筆</td><td>收件入口要扛得住、且要立刻回「收到」</td></tr>
+    <tr><td>fan-out 放大幾倍</td><td>每事件平均 1.5 個訂閱者</td><td>真正要「送出去」的信比事件還多</td></tr>
+    <tr><td>重試再放大</td><td>約 1 成需重試、平均重 2 次</td><td>送信工人實際工作量再 ×1.2 左右</td></tr>
+    <tr><td>要存多少投遞記錄</td><td>每筆嘗試都記一行，存 30 天 ≈ <strong>幾 TB</strong></td><td>要用「很會寫、會自動過期」的資料庫</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🐢 關鍵洞察：瓶頸不是你，是「對方多慢」</span>
+    這系統最特別的一點：<strong>拖垮你的不是你自己的 CPU，而是「對方的伺服器有多慢、多會掛」</strong>。
+    就像<strong>送信員本身跑很快，但收件人開門慢吞吞</strong>，整體速度被收件人決定。
+    所以整個設計的核心，就是「<strong>把這些不受控的『慢』和『掛』，隔離成一個個不會互相拖累、而且可以重試的小任務</strong>」。
+  </div>
+  <p class="pause">💭 停一下：既然瓶頸是「等對方回應」，為什麼「一個送信工人一次只處理一封信、等它回完再拿下一封」會是大災難？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為只要碰到一個慢端點（等 30 秒），這個工人就<strong>整整 30 秒只能乾等</strong>，什麼都做不了，後面排隊的信全卡住。
+    正解是：①<strong>很多工人併發</strong>同時送不同的信；②<strong>每個客戶分開排隊</strong>，慢的只塞自己那隊；③重試<strong>不要原地等</strong>，而是把「下次幾點再試」記下來、先去處理別的，時間到了再回來。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題有兩類「點餐單」：客戶來操作平台的，和平台送給對方的。</p>
+  <pre><code>① 客戶登記端點（拿到 secret 暗號，只給一次）
+   POST /api/v1/endpoints
+   給我：{ 你的接收網址, 想訂哪些事件 }
+   我回：{ 端點編號, secret暗號 }  ← 之後拿來蓋鋼印</code></pre>
+  <p class="codecaption">secret 為什麼「只顯示一次」？因為它是暗號，平台之後只留<strong>加密版</strong>，不留明文——萬一平台被偷看資料庫，也偷不到能偽造鋼印的暗號。</p>
+  <pre><code>② 內部發布事件（觸發 fan-out）
+   POST /api/v1/events
+   給我：{ 事件類型, 內容, idempotency_key 編號 }
+   我回：202「收到了，我會去送」← 立刻回，不讓你等</code></pre>
+  <p class="codecaption">為什麼「立刻回 202」？因為「<strong>產生事件</strong>」和「<strong>把信送到對方</strong>」是兩件事，要<strong>解耦</strong>。上游發完事件就該走人，不該卡著等我們慢慢送幾筆、還可能重試很久。先收下，後面非同步慢慢送。像餐廳收單給號碼牌，不讓你站在櫃台等餐。</p>
+  <pre><code>③ 客戶查投遞記錄 / 手動重送
+   GET  /api/v1/endpoints/{id}/deliveries  → 看每筆送了沒、重試幾次、對方回幾號
+   POST /api/v1/deliveries/{id}/redeliver  → 把待領郵箱(DLQ)裡的信再送一次</code></pre>
+  <pre><code>④ 平台「送給對方」的信長這樣（對方要驗這個）
+   POST https://對方.com/hook
+   信封上貼：
+     X-Webhook-Timestamp: 寄出時間（防重放）
+     X-Webhook-Signature: 鋼印 = HMAC(暗號, "時間.內容")
+     Idempotency-Key:     固定編號（對方據此去重）
+   內容：{ 事件類型, 資料 }
+   對方做：驗鋼印 + 檢查時間沒過期 + 看編號沒處理過 → 回 200</code></pre>
+  <p class="codecaption">注意鋼印是用「<strong>時間 + 內容</strong>」一起算的：所以改時間或改內容，鋼印都會對不上——這同時擋掉了偽造、竄改、和重播舊信三種招數。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：三本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題只要三本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏪</span>端點簿（誰、網址、暗號）</h3>
+    <p>每個登記的客戶一列：<code>端點編號、客戶、接收網址、<strong>secret暗號(加密存)</strong>、訂了哪些事件、狀態(啟用/停用)</code>。</p>
+    <div class="analogy"><span class="label">為什麼有「狀態」這欄？</span>
+      如果某個端點<strong>連續失敗太多次</strong>（網址早就廢了），平台可以把它<strong>自動標成「停用」</strong>，不再浪費力氣一直送，並通知客戶「你的網址壞了」。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📨</span>投遞簿（每一封信送得如何）</h3>
+    <p>fan-out 後，<strong>每封信一列</strong>：<code>投遞編號、給哪個端點、事件編號、<strong>狀態(待送/送出中/已送達/重試中/死信)</strong>、重試幾次、對方最後回幾號、下次幾點再試</code>。</p>
+    <div class="analogy"><span class="label">這本其實是一台「狀態機」</span>
+      一封信的命運就是在這幾個狀態間移動：待送 → 送出中 →（成功）已送達 ／（失敗）重試中 → …超過上限 → 死信。
+      把「下次幾點再試」也記下來，工人就<strong>不用原地乾等</strong>，時間到再回來拿。<br>
+      ⚠️ 這本<strong>寫得超頻繁</strong>（每次嘗試都記一行），所以要用「很會寫、能自動過期(TTL)」的資料庫，並批次寫入。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗑️</span>死信簿（DLQ：怎麼送都送不到的）</h3>
+    <p>重試到上限還是失敗的信，整封丟進這裡：<code>投遞編號、端點、事件編號、信的內容、失敗時間、失敗原因</code>。
+    保留內容，供客戶<strong>事後手動重送</strong>或自動排程重送。</p>
+  </div>
+  <div class="box"><span class="label">為何「事件」和「投遞」要分開記？</span>
+    一個事件 fan-out 成 N 封信，<strong>每封信獨立重試、獨立進死信</strong>——A 失敗不該牽連 B。
+    而那個貫穿全程不變的<strong>事件編號（idempotency_key）</strong>，正是對方用來「<strong>同一封只處理一次</strong>」的鑰匙。</div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>大家擠同一條隊，一個慢客戶卡住全部</td><td>每個客戶<strong>各排各的隊</strong>＋每個客戶限制同時送幾封（端點隔離）</td></tr>
+    <tr><td>一群端點同時恢復，重試瞬間全衝（驚群）</td><td>重試<strong>間隔越拉越長 + 加隨機抖動</strong>，把信錯開</td></tr>
+    <tr><td>對方一直掛，還傻傻一直送</td><td>裝<strong>熔斷器</strong>：先「跳電不打」，過陣子才試探它好了沒</td></tr>
+    <tr><td>一個送信工人送不完那麼多信</td><td><strong>多請一大群工人</strong>同時送（水平擴展）</td></tr>
+    <tr><td>投遞記錄寫到爆（每次嘗試一行）</td><td>用「很會寫」的資料庫 + <strong>批次寫 + 設定過期自動刪</strong></td></tr>
+    <tr><td>客戶填了內網網址想騙平台幫他打內部系統(SSRF)</td><td>送之前<strong>檢查網址，封鎖私有 IP</strong> / 走專用對外代理</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的四個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 至少一次 vs 剛好一次</span>
+    網路上「已送達但對方的『收到』回應在路上弄丟了」，你<strong>分不出來</strong>到底送到沒，只好再送一次。所以實務上<strong>選「至少一次」</strong>（簡單可靠），
+    「剛好一次」的責任<strong>交給對方</strong>用編號去重。別承諾你做不到的「剛好一次」。</div>
+  <div class="fear"><span class="label">⚖️ 保順序 vs 衝吞吐量</span>
+    要保證「同一個客戶的事件按順序到」，就得<strong>一封一封排隊送</strong>，速度變慢。多數場景其實不用嚴格保序——
+    讓信<strong>自帶時間戳/版本號</strong>，對方自己判斷新舊就好，這樣可以多人併發、更快。</div>
+  <div class="fear"><span class="label">⚖️ 原地等著重試 vs 排程重試</span>
+    失敗了就<strong>原地 sleep 5 秒再試</strong>？這會把工人卡住 5 秒什麼都不做。正解：把「<strong>下次幾點再試</strong>」記到投遞簿，工人先去忙別的，時間到了再回來拿——工人永遠不空轉。</div>
+  <div class="fear"><span class="label">⚖️ 推（webhook）vs 拉（polling）</span>
+    Webhook 即時，但要求對方有公開網址、且送信責任全在我方。對<strong>特別不可靠</strong>的對象，可以額外提供「<strong>事件補拉 API</strong>」當後備：對方也能自己回來查漏掉的事件。</div>
+  <details class="qa"><summary>💭 追問：怎麼同時做到「不漏送」又「不讓對方收到重複的兩封」？</summary>
+    平台這邊<strong>寧可重送（at-least-once）</strong>保證不漏；對方那邊靠每封信帶的<strong>固定編號（idempotency_key）</strong>去重——第一次處理完就把編號記起來，之後看到一樣的編號直接回 200、不再處理。兩邊配合，才能既不漏又不重複做。</details>
+  <details class="qa"><summary>💭 追問：對方的網址持續掛了好幾天，平台該怎麼辦？</summary>
+    ①重試到上限就丟<strong>DLQ 待領郵箱</strong>不再自動重試；②對持續失敗的端點開<strong>熔斷器</strong>，先不浪費力氣狂送，只偶爾試探；③連續失敗過多就<strong>自動把端點停用</strong>並通知客戶「你的網址壞了，修好再來開」。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「<strong>簽章 + 重試退避 + DLQ</strong>」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8008 -t public
+# 然後瀏覽器打開 http://localhost:8008</code></pre>
+  <ol>
+    <li>先<strong>註冊一個「會成功」的端點</strong>，再註冊一個<strong>「會失敗」的端點</strong>。</li>
+    <li><strong>發布一個事件</strong> → 看它自動 fan-out 成多筆投遞任務入列。</li>
+    <li>反覆按「<strong>觸發投遞</strong>」→ 觀察那個「會失敗」的端點：重試間隔<strong>越拉越長</strong>，最後超過上限<strong>進 DLQ</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>看那筆失敗任務的 <code>next_retry_at</code>（下次幾點再試）是不是每次間隔都變長？這就是<strong>指數退避</strong>。
+  把端點指向內建的 <code>/receive</code> 測試接收端，它會<strong>驗你的鋼印（HMAC）</strong>才回 200——故意改一下 secret，看它是不是就驗不過、被擋掉了，這就是<strong>簽章防偽</strong>。</div>
+  <div class="box warn"><span class="label">小提醒</span>為了讓單執行緒的 PHP 內建伺服器不會「自己打自己」卡死，demo 預設用「<strong>模擬投遞結果</strong>」（依端點設定直接判定成功/失敗/慢），
+  但<strong>狀態機、HMAC 簽章與驗證、指數退避+抖動、重試上限、DLQ 都是真的在跑</strong>。真實系統會用<strong>一群獨立的送信工人</strong>並發、非阻塞地送。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「等包裹」的比喻，說說 Webhook 跟 polling（輪詢）差在哪？</summary>
+    polling 是你<strong>一直自己刷新</strong>「到了沒？」，大多白問又費力；Webhook 是<strong>包裹到了，物流主動打給你</strong>——即時又省力，代價是你要留一個打得到的公開網址，而送信責任全在送信方。</details>
+  <details class="qa"><summary>Q2：用「公文鋼印」解釋，HMAC 簽章怎麼同時防「偽造」和「竄改」？</summary>
+    鋼印是用「<strong>暗號(secret) + 信件內容</strong>」一起壓出來的。沒暗號的壞人壓不出對的鋼印（防偽造）；內容只要改一個字，鋼印就對不上（防竄改）。對方用同一組暗號照算一遍，對得上才收。</details>
+  <details class="qa"><summary>Q3：為什麼重試要「間隔一次比一次久」，還要加隨機（抖動）？</summary>
+    間隔拉長（指數退避）是給剛恢復的對方喘息，別狂撥把它又打掛；加隨機抖動是怕一大堆失敗的信「同一秒」全衝過去（驚群），把它們錯開、分散到不同時間點。</details>
+  <details class="qa"><summary>Q4：DLQ（死信佇列 / 待領郵箱）是幹嘛的？為什麼不要無限重試？</summary>
+    重試到上限還送不到的信，丟進 DLQ 保留起來，供事後手動/自動重送。不無限重試是因為對方可能網址早就廢了，一直送只是<strong>浪費資源</strong>，還可能干擾正常任務；丟 DLQ 並通知客戶才務實。</details>
+  <details class="qa"><summary>Q5（工程）：發布事件時，為什麼平台要「立刻回 202」而不是等送完才回？</summary>
+    因為「產生事件」和「把信送到對方」是兩件事，要<strong>解耦</strong>。送信可能很久還要重試，不該卡著上游等。先收下回 202，後面<strong>非同步</strong>慢慢 fan-out、慢慢送。像餐廳收單給號碼牌，不讓你站櫃台等。</details>
+  <details class="qa"><summary>Q6（工程）：一個慢客戶為什麼會拖垮所有人？怎麼解？這現象叫什麼？</summary>
+    叫 <strong>head-of-line blocking（隊頭阻塞）</strong>。若所有信擠同一條隊/同一池工人，慢客戶佔住連線，後面所有人的信都卡住。解法：<strong>每客戶各排各的隊 + 每客戶限制併發 + 對持續掛的端點開熔斷器</strong>，把慢隔離在它自己那一格。</details>
+  <details class="qa"><summary>Q7（工程）：失敗重試，為什麼「原地 sleep 等一下再試」是壞做法？正解是什麼？</summary>
+    原地 sleep 會把這個送信工人<strong>卡住空轉</strong>，那段時間什麼都不能做。正解是把「<strong>下次幾點再試（next_retry_at）</strong>」記進投遞簿，工人先去處理別的任務，時間到了再回來拿——工人永遠不浪費。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>Webhook 平台 = 一個超可靠的送信員：事件一發生就把消息送到對方門口，蓋了鋼印、對方不在就改天再來。</strong></p>
+    <p><strong>4 個關卡：</strong>① 對方<strong>登記</strong>網址＋拿暗號 → ② 一個事件<strong>炸開</strong>成多筆獨立投遞(fan-out) → ③ 每封信<strong>蓋鋼印</strong>(HMAC 防偽防竄改) → ④ <strong>送達/重試/丟待領郵箱</strong>(指數退避＋DLQ)。</p>
+    <p><strong>4 個怕：</strong>怕信被偽造（蓋鋼印）、怕漏送（至少一次＋對方去重）、怕一個慢客戶拖垮全部（每客戶各排各隊）、怕重試把對方打爆（退避＋抖動）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>瓶頸是「對方多慢」不是你 → 收到事件先回 202 解耦 → 三本筆記本（端點/投遞/死信），投遞那本是台狀態機 → 把不受控的慢與掛，隔離成一個個可重試、不互相拖累的小任務。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑧ Webhook 平台 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

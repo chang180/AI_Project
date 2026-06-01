@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉘ 秒殺 / 搶票 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅲 一致性/交易</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉘ 秒殺 / 搶票 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">C 一致性/交易</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題這麼難？（超賣的真相）</a></li>
+      <li><a href="#steps">把系統拆成 3 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你開一家蛋糕店，今天<strong>限量手作蛋糕只做 100 個</strong>，明星代言，網路一公布，<strong>瞬間 100 萬人</strong>同時點開頁面狂按「我要買」。</p>
+  <p>你的任務只有一個聽起來很簡單、做起來要命的事：<strong>不多不少，剛好賣出 100 個</strong>。
+  賣超過 → 收了錢卻沒貨，要道歉賠償；賣不出去 → 庫存浪費、客人罵你卡頓。而且這一切要在<strong>幾秒鐘內，在百萬人同時搶</strong>的混亂中完成。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    秒殺 / 搶票 = <strong>百萬人同時搶少量庫存，而你絕不能賣超過</strong>。難點不是「賣東西」，而是「<strong>那一瞬間的瘋狂並發下，數字算得分毫不差</strong>」。
+  </div>
+
+  <h2 id="why">2. 為什麼這題這麼難？（超賣的真相）</h2>
+  <p>很多人第一反應是：「賣東西嘛，庫存減一不就好了？」我們來看一個你一定遇過的生活情境，就懂為什麼會出事——</p>
+  <div class="analogy">
+    <span class="label">🛒 兩個人搶最後一罐</span>
+    超市貨架上只剩<strong>最後一罐奶粉</strong>。甲、乙兩人<strong>同時</strong>看到「還有 1 罐」，兩人都心想「太好了還有貨」，
+    同時伸手去拿——結果只有一罐，卻有兩個人以為自己買到了。
+  </div>
+  <p>電腦裡發生的事一模一樣，這叫「<strong>先看、再減</strong>」的race（競爭）：</p>
+  <ul>
+    <li>請求甲：讀到庫存 <code>= 1</code> → 心想「&gt;0，可以賣」</li>
+    <li>請求乙：<strong>幾乎同一瞬間</strong>也讀到庫存 <code>= 1</code> → 也心想「&gt;0，可以賣」</li>
+    <li>兩個各自把庫存減 1 寫回去 → 結果<strong>賣了 2 個，庫存卻只有 1 個</strong>。這就是<strong>超賣</strong>。</li>
+  </ul>
+  <p>所以秒殺真正考的不是「會不會減法」，而是：<strong>當幾百萬人在同一瞬間搶同一個數字，怎麼保證這個數字永遠不會被算錯、絕不賣超過？</strong></p>
+  <p class="pause">💭 停一下：問題出在哪一步？是「讀」錯了，還是「減」錯了？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    兩步本身都沒錯，錯在「<strong>讀</strong>」和「<strong>減</strong>」之間有個空檔，別人趁這空檔也讀到了同一個值。解法就是把「<strong>檢查還有貨 + 扣減</strong>」綁成一個<strong>不可被打斷</strong>的動作（像把這兩步鎖在同一個小房間裡，一次只放一個人進去），這叫「原子操作」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 3 個關卡</h2>
+  <p>別被「百萬並發」嚇到。整件事其實就是闖 3 關，一關擋掉一種災難：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>削峰：先發「號碼牌」擋住大部分人</h3>
+    <p>100 萬人衝進來，但只有 100 個蛋糕——讓 100 萬人全部擠到「扣庫存」那一步，系統一定垮。
+    所以第一關就要<strong>狠狠擋掉絕大多數人</strong>。</p>
+    <div class="analogy">
+      <span class="label">🎟️ 比喻：夜店門口的管制</span>
+      熱門夜店裡面只能站 100 人，門口卻來了一萬人。保鏢不會讓一萬人全擠進去（裡面會踩死人），
+      而是<strong>在門口發限量入場手環</strong>：拿到手環的才放進去，沒拿到的請在外面排隊或回家。
+    </div>
+    <p>系統也一樣：先發<strong>限量的「入場令牌」</strong>（可以略多於庫存，留點緩衝），拿到令牌才有資格進到下單環節。
+    這樣真正打到「扣庫存」那一步的，就只剩一小撮人——<strong>99% 的人在門口就被攔下了</strong>，根本碰不到庫存。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>防超賣：扣庫存要「原子」，只有還有貨才扣</h3>
+    <p>通過第一關的人來下單了。這是<strong>整題的命脈</strong>：扣庫存這個動作，<strong>絕對不能</strong>用前面說的「先讀再減」。</p>
+    <div class="analogy">
+      <span class="label">🚪 比喻：一次只放一個人進的小房間</span>
+      把「檢查還有沒有貨 + 扣掉一個」這兩步，鎖進一個<strong>一次只准一個人進去</strong>的小房間。
+      你進去看到還有貨就拿走一個再出來，門才開給下一個人。這樣<strong>永遠不會有兩個人同時看到「還有最後一個」</strong>。
+    </div>
+    <p>關鍵口訣是：「<strong>只有『還有貨』才扣，而且檢查跟扣是同一個不可打斷的動作</strong>」。
+    扣成功 → 恭喜搶到；數量已經是 0 → 直接回「賣完了」，不要再往下做。<strong>這一關保證：賣出總數永遠 ≤ 庫存。</strong></p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>防重複：同一個人手滑點兩次，只能算一次</h3>
+    <p>網路很卡、按鈕沒反應，人類的本能就是<strong>狂點</strong>。同一個人連點五下「購買」，或網路重送了三次——
+    如果每次都當成新訂單，就會<strong>一個人扣掉好幾個庫存</strong>，超賣又出現了。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：演唱會門票的票根存根</span>
+      每筆下單請求都帶一張<strong>獨一無二的存根編號</strong>（叫「冪等鍵」）。系統收到時先看：
+      「<strong>這張存根我處理過了嗎？</strong>」處理過 → 直接把上次的結果再給你一次（不重扣）；沒處理過 → 才真的去扣庫存。
+    </div>
+    <p>這樣「重送、重試、手滑連點」都天然安全：<strong>同一張存根編號，做幾次結果都一樣</strong>，這個性質叫「<strong>冪等</strong>」。
+    再加上「<strong>每人限購 N 張</strong>」，就能擋住黃牛一個人掃光全部庫存。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① 門口發<strong>令牌削峰</strong>（擋掉 99% 的人）→ ② <strong>原子條件扣減</strong>（只有還有貨才扣，絕不超賣）→ ③ <strong>冪等鍵去重</strong>（手滑點兩次只算一次）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「超賣」</span>
+    賣出比庫存多 → 收了錢卻沒貨，要道歉、退款、賠信譽，<strong>真金白銀的損失</strong>。
+    所以「扣庫存」這一步<strong>寧可慢、寧可序列化（一個一個來），也絕不能算錯</strong>。<em>正確性 &gt; 速度。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「被流量打垮」</span>
+    100 萬人同時湧入，如果全讓他們打到資料庫，<strong>整個系統當機，連那 100 個能成交的也賣不出去</strong>。
+    所以要<strong>層層削峰</strong>：擋掉注定失敗的 99%，讓真正打到庫存的請求數量接近庫存量。<em>盡早擋掉，別讓無效流量打到核心。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「重複扣」</span>
+    使用者狂點、網路重送，一不小心同一個人扣掉好幾個庫存，又變成超賣，還會讓人「付兩次錢」。
+    所以每筆下單都要能<strong>去重</strong>——同一張存根編號只算一次。<em>重送必須安全。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由上而下像個<strong>漏斗</strong>，一層一層把人篩掉：</p>
+  <ul>
+    <li>👥 <strong>百萬使用者</strong>湧入 →（CDN 擋靜態檔、前端先限流、給個等待頁）→</li>
+    <li>🎟️ <strong>入場令牌 / 排隊</strong>：限量發手環，<strong>多數人卡在這裡</strong>進不去 →</li>
+    <li>🧾 通過的人到<strong>下單服務</strong>（很多台、可隨時加機器），每筆帶一張存根編號 →</li>
+    <li>🚪 <strong>原子條件扣減</strong>：只有「還有貨」才扣（這是唯一不能省的同步點）→ 操作<strong>庫存熱點</strong>（真實系統放 Redis）→</li>
+    <li>📦 扣成功後，把「建立訂單」這種慢工<strong>丟進佇列慢慢做</strong>，先回使用者「搶到了！」→</li>
+    <li>🗄️ <strong>訂單資料庫</strong>稍後才慢慢落地（最終會一致，不急著當下寫完）。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>超賣（oversell）</td><td>賣出比庫存還多，收了錢卻沒貨——這題最大的禁忌</td></tr>
+    <tr><td>削峰</td><td>把瞬間爆量的人潮，用門口管制「削平」成系統扛得住的量</td></tr>
+    <tr><td>入場令牌 / token</td><td>限量發的「入場手環」，拿到才有資格下單</td></tr>
+    <tr><td>原子操作</td><td>「一次只放一個人進的小房間」：檢查+扣減綁成不可打斷的一步</td></tr>
+    <tr><td>條件扣減</td><td>「只有還有貨（remaining&gt;0）才扣」</td></tr>
+    <tr><td>冪等（idempotent）</td><td>同一張存根編號做幾次，結果都一樣（手滑點兩次只算一次）</td></tr>
+    <tr><td>冪等鍵 Idempotency-Key</td><td>每筆下單帶的「獨一無二存根編號」，用來去重</td></tr>
+    <tr><td>race / 競爭</td><td>兩個人同時動同一個數字，搶著做導致算錯</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>佇列 / MQ</td><td>排隊的待辦清單，把慢工往後丟、慢慢做</td></tr>
+    <tr><td>強一致 / 最終一致</td><td>「當下就要對」 vs 「晚一點對上就好」</td></tr>
+    <tr><td>分桶 / sharding</td><td>把一個熱門數字拆成好幾份，分散壓力</td></tr>
+    <tr><td>水平擴展</td><td>不夠快就「多找幾台機器一起做」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>瞬間湧入多少人</td><td>熱門演唱會 ~100 萬人搶 1 萬張票</td><td>不能讓所有人都打到庫存，要先削峰</td></tr>
+    <tr><td>開賣那一秒多忙</td><td>10 秒內集中，下單 QPS 飆到 10 萬+（查庫存更高）</td><td>從 0 瞬間爆量，要扛得住尖峰</td></tr>
+    <tr><td>真正會成功幾筆</td><td>= 庫存量，只有 1 萬筆成功，其餘全是「沒搶到」</td><td>99% 是無效流量，盡早擋掉</td></tr>
+    <tr><td>核心瓶頸在哪</td><td>大家都扣<strong>同一個庫存數字</strong></td><td>單一「熱點」，是整題最會塞的地方</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🔻 關鍵洞察：倒三角漏斗</span>
+    流量是個<strong>倒三角</strong>：上面進來百萬請求，但底部「真正成交」只有「庫存數」那麼一點點。
+    所以設計重點是<strong>一層一層削峰</strong>（CDN → 限流 → 令牌 → 佇列），讓真正打到「扣庫存」的請求數量，<strong>接近庫存量就好</strong>。
+  </div>
+  <p class="pause">💭 停一下：99% 的人注定搶不到，那把這些請求「擋在門口」跟「讓他們打到資料庫才回沒搶到」，差別有多大？</p>
+  <details class="qa"><summary>看答案</summary>
+    差別是<strong>系統活不活得下去</strong>。讓 100 萬人全打到資料庫去算庫存，資料庫會被壓垮、連那 1 萬個能成交的也卡死。
+    在門口（令牌/快取）就回「賣完了/請排隊」幾乎不花成本，把昂貴的庫存扣減留給通過篩選的一小撮人。<strong>越早擋掉越省。</strong></details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」，順序剛好對應三個關卡：</p>
+  <pre><code>① 領入場令牌（削峰第一關，限量發）
+   POST /sales/{id}/token
+   給我：{ 使用者 }
+   我回：200 { token }      ← 拿到才有資格下單
+        429 「排隊中」       ← 令牌發完了，請稍後再試</code></pre>
+  <p class="codecaption">為什麼先發令牌？這就是<strong>夜店門口的手環</strong>。99% 的人卡在這關，連下單 API 都碰不到，後面的庫存才不會被打爆。</p>
+  <pre><code>② 下單扣庫存（核心關鍵路徑，帶存根編號）
+   POST /sales/{id}/buy
+   標頭：Idempotency-Key: &lt;一串獨一無二的編號&gt;
+   給我：{ 使用者, token, 數量 }
+   我回：200 { 訂單編號 }          ← 搶到了
+        409 「賣完了」             ← 庫存歸零
+        409 「超過每人限購」        ← 黃牛擋下
+        200 (同一個訂單編號)        ← 冪等：重送回原訂單，不重扣</code></pre>
+  <p class="codecaption">那個 <code>Idempotency-Key</code> 就是<strong>票根存根編號</strong>：同一張編號重送，系統認得它、直接回上次的結果，<strong>不會重複扣庫存</strong>。</p>
+  <pre><code>③ 查還剩幾張（超高頻讀，走快取）
+   GET /sales/{id}/stock → { 剩餘: 42 }</code></pre>
+  <p class="codecaption">大家會狂刷「還剩幾張」，這種讀<strong>不必每次都去問真正的庫存</strong>，回一個快取的近似值、甚至只回「有/沒有」就夠，省下大量壓力。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：幾本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題的筆記本，剛好對應「要防的那幾件事」：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🎂</span>庫存簿（最重要、最燙手）</h3>
+    <p>記「<code>這場活動 → 還剩幾個（remaining）</code>」。這就是大家搶的<strong>那一個數字</strong>，所有扣減都打它。
+    真實系統會把它放在<strong>Redis</strong>（很快、又能做原子扣減），就是前面說的「一次只放一人進的小房間」。</p>
+    <div class="analogy"><span class="label">為什麼它是瓶頸？</span>
+      因為<strong>所有人搶的是同一個數字</strong>，這個數字一次只能被一個人安全地改，天生會「排隊」。
+      這也是擴展那一節要解的最大難題。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧾</span>訂單簿 + 冪等簿（防重複扣）</h3>
+    <p><strong>訂單簿</strong>記成功的下單：<code>訂單編號、活動、使用者、數量、時間</code>。
+    <strong>冪等簿</strong>記「哪張存根編號 → 處理出了什麼結果」，用<code>存根編號</code>當鑰匙。</p>
+    <div class="analogy"><span class="label">冪等簿在幹嘛？</span>
+      使用者重送時，系統先翻冪等簿：「這張編號我記過了！」就把上次結果再給一次，<strong>不會再扣一次庫存</strong>。
+      這在金流系統是通用招式——付款也是這樣防你被扣兩次錢的。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">👤</span>每人已購簿 + 令牌池（防黃牛、削峰）</h3>
+    <p><strong>每人已購簿</strong>記 <code>(活動 + 使用者) → 已買幾個</code>，用來檢查「<strong>有沒有超過每人限購</strong>」，擋黃牛掃貨。
+    <strong>令牌池</strong>記「<code>這場活動 → 發出去幾張 / 上限幾張</code>」，用來做門口的限量發手環。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>大家都扣<strong>同一個庫存數字</strong>，被迫排隊</td><td><strong>庫存分桶</strong>：1000 張拆成 10 桶各 100，請求分散到不同桶各自扣；某桶賣完再跨桶借</td></tr>
+    <tr><td>大家狂刷「還剩幾張」，讀爆了</td><td>用<strong>快取</strong>回近似值，甚至只回「有/沒有」這個布林值</td></tr>
+    <tr><td>瞬間湧入要建一堆訂單，<strong>寫爆資料庫</strong></td><td>扣減成功後把「建訂單」<strong>丟進佇列（MQ）</strong>慢慢寫，先回使用者「搶到了」</td></tr>
+    <tr><td>99% 注定失敗的請求還在打後端</td><td>令牌 / 排隊<strong>盡早擋</strong>；賣完後直接回快取的「sold_out」</td></tr>
+    <tr><td>下單服務一台不夠</td><td>下單服務做成<strong>無狀態</strong>，要多快就<strong>多開幾台</strong>（水平擴展）</td></tr>
+  </table>
+  <div class="box"><span class="label">分桶的小代價</span>
+    分桶能讓吞吐變大，但也帶來「<strong>A 桶賣完了、B 桶還有貨</strong>」的碎片問題，所以需要「跨桶調度」把零頭湊起來。
+    天下沒有白吃的午餐——這也是下一節「取捨」的一個例子。</div>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 正確 vs 快</span>
+    扣庫存必須<strong>強一致</strong>（當下就要準，不能超賣），所以這一步寧可序列化、慢一點；
+    但「建訂單、計數、寄通知」可以<strong>最終一致</strong>（晚幾秒對上就好，走佇列）。訣竅是<strong>把「必須當下準」的同步點壓到最小，只留扣庫存</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 同步下單 vs 非同步</span>
+    同步＝當場告訴你成不成功，體驗好但壓力大；非同步＝扣減成功後先回「處理中」，訂單排隊慢慢建，吞吐高但體驗稍複雜。</div>
+  <div class="fear"><span class="label">⚖️ 零容忍超賣 vs 效能</span>
+    完全不准超賣 → 扣減得序列化（慢）；如果業務能<strong>容忍少量超賣</strong>（事後退款補償），就能更激進地用快取/分桶衝效能。看的是<strong>業務願不願意</strong>。</div>
+  <details class="qa"><summary>💭 追問：有人「加入購物車、進結帳卻不付款」，一直占著庫存怎麼辦？</summary>
+    進結帳時先<strong>預扣</strong>庫存並設一個<strong>倒數計時（TTL）</strong>；時間到還沒付款就<strong>自動釋放</strong>庫存回去，避免有人占著茅坑不買。</details>
+  <details class="qa"><summary>💭 追問：黃牛用機器人狂搶怎麼防？</summary>
+    「每人限購 N 張」+ 每人已購計數（且這個檢查要在那個「小房間」臨界區內做，避免並發繞過）；再搭配實名、裝置指紋、風控規則擋機器人。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「防超賣 + 冪等 + 令牌」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8028 -t public
+# 然後瀏覽器打開 http://localhost:8028</code></pre>
+  <ol>
+    <li>先<strong>設定庫存</strong>（例如 100 張）。</li>
+    <li>按「<strong>一鍵模擬</strong>」：假裝 1000 人同時來搶 100 張。</li>
+    <li>觀察：<strong>售出數恰好是 100</strong>（不多不少、不超賣），其餘 900 人收到「沒搶到」。</li>
+    <li>再試：同一個人帶<strong>相同的存根編號（idem_key）重送</strong> → 回原訂單，<strong>庫存不會再被扣</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>
+    為什麼 1000 人搶、售出剛好 100？因為扣庫存被鎖進「一次只放一人進的小房間」（demo 用檔案鎖 <code>flock</code> 模擬 Redis 原子操作 / 資料庫行鎖）。
+    把同一筆帶相同編號連送兩次，看訂單會不會變兩筆——不會，這就是<strong>冪等去重</strong>在運作。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「兩個人搶最後一罐奶粉」解釋，超賣為什麼會發生？</summary>
+    兩人「同時」讀到「還有 1 罐」，都以為自己買得到，各自扣 1，結果賣了 2 個但只有 1 個庫存。問題出在「讀」和「減」之間有空檔被人插隊。解法是把「檢查還有貨＋扣減」綁成不可打斷的原子操作。</details>
+  <details class="qa"><summary>Q2：為什麼要先發「入場令牌」？用夜店的比喻說說看。</summary>
+    像夜店門口發限量手環：裡面只站得下 100 人，卻來了一萬人，保鏢在門口就攔掉大部分。系統發限量令牌，拿到才能下單，99% 的人卡在門口，根本打不到庫存，系統才不會被流量壓垮。</details>
+  <details class="qa"><summary>Q3：同一個人狂點五下「購買」，為什麼不會扣五個庫存？</summary>
+    因為每筆下單帶一個獨一無二的「存根編號（冪等鍵）」。系統收到先查「這張編號處理過嗎？」處理過就直接回上次結果、不重扣；沒處理過才真的去扣。同一張編號做幾次結果都一樣，這叫冪等。</details>
+  <details class="qa"><summary>Q4：這系統「最怕的三件事」是什麼？</summary>
+    怕超賣（收錢沒貨、真金白銀損失）、怕被流量打垮（百萬人全打到 DB 會當機）、怕重複扣（手滑/重送讓一個人扣好幾個）。三個關卡（令牌削峰、原子扣減、冪等去重）就是各自避開這三個怕。</details>
+  <details class="qa"><summary>Q5（工程）：扣庫存為什麼不能用「先讀庫存 → 判斷&gt;0 → 減 1 → 寫回」？正確做法是什麼？</summary>
+    因為並發下兩個請求會同時讀到同一個值、都判斷可賣，造成超賣（read-modify-write race）。正確做法是把「判斷&gt;0 + 扣減」包成單一原子操作：Redis 用 Lua 腳本，資料庫用 UPDATE ... WHERE remaining&gt;0 看影響筆數，或單機用 flock 包住臨界區。</details>
+  <details class="qa"><summary>Q6（工程）：扣減成功後，為什麼「建立訂單」可以丟去佇列慢慢做？</summary>
+    因為防超賣只靠「扣庫存」這一個強一致同步點就夠了。扣成功就代表名額確定是你的，建訂單、計數、寄通知這些可以最終一致——丟進 MQ 削峰、非同步落地，先回使用者「搶到了」，吞吐更高也不影響正確性。</details>
+  <details class="qa"><summary>Q7（工程）：所有人都扣同一個庫存數字會塞車，怎麼拓寬？有什麼代價？</summary>
+    用「庫存分桶 / sharding」：把 1000 張拆成 10 桶各 100，請求分散到不同桶各自原子扣，吞吐變大。代價是會出現「某桶賣完、別桶還有」的碎片，需要跨桶調度把零頭湊起來借用。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>秒殺 / 搶票 = 百萬人同時搶少量庫存，而你絕不能賣超過。</strong></p>
+    <p><strong>3 個關卡：</strong>① 門口發<strong>令牌削峰</strong>（夜店手環，擋掉 99%）→ ② <strong>原子條件扣減</strong>（一次只放一人進的小房間，只有還有貨才扣）→ ③ <strong>冪等鍵去重</strong>（票根存根，手滑點兩次只算一次）+ 每人限購擋黃牛。</p>
+    <p><strong>3 個怕：</strong>怕超賣（正確性壓倒速度）、怕被流量打垮（層層削峰、盡早擋）、怕重複扣（重送必須安全）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>流量是<strong>倒三角</strong>，削峰到接近庫存量 → 用「點餐單(API)」三關溝通 → 庫存/訂單+冪等/限購+令牌幾本筆記本 → 扣減強一致、其餘走佇列最終一致 → 熱點分桶拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉘ 秒殺 / 搶票 · C 一致性/交易 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

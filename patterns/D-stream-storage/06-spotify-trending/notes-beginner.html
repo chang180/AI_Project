@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑥ Spotify 趨勢榜 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑥ Spotify 趨勢榜 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼可以「估個大概」就好？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你是 <strong>Spotify 的店長</strong>。全世界<strong>每秒有幾十萬人</strong>按下播放鍵。老闆要你隨時掛一塊牌子在牆上：
+  「<strong>現在最紅的 100 首歌</strong>」，而且要<strong>幾秒鐘就更新一次</strong>。</p>
+  <p>Spotify 趨勢榜就是在做這件事。它的難，難在三點：播放事件<strong>多到數不完</strong>、要<strong>幾乎即時</strong>排出名次、而且榜單要反映「<strong>現在</strong>紅」而不是「歷史總紅」。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    趨勢榜 = <strong>對「數不完的播放」估個大概，挑出現在最紅的前 100 名</strong>：不追求分毫不差，只要名次對、夠快、夠新就好。
+  </div>
+
+  <h2 id="why">2. 為什麼可以「估個大概」就好？</h2>
+  <p>很多人第一個反應是：「播放幾次，老老實實一筆一筆數不就好了？」問題在於——量大到你數不動。先用一個生活經驗錨定：</p>
+  <div class="analogy">
+    <span class="label">🍚 量杯估米，不數整袋</span>
+    你要知道一大袋米<strong>大概幾粒</strong>，<strong>不會</strong>把幾百萬粒倒出來一粒一粒數（數到天荒地老）。
+    你會<strong>舀一小量杯、數那杯有幾粒，再乘回去估個大概</strong>。雖然不是分毫不差，但「夠用」。
+  </div>
+  <p>趨勢榜也一樣：要精確記住「<strong>每一首歌</strong>被播了幾次」，得替<strong>上億首歌</strong>各留一個計數器，記憶體會直接爆掉。
+  但榜單<strong>根本不需要分毫不差</strong>——你只想知道「<strong>誰是前 100 名</strong>」，第 3 名播了 183 萬還是 183 萬零 5 次，<em>沒人在乎</em>。</p>
+  <p>所以這題的核心心法就是：<strong>用一個「小小的、固定大小的量杯」去估每首歌大概播幾次</strong>，
+  換來「記憶體小到不可思議、還能跑超快」。這個神奇量杯有個名字，叫 <strong>Count-Min Sketch（近似計數草圖）</strong>。</p>
+  <p class="pause">💭 停一下：為什麼「排行榜」這種題目特別適合用「估個大概」，但「銀行帳戶餘額」就絕對不行？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為排行榜只在乎「<strong>相對名次</strong>」，每首歌都被估得稍微偏多一點點，名次幾乎不受影響，誤差可以容忍。
+    但銀行餘額在乎「<strong>絕對數字</strong>」——少你一塊錢都不行，必須精確。<strong>能不能用近似，看的是「你在乎相對還是絕對」。</strong>
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「即時串流排行系統」這串字嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>收事件：海量播放湧進來</h3>
+    <p>全世界每秒幾十萬人按播放，每按一次就產生一筆<strong>播放事件</strong>（哪首歌、誰、什麼時候、哪個地區）。
+    第一關只做一件事：<strong>趕快把事件收下、排進隊伍，立刻說「收到」</strong>，不要讓使用者卡著等。</p>
+    <div class="analogy"><span class="label">🎫 比喻：演唱會驗票口</span>幾萬人同時湧入，驗票員不會當場跟你聊天——<strong>掃一下票、放行、馬上換下一個</strong>。事件收集層就是這個只負責「快速收下、放進隊伍」的驗票口。</div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>估計數：用小量杯估每首歌大概幾次</h3>
+    <p>事件從隊伍裡一筆筆出來。每來一筆「歌 A 被播了」，系統就用<strong>那個神奇量杯</strong>（Count-Min Sketch）替歌 A 的計數 +1。</p>
+    <div class="analogy">
+      <span class="label">🍚 比喻：固定格子的計數板</span>
+      想像一塊只有<strong>固定幾排幾格</strong>的計數板。每首歌用名字算出「該記在哪幾格」，播一次就在那幾格各 +1。
+      <strong>不同的歌偶爾會擠到同一格</strong>（撞格子），所以某格的數字可能被別人灌水、<strong>偏多一點</strong>。
+    </div>
+    <p>查某首歌大概播幾次時，就看它對應的那幾格、<strong>取裡面最小的那個數字</strong>——因為被灌水只會讓數字變大，
+    取最小的那格，最接近真相。重點是：<strong>這塊板子大小固定</strong>，不管你有 1 億首還是 10 億首歌，記憶體都一樣大。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>挑前 K 名：誰能擠進排行榜？</h3>
+    <p>量杯只能「給一首歌估個數字」，但它<strong>不會自己吐出「前 100 名是誰」</strong>。所以還要一個<strong>小小的排行榜（只放 100 格）</strong>。</p>
+    <div class="analogy">
+      <span class="label">🏆 比喻：只有 100 個座位的 VIP 席</span>
+      VIP 席只有 100 個位子，門口站著保鏢盯著<strong>「目前席內分數最低的那位」</strong>。
+      每來一首歌，比一下它的估計分數：<strong>比那位最低的高，就把最低的請出去、讓新人坐進來</strong>；不夠高就擋在門外。
+    </div>
+    <p>這就是「<strong>近似量杯 + 100 格排行榜</strong>」的經典組合：量杯負責估分，排行榜負責隨時維護「目前最紅的前 K 名」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>讓榜「退燒」：舊播放慢慢不算數</h3>
+    <p>最後一關最關鍵，也最容易被忽略。如果只是「累計總播放」，那榜上永遠是<strong>幾年來的老神曲</strong>——
+    新歌再爆紅也擠不上去。但「趨勢榜」要的是<strong>現在正在紅</strong>的歌。</p>
+    <div class="analogy">
+      <span class="label">📰 比喻：新聞熱度會退燒</span>
+      一則新聞剛爆出來時洗版，<strong>過幾天就沒人提了</strong>，熱度自己退掉。趨勢榜也要這樣：
+      <strong>定期把所有歌的分數打個折</strong>（例如每輪乘以 0.9），舊播放的影響一輪一輪淡掉，
+      新播放權重最大。於是<strong>最近狂飆的新歌</strong>就能浮上來。
+    </div>
+    <p>這個「定期把分數打折讓舊的淡出」的動作叫 <strong>時間衰減</strong>。它就是「總量榜」和「趨勢榜」的分水嶺。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 驗票口<strong>快速收事件</strong> → ② 用小量杯<strong>估每首歌大概幾次</strong> → ③ 100 格 VIP 席<strong>維護前 K 名</strong> → ④ 定期打折讓舊播放<strong>退燒</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「記憶體爆掉」</span>
+    上億首歌如果各留一個精確計數器，要好幾 GB，再乘上「多個時間視窗 × 多個地區」就直接爆。
+    所以寧可<strong>接受一點點誤差</strong>，改用大小固定的小量杯（Count-Min Sketch）。<em>記憶體可控 &gt; 分毫不差。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「太慢、卡到使用者」</span>
+    全世界每秒幾十萬次播放，如果每按一次都要當場算完整個榜單再回應，使用者會等到天荒地老。
+    所以播放事件<strong>先收下就好（立刻回 202）</strong>，榜單在後面<strong>非同步</strong>慢慢算、<strong>定期</strong>刷新。<em>先收下，後面慢慢算。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「榜單過時 / 不夠新」</span>
+    趨勢榜的價值在「<strong>現在</strong>紅」。如果榜上全是陳年老歌（沒退燒），或榜慢半小時才更新，使用者會覺得「這榜假的」。
+    所以要<strong>時間衰減</strong>讓舊播放淡出，並讓榜<strong>秒級～分鐘級</strong>刷新。<em>夠新，比夠精確重要。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🎧 <strong>使用者播放</strong>，每按一次產生一筆事件 →</li>
+    <li>🎫 <strong>事件收集層</strong>像驗票口，快速收下、立刻說「收到」→</li>
+    <li>📮 事件丟進 <strong>Kafka 排隊大水管</strong>（依「歌名」分流，同一首歌的事件都走同一條）→</li>
+    <li>🍚 <strong>串流聚合（Flink）</strong>用小量杯估每首歌大概幾次 + 定期打折退燒 →</li>
+    <li>🏆 用 <strong>100 格 VIP 席</strong>維護目前的前 K 名 →</li>
+    <li>📋 把算好的榜<strong>定期貼到牆上的公告欄</strong>（Redis 快取）→</li>
+    <li>👀 <strong>看榜的人</strong>只看公告欄（超快），不去吵後面忙著算的人。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>播放事件</td><td>有人按了播放鍵，產生的一筆紀錄（哪首歌、誰、何時、哪區）</td></tr>
+    <tr><td>Count-Min Sketch</td><td>估數量的「小量杯」：大小固定，估出來只會偏多一點點</td></tr>
+    <tr><td>取 min（最小值）</td><td>查一首歌時看好幾格、取最小那格——因為被灌水只會變大</td></tr>
+    <tr><td>Top-K</td><td>前 K 名（例如前 100 名）</td></tr>
+    <tr><td>min-heap（小頂堆）</td><td>那個「100 格 VIP 席」，隨時知道席內分數最低的是誰</td></tr>
+    <tr><td>時間衰減</td><td>定期把分數打折，讓舊播放像新聞一樣「退燒」</td></tr>
+    <tr><td>滑動視窗</td><td>只看「最近 1 小時 / 24 小時」這段時間的播放</td></tr>
+    <tr><td>串流處理 (Flink)</td><td>事件一筆筆流過時就邊流邊算的工人</td></tr>
+    <tr><td>Kafka</td><td>超大排隊水管，把瞬間的爆量「攤平」慢慢給後面處理</td></tr>
+    <tr><td>分區 (partition)</td><td>把水管分成好幾條，同一首歌的事件固定走同一條</td></tr>
+    <tr><td>物化 / 快取 (Redis)</td><td>把算好的榜「貼到公告欄」，看榜的人只看公告欄（超快）</td></tr>
+    <tr><td>最終一致</td><td>榜可以稍微舊一點（落後幾秒），不必每一刻都絕對最新</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每秒幾筆播放（寫）</td><td>5 億人每天聽 30 次 ≈ 每秒 17 萬筆（尖峰 ×3 ≈ 50 萬）</td><td>量大到不能「精確一筆筆數」</td></tr>
+    <tr><td>有多少首歌</td><td>曲庫約 1 億首</td><td>各留計數器 → 記憶體會爆</td></tr>
+    <tr><td>精確計數要多少記憶體</td><td>1 億首 × 每首約 16 位元組 ≈ <strong>1.6 GB</strong>，再 ×多視窗×多地區</td><td>這就是「為什麼要估」的原因</td></tr>
+    <tr><td>小量杯要多少記憶體</td><td>固定一塊板子 ≈ <strong>5.4 MB</strong>（跟歌曲數量<strong>無關</strong>！）</td><td>用一點誤差，換 300 倍記憶體省下來</td></tr>
+    <tr><td>看榜的查詢（讀）</td><td>幾萬 QPS，全部走公告欄（快取）</td><td>讀很快、不打擾後面算的人</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🔑 關鍵洞察：記憶體「形狀」完全不同</span>
+    精確計數的記憶體<strong>會隨歌曲數量一路長大</strong>（歌越多越爆、不可控）；
+    小量杯的記憶體<strong>是固定的一塊板子</strong>（1 億首和 10 億首一樣大）。
+    這個「<strong>固定大小</strong>」就是大規模排行榜願意接受一點誤差的根本原因。
+  </div>
+  <p class="pause">💭 停一下：「寫」（每秒幾十萬筆播放）遠多於「讀」（看榜）。這跟一般網站「讀多寫少」相反，那設計重點該擺哪？</p>
+  <details class="qa"><summary>看答案</summary>
+    重點要擺在「<strong>扛住海量寫入</strong>」：用 Kafka 大水管把爆量攤平、用串流邊流邊算、用固定大小的小量杯省記憶體。
+    至於「讀」（看榜）量小又要快，把算好的榜<strong>貼到公告欄（Redis）</strong>讓大家看就好，不必每次重算。<strong>哪邊壓力大，料就往哪邊堆。</strong></details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」：</p>
+  <pre><code>① 上報一筆播放事件（超高頻，先收下就好）
+   POST /api/v1/events
+   給我：{ 歌ID, 使用者ID, 時間, 地區 }
+   我回：202「收到了！」← 立刻回，不讓你等榜算完</code></pre>
+  <p class="codecaption">為什麼「立刻回 202」？因為按播放的使用者不該卡著等我們把整個榜算完。先收下、丟進大水管（Kafka），後面<strong>非同步</strong>慢慢聚合。就像餐廳收單給號碼牌，不讓你站在櫃台等餐。</p>
+  <pre><code>② 看排行榜（只看公告欄，超快）
+   GET /api/v1/trending?window=1h&region=global&k=100
+   我回：200 { 視窗:"1h", 更新時間:"...", 前K名:[
+            {名次:1, 歌ID:"s_8821", 分數:1832450}, ... ] }</code></pre>
+  <p class="codecaption">可以挑<strong>時間視窗</strong>（過去 1 小時 / 24 小時 / 7 天）和<strong>地區</strong>（全球榜 / 台灣榜）。這些榜都是<strong>事先算好貼在公告欄</strong>的，所以查起來飛快。</p>
+  <pre><code>③ 查單一首歌「大概」播幾次
+   GET /api/v1/songs/{歌ID}/score?window=1h
+   我回：200 { 歌ID:"s_8821", 估計值:1832450, 視窗:"1h" }</code></pre>
+  <p class="codecaption">注意回的是「<strong>估計值</strong>」，不是精確值——因為這是小量杯估出來的（只會偏多一點點）。對排行榜來說，這個精度綽綽有餘。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：播放事件「不進帳本」，只進輸送帶</span>
+    一般資料會老老實實寫進「帳本」（資料庫主庫）。但播放事件<strong>太高頻</strong>，硬寫主庫會把它壓垮。
+    所以播放事件改走<strong>輸送帶（Kafka）</strong>，邊流邊算，最後只把「<strong>算好的榜</strong>」貼到公告欄。
+  </div>
+  <div class="step">
+    <h3><span class="badge">📮</span>播放事件流（Kafka，只進不改）</h3>
+    <p>每筆播放一列：<code>歌ID、使用者ID、時間、地區、裝置</code>。它是<strong>只往後加、不修改</strong>的串流，
+    依<strong>歌ID 分流</strong>——這樣同一首歌的事件都落到同一個工人手上，計數不用跨工人合併。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🍚</span>小量杯 + VIP 席（工人腦中的狀態）</h3>
+    <p>這不是傳統資料表，而是<strong>工人邊算邊記在腦中的東西</strong>：一塊固定大小的計數板（Count-Min Sketch）估每首歌頻率，
+    加一個 100 格的 VIP 席（min-heap）維護目前前 K 名。每個「時間視窗 × 地區」各有一份。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📋</span>排行榜公告欄（Redis 快取）</h3>
+    <p>把算好的前 K 名<strong>序列化貼到公告欄</strong>，鑰匙是 <code>(視窗 + 地區)</code>，設個短短的有效期（TTL，幾秒～幾分）。
+    看榜的人全部只看這張公告欄——<strong>讀超快，也不會去吵後面忙著算的工人</strong>。</p>
+  </div>
+  <div class="box"><span class="label">💡 為什麼原始事件還是要另外存一份？</span>
+    串流邊流邊算是<strong>近似</strong>的。若哪天要「精確對帳」或重算歷史，可把原始事件另存到一個擅長大量分析的倉庫（如 ClickHouse），事後慢慢精算。即時看近似、對帳用精確，兩者分工。</div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>瞬間爆量的播放事件衝垮系統</td><td>用 <strong>Kafka 大水管「攤平」尖峰</strong>，後面慢慢消化（削峰）</td></tr>
+    <tr><td>1 億首歌精確計數 → 記憶體爆</td><td>改用<strong>固定大小的小量杯</strong>（Count-Min Sketch）</td></tr>
+    <tr><td>一個工人算不完全世界的歌</td><td>依<strong>歌ID 分流給多個工人</strong>並行算，各自的量杯再<strong>逐格相加合併</strong></td></tr>
+    <tr><td>看榜的查詢去吵忙著算的工人</td><td>把榜<strong>貼到公告欄（Redis）</strong>，看榜全走公告欄</td></tr>
+    <tr><td>多個時間視窗 × 多個地區，組合爆炸</td><td>把時間切成<strong>小桶</strong>，多個視窗共用相加；地區榜各自分流聚合</td></tr>
+  </table>
+  <div class="box tip"><span class="label">🧩 小知識：量杯為什麼能「合併」？</span>
+    因為每個工人的小量杯<strong>大小、格子規則完全一樣</strong>，要合併時只要把兩塊板子<strong>對應的格子相加</strong>就好——天生適合分給很多工人一起算，最後拼起來。</div>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 精確 vs 近似</span>
+    精確計數記憶體隨歌曲數爆且不可控；小量杯記憶體固定，代價是計數<strong>只會偏多</strong>的有界誤差。對「排名」影響很小，<strong>值得換</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 指數衰減 vs 分桶滑動視窗</span>
+    「每輪打折」實作簡單、記憶體固定，但說不清「剛好過去 1 小時」；「把時間切成小桶」邊界精準，但桶越多越吃記憶體、過期桶要管理。看你多在乎視窗邊界的精準度。</div>
+  <div class="fear"><span class="label">⚖️ 每筆都重算 vs 定期刷新</span>
+    每來一筆事件就重算整個榜，太貴；改成<strong>每隔幾秒物化一次</strong>到公告欄，省算力但榜稍舊（最終一致）。一般選後者。</div>
+  <details class="qa"><summary>💭 追問：常見誤區——「光有小量杯（Count-Min Sketch）就能出排行榜」對嗎？</summary>
+    <strong>不對。</strong>小量杯只能「<strong>給你一首歌、估出它大概幾次</strong>」，但它<strong>不會自己列出「前 100 名是誰」</strong>。
+    所以一定要額外搭一個 100 格的 VIP 席（min-heap）來維護前 K 名。這是這題最常被考倒的點：<strong>量杯估分數，VIP 席排名次，兩個缺一不可。</strong></details>
+  <details class="qa"><summary>💭 追問：有人開外掛狂刷某首歌的播放，怎麼辦？</summary>
+    可以做<strong>去重</strong>，或改成「<strong>有幾個不同的人聽</strong>」而不是「<strong>被播幾次</strong>」（同一個人狂播只算一次）。算「幾個不同的人」也有專門的省記憶體估計工具（HyperLogLog），概念跟小量杯一樣是「用近似換省」。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「近似計數 + Top-K + 衰減」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8006 -t public
+# 然後瀏覽器打開 http://localhost:8006</code></pre>
+  <ol>
+    <li>先「<strong>模擬一批播放事件</strong>」（等於餵很多人按播放）。</li>
+    <li><strong>查某首歌</strong>：對照「小量杯估計值」與「真實精確值」，看誤差有多小（你會發現估計值總是 ≥ 真值）。</li>
+    <li>看 <strong>Top-K 榜</strong>，再按「<strong>套用衰減</strong>」，觀察舊歌怎麼慢慢往下掉、新竄紅的歌怎麼往上浮。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>多按幾次「套用衰減」，是不是榜上的老歌排名一直往下、最近狂播的歌往上爬？這就是<strong>關卡 4 的時間衰減（退燒）</strong>在運作。再看「估計值 ≥ 真值」永遠成立——這就是小量杯「<strong>只會偏多、取 min 最接近真相</strong>」的特性。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「量杯估米」解釋，為什麼趨勢榜不需要精確計數？</summary>
+    因為榜只在乎「相對名次」，每首歌都被估得稍微偏多一點，名次幾乎不變，誤差可容忍。就像估一袋米幾粒，舀一小杯數完乘回去估個大概就夠了，不必一粒粒數。精確計數要替上億首歌各留計數器、記憶體會爆。</details>
+  <details class="qa"><summary>Q2：把系統 4 個關卡用一句話串起來。</summary>
+    ① 驗票口快速收播放事件 → ② 用小量杯估每首歌大概幾次 → ③ 100 格 VIP 席挑出前 K 名 → ④ 定期打折讓舊播放退燒，才能反映「現在紅」。</details>
+  <details class="qa"><summary>Q3：「總量榜」和「趨勢榜」差在哪？靠什麼機制做出趨勢榜？</summary>
+    總量榜是「歷年累計最紅」，永遠是老神曲；趨勢榜要「現在紅」。靠「時間衰減」——定期把所有分數打折，舊播放像新聞一樣退燒，新播放權重最大，最近竄紅的歌就能浮上來。</details>
+  <details class="qa"><summary>Q4：小量杯查一首歌時為什麼要「取最小那格」？</summary>
+    因為不同的歌偶爾會擠到同一格（撞格子），讓某格被灌水、數字偏大。被灌水只會讓數字變大、不會變小，所以一首歌對應的那幾格裡，取最小的那格最接近真相。</details>
+  <details class="qa"><summary>Q5（工程）：上報播放事件為什麼要「立刻回 202」、而不是算完榜再回？</summary>
+    因為按播放的使用者不該卡著等整個榜算完。先把事件收下、丟進 Kafka 大水管，立刻回「收到」，後面非同步慢慢聚合、定期刷新榜。先收下，後面慢慢算。</details>
+  <details class="qa"><summary>Q6（工程）：「光有小量杯就能出排行榜」為什麼是錯的？要再加什麼？</summary>
+    小量杯只能「給一首歌估個數字」，不會自己列出前 K 名。所以要再加一個大小為 K 的 min-heap（100 格 VIP 席）：每來一首歌比一下分數，比席內最低的高就擠進去。量杯估分、VIP 席排名，缺一不可。</details>
+  <details class="qa"><summary>Q7（工程）：這題「寫遠多於讀」，跟一般網站相反，設計重點該擺哪？</summary>
+    重點擺在扛住海量寫入：用 Kafka 攤平爆量、串流邊流邊算、固定大小小量杯省記憶體、依歌ID 分流給多個工人並行。讀（看榜）量小要快，把算好的榜貼到 Redis 公告欄即可。哪邊壓力大，料就往哪堆。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>Spotify 趨勢榜 = 對數不完的播放估個大概，挑出現在最紅的前 K 名。</strong></p>
+    <p><strong>4 個關卡：</strong>① 驗票口收事件 → ② 小量杯（Count-Min Sketch）估每首歌大概幾次 → ③ 100 格 VIP 席（min-heap）挑前 K 名 → ④ 時間衰減讓舊播放退燒。</p>
+    <p><strong>3 個怕：</strong>怕記憶體爆（用近似換固定大小）、怕太慢卡使用者（先收下、非同步算）、怕榜過時（衰減+秒級刷新）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估「每秒幾十萬筆」的爆量 → 用「點餐單(API)」溝通、收到事件先回 202 → 事件走 Kafka 大水管、依歌ID 分流給多工人 → 小量杯只會偏多取 min、量杯估分 VIP 席排名 → 算好的榜貼到 Redis 公告欄供快讀。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑥ Spotify 趨勢榜 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

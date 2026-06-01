@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑲ 分散式限流器 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑲ 分散式限流器 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼需要「擋人」這道門？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你開了一家很紅的<strong>網美餐廳</strong>，門口大排長龍。如果你<strong>來者不拒、全部放進來</strong>，廚房會瞬間被點單塞爆，
+  結果是<strong>所有人</strong>的餐都做不出來——連乖乖排隊的客人也遭殃。</p>
+  <p>所以你在門口放了一個<strong>門衛</strong>：「每個人每 10 秒只能點 5 道菜，超過就請你等一下再來。」這個門衛，就是<strong>限流器（Rate Limiter）</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    限流器 = <strong>站在後端服務門口的門衛</strong>：替每個客人數「最近這段時間來了幾次」，沒超過就放行，超過就先擋下（回一張「稍後再來」的紙條），<strong>保護後面的廚房不被打爆</strong>。
+  </div>
+
+  <h2 id="why">2. 為什麼需要「擋人」這道門？</h2>
+  <p>很多人第一個疑問是：「客人越多不是越好嗎？為什麼要把人擋在外面？」關鍵在一個你早就懂的生活經驗——</p>
+  <div class="analogy">
+    <span class="label">🚰 比喻：水管與水龍頭</span>
+    家裡的水管能承受的水量是<strong>固定的</strong>。如果上游突然灌進 10 倍的水，水管不會「努力多送一點」，而是<strong>整條爆掉、全家停水</strong>。
+    後端服務也一樣：超過它能處理的量，不是變慢一點，而是<strong>整個垮掉，連正常客人都服務不到</strong>。
+  </div>
+  <p>所以門衛的價值不是「為難客人」，而是<strong>犧牲少數超量的請求，保住大多數人的服務</strong>。常見要擋的情況有三種：</p>
+  <ul>
+    <li>🤖 <strong>惡意攻擊</strong>：有人寫程式狂打你的網站（爬蟲、DDoS），想把你打垮。</li>
+    <li>🐛 <strong>程式 bug</strong>：某個 App 寫錯了，瘋狂無腦重試，無意間變成攻擊。</li>
+    <li>💰 <strong>公平與計費</strong>：免費用戶每天 100 次、付費用戶 10000 次——靠限流分級。</li>
+  </ul>
+  <p class="pause">💭 停一下：如果完全不擋，全部放進來，<strong>最慘的結果</strong>是什麼？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    後端被超量請求壓垮（CPU/記憶體/連線數爆掉），開始變慢甚至當機。這時<strong>連正常乖乖用的客人也得不到服務</strong>——也就是「一顆老鼠屎壞了一鍋粥」。限流就是在門口先擋掉那顆老鼠屎，保住整鍋粥。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「分散式」嚇到。門衛要做的事，其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>認人：你是「誰」？（per-key）</h3>
+    <p>門衛要先搞清楚<strong>該對「誰」計數</strong>。是同一個帳號？同一個 IP？還是同一把 API 金鑰？這個「身份」叫做 <strong>key</strong>。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：每個人各自一張集點卡</span>
+      限流是<strong>每個 key 各算各的</strong>，不是大家共用一個總數。就像便利商店集點：<strong>你的卡只記你的次數</strong>，跟隔壁客人無關。
+      所以系統會替「每個用戶 / 每個 IP」各<strong>準備一個獨立的桶</strong>。
+    </div>
+    <p>👉 面試時先問一句：「<strong>要按 user、IP、還是 API key 來限？</strong>」按 user 防單人濫用、按 IP 防爬蟲、按 API key 做計費分級——常常是<strong>好幾個一起疊</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>數數：最近來了幾次？</h3>
+    <p>認出是誰之後，門衛要<strong>數「他最近這段時間來了幾次」</strong>。怎麼數？這就是限流最核心的學問，主要有兩種記法：</p>
+    <div class="analogy">
+      <span class="label">🎢 比喻一：遊樂園通行券（令牌桶）</span>
+      想像每個人有個小桶，遊樂園<strong>每秒固定丟幾張通行券</strong>進去（最多裝滿不溢出）。你要玩一次就<strong>交一張券</strong>；
+      <strong>有券就放行、沒券就請你等</strong>。妙的是：你剛剛沒玩、券攢了一桶，就可以<strong>一口氣連玩好幾次</strong>（這叫「容許突發」）。
+    </div>
+    <div class="analogy">
+      <span class="label">⏱️ 比喻二：看最近 60 秒的閘門紀錄（滑動視窗）</span>
+      另一種記法是門口裝個感應器，隨時往回看<strong>「最近 60 秒內」進了幾個人</strong>。
+      時間是<strong>平滑往前滑</strong>的，所以不會有「整點一到計數歸零、瞬間放兩倍」的漏洞。
+    </div>
+    <p>兩種都很常用：<strong>令牌桶</strong>對用戶友善（允許偶爾爆發一下），是 API 限流首選；<strong>滑動視窗</strong>則把流量數得更平穩。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>決定：放行，還是回「稍後再來」？</h3>
+    <p>數完之後，門衛做一個簡單判斷：<strong>還沒超過 → 放行（轉給後端）；超過了 → 擋下</strong>。</p>
+    <div class="analogy">
+      <span class="label">🎟️ 比喻：回一張寫好時間的紙條</span>
+      被擋下時，門衛不是冷冷地把門一甩。好的門衛會給你一張紙條：「<strong>現在客滿，請 3 秒後再來</strong>」。
+      在網路世界，這張紙條就是回一個 <strong>429（太多請求了）</strong> 加上一句 <strong>Retry-After: 3</strong>（3 秒後再試）。
+    </div>
+    <p>為什麼要告訴你「等幾秒」？因為如果不講，沒耐心的程式會<strong>狂敲門</strong>，把你打得更慘（叫「驚群效應」）。
+    講清楚等多久，乖巧的客人就會安靜等待——這是門衛<strong>友善與否的分水嶺</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>同步：好幾個門衛要「對同一本帳」（分散式）</h3>
+    <p>網站很大時，門口不只一個門衛，而是<strong>好幾十個門衛同時收客</strong>。麻煩來了：如果每個門衛<strong>各記各的帳</strong>，
+    客人從 A 門進 5 次、B 門又進 5 次，每個門都覺得「沒超過」，結果<strong>實際放了 10 次，超標一倍</strong>。</p>
+    <div class="analogy">
+      <span class="label">📖 比喻：所有門衛共用一本帳簿</span>
+      解法是：所有門衛<strong>共用同一本帳簿</strong>（一個放在中央的 Redis）。每來一個客人，門衛就去帳簿上<strong>劃一筆</strong>再看總數。
+      這樣不管從哪個門進，數的都是<strong>同一份總數</strong>。
+    </div>
+    <p>但這帶來新問題：<strong>兩個門衛同時去翻同一頁劃記</strong>，會不會把對方的筆跡蓋掉、算錯數？
+    解法是「<strong>劃記這個動作要一氣呵成、不能被打斷</strong>」（這叫<strong>原子操作</strong>）——下面 Part 2 會講怎麼做到。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>認人</strong>（每個 key 一個桶）→ ② <strong>數數</strong>（令牌桶 / 滑動視窗）→ ③ <strong>決定</strong>放行或回 429 → ④ 多個門衛<strong>對同一本帳</strong>（原子操作）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「門衛自己變成瓶頸」</span>
+    門衛站在<strong>每一個客人的必經之路上</strong>，如果他自己慢吞吞，等於<strong>全站都被他拖慢</strong>。
+    所以限流檢查必須<strong>超快（每次 1~2 毫秒內）</strong>，寧可把帳簿放在隔壁（同機房 Redis），也不能讓門衛跑去很遠的地方查帳。<em>門衛要快，不能擋路。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「門衛請假，全站停擺」</span>
+    如果那本中央帳簿（Redis）掛了，門衛沒帳可查，<strong>該放人還是該擋人？</strong>
+    這要<strong>事先講好</strong>：對外 API 通常選「<strong>寧可放行也別讓全站 503</strong>」（叫 fail-open）；對脆弱的寫入路徑則可能選「<strong>寧可擋住保住後端</strong>」（fail-close）。<em>門衛倒下時，也要有 Plan B。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「算太精準反而拖垮自己」</span>
+    想做到「全球所有門衛、每一筆都精確同步、一個不差」，協調成本<strong>高到離譜</strong>，反而把系統拖慢。
+    其實限流<strong>偶爾多放行幾個沒事</strong>——目的是擋住「打爆」級別的洪水，不是會計查帳。所以<strong>多數系統選「近似就好」</strong>，用便宜的方法換到夠用的效果。<em>夠用就好，別過度追求完美。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，順著看：</p>
+  <ul>
+    <li>📱 <strong>客戶端</strong>送來一個請求 →</li>
+    <li>🚪 撞上 <strong>API Gateway（門衛）</strong>：先認出「你是誰」（key）→</li>
+    <li>📖 門衛去 <strong>Redis（中央帳簿）</strong>用<strong>原子操作</strong>劃一筆、看你這個桶還有沒有額度 →</li>
+    <li>✅ <strong>還有額度</strong> → 放行，轉給<strong>後端服務</strong>處理；</li>
+    <li>🚫 <strong>超額了</strong> → 當場回 <strong>429 + Retry-After</strong>，<strong>不打到後端</strong>（這就是限流的價值）；</li>
+    <li>🟡 旁邊還有一份 <strong>限流規則設定</strong>（誰每分鐘幾次、用哪種演算法），門衛照著它執法。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>限流器 (Rate Limiter)</td><td>站在後端門口的門衛，數次數、決定放行或擋下</td></tr>
+    <tr><td>key（per-key）</td><td>對「誰」計數：用戶 / IP / API 金鑰，每個一張集點卡</td></tr>
+    <tr><td>令牌桶 (Token Bucket)</td><td>每秒固定補幾張通行券，有券放行、沒券擋；攢著可一次爆發</td></tr>
+    <tr><td>滑動視窗 (Sliding Window)</td><td>隨時往回看「最近一段時間」進了幾個，平滑不跳動</td></tr>
+    <tr><td>固定視窗 (Fixed Window)</td><td>整點歸零計數；省，但整點交界會被鑽漏洞放兩倍</td></tr>
+    <tr><td>429 / Retry-After</td><td>「太多請求了，請 N 秒後再來」的標準回覆</td></tr>
+    <tr><td>原子操作 (Atomic)</td><td>劃記這動作一氣呵成、不被打斷，多個門衛也不會算錯</td></tr>
+    <tr><td>Redis</td><td>放在中央、超快的「共用帳簿」，所有門衛對同一份</td></tr>
+    <tr><td>TTL（過期時間）</td><td>計數過期就自動丟掉，省得自己掃地打掃</td></tr>
+    <tr><td>fail-open / fail-close</td><td>帳簿掛了時的 Plan B：放行保可用 / 擋住保後端</td></tr>
+    <tr><td>熱點 key</td><td>某個爆紅的 key 把單一帳簿打爆，要分散到多本</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API Gateway</td><td>全站入口的總門房，限流通常就放在這層</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>請幾個門衛、帳簿要多厚</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少請求</td><td>1 億筆/日 ≈ 平均每秒 1200 筆，尖峰約 6000 筆</td><td>得算「尖峰」那一刻撐不撐得住</td></tr>
+    <tr><td>要幾個門衛</td><td>每個門衛每秒處理 2000 筆 → 尖峰約 3~5 個</td><td>多個門衛，所以一定要「共用一本帳」</td></tr>
+    <tr><td>帳簿要多大</td><td>1 千萬個活躍 key × 約 100 位元組 ≈ <strong>1 GB</strong></td><td>小到輕鬆塞進 Redis 的記憶體</td></tr>
+    <tr><td>查帳要多快</td><td>同機房 Redis 來回約 0.2~0.5 毫秒</td><td>符合「每次檢查 &lt; 1~2 毫秒」的要求</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：帳簿小，但翻得超勤</span>
+    這系統要記的東西<strong>其實很少（才 GB 級，小事）</strong>，難點在<strong>「翻帳簿的次數超級多、而且每次都不能算錯」</strong>。
+    所以整個設計不是繞著「容量」轉，而是繞著<strong>「每次劃記要原子、爆紅的 key 要分散」</strong>轉。
+  </div>
+  <p class="pause">💭 停一下：為什麼「帳簿很小」反而不是重點，「翻帳簿很頻繁」才是？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為 1 GB 對現代記憶體根本不算什麼，買台機器就放得下。真正的挑戰是<strong>每一個請求都要去翻一次帳簿、而且好幾個門衛同時翻</strong>——頻率高 + 要原子，這才是工程上最燒腦、最容易出錯的地方。所以設計重心放在「翻得快又不打架」。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你問我什麼、我回你什麼。
+    特別的是，限流器<strong>沒有自己的業務</strong>，它是夾在中間的門衛，所以它的「點餐單」是給<strong>上游門衛</strong>用的一個「該不該放行？」的詢問。
+  </div>
+  <p>這題只要記住三件事：</p>
+  <pre><code>① 門衛問帳簿：「這個 key 該放行嗎？」（最核心）
+   allow(這是誰key, 用哪條規則)
+   回我：{ 放行嗎: true/false, 還剩幾次: 2, 該等幾秒: 0 }</code></pre>
+  <p class="codecaption">這不是給一般客戶端用的，是門衛內部問帳簿的一句話。回來只要三個資訊：<strong>能不能進、還剩幾次、要等多久</strong>。</p>
+  <pre><code>② 被擋下時，回給客戶端的「稍後再來」紙條
+   HTTP 429 Too Many Requests
+   Retry-After: 3              ← 3 秒後再試
+   X-RateLimit-Limit: 5        ← 這個視窗總共幾次
+   X-RateLimit-Remaining: 0    ← 還剩幾次（這裡是 0）
+   X-RateLimit-Reset: ...      ← 幾點額度會重置</code></pre>
+  <p class="codecaption">為什麼要附這些標頭？<strong>讓乖巧的客戶端知道「確切該等多久、還剩幾次」</strong>，它就不會無腦狂敲門把你打更慘。這是限流「友善」與否的關鍵。</p>
+  <pre><code>③ 管理員設定規則（不常變動）
+   PUT /admin/rules/{範圍}
+   內容：{ 按什麼算:"api_key", 上限:1000, 視窗秒數:60, 演算法:"token_bucket" }</code></pre>
+  <p class="codecaption">這張單子是讓管理員調整「<strong>誰、多久、幾次、用哪種數法</strong>」。規則很少變，所以可以整份快取在每個門衛身上，省得每次都去問。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：帳簿裡的兩種頁面</span>
+    門衛的中央帳簿（Redis）裡，主要記兩種東西：<strong>每個人的計數</strong>，和<strong>大家共用的規則</strong>。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔢</span>計數頁（每個 key 各一筆，會自動過期）</h3>
+    <p>看你用哪種數法，記的東西不一樣：</p>
+    <ul>
+      <li><strong>視窗計數</strong>：<code>ratelimit:{誰}:{第幾個視窗} → 一個整數（這視窗來了幾次）</code></li>
+      <li><strong>令牌桶</strong>：<code>ratelimit:{誰} → { 還剩幾張券:4.2, 上次補券時間:... }</code></li>
+    </ul>
+    <div class="analogy"><span class="label">為什麼券數是「小數」(4.2)？</span>
+      因為券不是整點才補，而是<strong>按時間連續補</strong>。要用時就看「<strong>距離上次補券過了多久 × 每秒補幾張</strong>」算出新增了多少券——
+      所以中間會出現 4.2 張這種小數，這叫「<strong>用到才算、慵懶補券</strong>」，省得真的每秒去動它。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">⏰</span>為什麼每筆都設「過期時間」(TTL)？</h3>
+    <p>限流計數是<strong>有時效的</strong>——「上一分鐘來幾次」過了這分鐘就沒意義。所以每筆都設一個 TTL，<strong>時間到自動消失</strong>。</p>
+    <div class="analogy"><span class="label">🗑️ 比喻：便當保鮮期</span>
+      與其自己定期去帳簿裡掃舊資料（累又容易漏），不如<strong>每筆貼個保存期限，過期自己爛掉清掉</strong>。Redis 的 TTL 就幫你做這件事，省去打掃工。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📋</span>規則頁（變動少，可整份快取在門衛身上）</h3>
+    <p>記：<code>範圍、按什麼算(user/ip/api_key)、上限、視窗秒數、演算法、掛了怎麼辦(fail模式)</code>。
+    因為規則很少改，每個門衛可以把整份<strong>背在身上</strong>，不用每次都去中央問——又快又省。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>多個門衛各記各的帳，總量失控</td><td>把計數搬到<strong>共用 Redis</strong>，所有門衛看同一份</td></tr>
+    <tr><td>每個請求都要跑去帳簿問一趟，加延遲</td><td>帳簿放<strong>同機房</strong>；門衛本地先攢一小批再回報；多筆合併一起問</td></tr>
+    <tr><td>某個<strong>爆紅 key</strong>把單一帳簿打爆（熱點）</td><td>把這個 key <strong>拆成好幾個小桶</strong>分散到多本帳簿，各分一部分額度</td></tr>
+    <tr><td>中央帳簿(Redis)是單點，掛了就失靈</td><td>主從備援 + 哨兵/叢集；並<strong>事先決定 fail-open 或 fail-close</strong></td></tr>
+    <tr><td>全球跨洲，同步計數延遲太高</td><td><strong>每個地區各自限流</strong>（區域配額），不追求全球一個不差</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 精確 vs 近似</span>
+    要全球每一筆都精準同步 → 協調成本高、還拖慢。限流<strong>選近似</strong>：用滑動視窗計數器、或門衛本地攢批，偶爾多放幾個完全可接受。</div>
+  <div class="fear"><span class="label">⚖️ 令牌桶 vs 漏桶</span>
+    令牌桶限「<strong>平均速率、但容許短暫爆發</strong>」（對用戶友善，API 首選）；漏桶限「<strong>瞬時輸出絕對平穩、不准爆發</strong>」（適合保護脆弱的下游，像寫資料庫時整流）。</div>
+  <div class="fear"><span class="label">⚖️ 固定視窗的「整點漏洞」</span>
+    固定視窗最省（一個整數），但有個著名 bug：上限每分鐘 100 次，<strong>10:00:59 打 100 次、10:01:00 又打 100 次</strong>——1 秒內實際放了 200 次！解法是改用<strong>滑動視窗</strong>把交界抹平。</div>
+  <details class="qa"><summary>💭 追問：限流器該放在哪一層？</summary>
+    放 <strong>API Gateway</strong>（全站入口）最常見：集中管理、好觀測，但多一跳。放 <strong>Sidecar</strong>（貼著每個服務）延遲低、隔離好，但維運較重。放<strong>應用程式裡面</strong>最省，但難統一治理。多數選 Gateway。</details>
+  <details class="qa"><summary>💭 追問：多個門衛去翻同一頁帳簿，為什麼不會算錯？</summary>
+    因為「劃記」這個動作被做成<strong>原子操作</strong>。簡單計數用 Redis 的 <code>INCR</code>（加一並回傳新值，本身就不可分割）；令牌桶要「讀券數→算補多少→扣減→寫回」好幾步，就包成一段 <strong>Lua 腳本</strong>，由 Redis 一口氣執行完，中間不准別人插隊——這樣就沒有「你蓋掉我筆跡」的問題。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「放行 / 被擋」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8019 -t public
+# 然後瀏覽器打開 http://localhost:8019</code></pre>
+  <ol>
+    <li>設定一條規則，例如「<strong>每 10 秒 5 次</strong>」。</li>
+    <li><strong>連續快打</strong>：看前幾次放行（✅），第 6 次開始被擋（429）。</li>
+    <li><strong>等幾秒再打</strong>：看令牌補回來 / 視窗滑過去，又能放行了。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把上限調小，是不是更容易被擋？這就是<strong>關卡 2 的數數</strong>在運作。連打到被擋時，看它回的「<strong>還剩 0 次、請等幾秒</strong>」——這就是<strong>關卡 3 的 429 + Retry-After 紙條</strong>。
+  <br><br><span style="color:var(--text-dim)">小提醒：這個 demo 用<strong>檔案鎖（flock）</strong>模擬 Redis 的「原子劃記」，所以單機就能玩；要上線只要把檔案鎖換成 Redis，限流邏輯一模一樣。</span></div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「網美餐廳門衛」解釋，限流器在幹嘛、為什麼需要它？</summary>
+    門衛站在後端門口，替每個客人數「最近來幾次」，沒超過放行、超過就先擋。需要它是因為後端能承受的量是固定的，全部放進來會把廚房打爆，<strong>連正常客人也遭殃</strong>——犧牲少數超量請求，保住多數人的服務。</details>
+  <details class="qa"><summary>Q2：用「遊樂園通行券」說說令牌桶怎麼運作？它的特色是什麼？</summary>
+    每秒固定丟幾張券進桶（裝滿不溢），玩一次交一張，有券放行、沒券就等。特色是<strong>容許突發</strong>：剛剛沒用、券攢著，就能一口氣連用好幾次。所以對用戶友善，是 API 限流首選。</details>
+  <details class="qa"><summary>Q3：固定視窗有個「整點漏洞」，是什麼？怎麼修？</summary>
+    上限每分鐘 100 次時，在 10:00:59 打 100 次、10:01:00 又打 100 次，1 秒內實際放了 200 次（兩倍）。因為整點一到計數就歸零。改用<strong>滑動視窗</strong>，隨時往回看「最近 60 秒」，把交界抹平。</details>
+  <details class="qa"><summary>Q4：per-key 是什麼意思？常見按哪些維度限？</summary>
+    每個 key（身份）各算各的，像各自一張集點卡。常見按 <strong>user</strong>（防單人濫用）、<strong>IP</strong>（防爬蟲/DDoS，但 NAT 會誤傷）、<strong>API key</strong>（做計費分級），而且常常好幾個一起疊。</details>
+  <details class="qa"><summary>Q5（工程）：好幾個門衛同時翻同一本帳簿，為什麼不會算錯？關鍵字是什麼？</summary>
+    關鍵字是<strong>原子操作</strong>。簡單計數用 Redis <code>INCR</code>（加一回傳，不可分割）；令牌桶的「讀→算→扣→寫」多步包成 <strong>Lua 腳本</strong>，由 Redis 一口氣執行完不准插隊。否則用「讀→判斷→寫」三步會發生競態（race），把對方的劃記蓋掉而超賣放行。</details>
+  <details class="qa"><summary>Q6（工程）：被擋下時為什麼要回 429 + Retry-After，而不是只說「不行」？</summary>
+    告訴客戶端<strong>確切該等幾秒、還剩幾次</strong>，乖巧的客戶端就會安靜等待；否則沒耐心的程式會無腦狂重試（驚群效應）把你打得更慘。這是門衛友善與否的分水嶺。</details>
+  <details class="qa"><summary>Q7（工程）：中央帳簿（Redis）掛了，門衛該放人還是擋人？</summary>
+    要<strong>事先講好</strong>。對外 API 多選 <strong>fail-open</strong>（寧可放行也別讓全站 503）；對脆弱的寫入路徑可能選 <strong>fail-close</strong>（寧可擋住保住後端）。也常配一個「本地降級令牌桶」兜底。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>限流器 = 站在後端門口的門衛，保護廚房不被打爆。</strong></p>
+    <p><strong>4 個關卡：</strong>① 認人（per-key，各自一桶）→ ② 數數（令牌桶=通行券、滑動視窗=看最近一段）→ ③ 決定放行或回 429+Retry-After → ④ 多門衛對同一本帳（原子操作）。</p>
+    <p><strong>3 個怕：</strong>怕門衛自己變瓶頸（要超快）、怕帳簿掛了全站停（要有 fail-open/close）、怕算太精準反而拖垮（近似就好）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>帳簿小（GB 級）但翻得超勤 → 共用 Redis、用 INCR/Lua 做原子劃記、每筆設 TTL 自動過期 → 熱點 key 要分桶、Redis 是單點要備援。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑲ 分散式限流器 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

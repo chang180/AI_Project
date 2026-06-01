@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉚ 視訊會議 Zoom · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉚ 視訊會議 Zoom · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 30 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#two">先看最簡單的：兩個人怎麼視訊？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你每天用的 <strong>Zoom、Google Meet、Teams</strong>，背後在解一個問題：<strong>怎麼讓一群人同時看到、聽到彼此？</strong></p>
+  <p>兩個人視訊很簡單——就像兩支對講機直接連起來。但人一多就麻煩了：
+  <strong>10 個人的會議，每個人都要看到另外 9 個人的畫面</strong>，影像要從哪裡來、走哪條路、誰負責搬運？這就是這題的核心。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    視訊會議 = <strong>先「講好怎麼連」（信令握手），再「找一個轉播中心幫大家轉影像」（SFU）</strong>，
+    而且網路差的人會自動收到比較糊的畫面（simulcast），正在說話的人會自動被放大（active speaker）。
+  </div>
+
+  <h2 id="two">2. 先看最簡單的：兩個人怎麼視訊？</h2>
+  <p>在搞懂「一群人」之前，先看「兩個人」——這是一切的基礎。</p>
+  <div class="analogy">
+    <span class="label">🤝 比喻：兩個陌生人要見面通話</span>
+    你想打電話給一個陌生人，但你們<strong>互相不知道對方的電話號碼</strong>。
+    於是你們先透過<strong>一個共同朋友</strong>幫忙：交換名片、講好「我用中文、你也聽得懂中文」、約好在哪見面。
+    講好之後，<strong>之後的通話就你們兩個直接講</strong>，那個朋友就退場了。
+  </div>
+  <p>視訊也一樣，分成清楚的兩段：</p>
+  <ul>
+    <li>🤝 <strong>「講好怎麼連」這段（信令）</strong>：兩邊先交換「名片」——我支援哪種影像格式、我的網路位址在哪。
+    這段由一個中間的<strong>信令伺服器</strong>幫忙傳話，它只負責「牽線」，<strong>不碰影像本身</strong>。</li>
+    <li>📹 <strong>「真的傳影像」這段（媒體）</strong>：講好之後，影像聲音就盡量<strong>兩邊直接傳</strong>，不繞遠路，這樣最快。</li>
+  </ul>
+  <p>這個交換名片、握手講好怎麼連的過程，工程上叫做交換 <strong>SDP</strong>（我支援什麼格式）和 <strong>ICE</strong>（我可以從哪些路連到你）。名字先記個印象就好。</p>
+  <p class="pause">💭 停一下：信令伺服器明明幫忙「牽線」了，為什麼影像不也順便經過它，要讓兩邊直接傳？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為「牽線」只是一開始講幾句話，資料量超小（幾 KB）；但影像是持續不斷的大流量。如果影像也全部繞經中間伺服器，那台伺服器頻寬馬上被塞爆，而且多繞一圈會更慢更卡。所以原則是：<strong>牽線歸牽線，影像盡量直送，能不繞就不繞。</strong>
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>「兩個人」搞懂了，現在進入正題：<strong>一群人</strong>。整件事就是闖 4 關，一關一關來。</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>握手：開會前先「交換名片」</h3>
+    <p>每個人加入會議時，都要先跟其他人（或跟轉播中心）<strong>交換名片、講好怎麼連</strong>：我用哪種影像格式、我的網路位址在哪、走哪條路連得到我。</p>
+    <div class="analogy"><span class="label">🤝 比喻</span>就像開實體會議前，大家先<strong>互相交換名片、確認彼此聽得懂同一種語言、約好在哪間會議室碰面</strong>。講好了，才開始正式開會。</div>
+    <p>👉 重點：這一關「只在加入的那幾秒」忙碌，講好之後就閒下來了。所以信令伺服器很輕鬆，<strong>它從來不負責搬影像</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>選路：影像到底要怎麼走？（最關鍵的一關）</h3>
+    <p>10 個人開會，每個人都要看到另外 9 個人。影像怎麼走？這裡有三種走法，<strong>選錯了系統就垮</strong>。</p>
+    <div class="analogy">
+      <span class="label">📺 比喻：班上要互相看到彼此的表演</span>
+      想像全班 10 個人，每個人都表演一段，而且<strong>每個人都要看到其他 9 個人的表演</strong>。怎麼安排？
+    </div>
+    <ul>
+      <li><strong>走法 A：每個人各自連上其他每個人（全員互連 / Mesh）</strong>。
+      你要同時對著 9 台攝影機表演、上傳 9 份影像，網路頻寬瞬間爆掉。<strong>人一多，每個人的手機/電腦先撐不住。</strong></li>
+      <li><strong>走法 B：找一個「轉播中心」（SFU）</strong>。每個人只上傳<strong>一份</strong>自己的影像給中心，中心再幫你<strong>轉發</strong>給其他 9 個人。
+      你只要上傳一次，輕鬆很多。這是<strong>主流做法</strong>。</li>
+      <li><strong>走法 C：把大家混成一張畫面（MCU）</strong>。中心收到所有人的影像後，<strong>合成一張九宮格大圖</strong>再送回給每個人。
+      你只收一份很省，但中心要做「剪輯合成」的重活，很吃力又會變慢。</li>
+    </ul>
+    <p>大房間幾乎都選<strong>走法 B（SFU 轉播中心）</strong>：每人只上傳一份，中心只負責「轉發」不做「合成」，又快又省力。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>適應：網路差的人，自動給他糊一點的畫面（simulcast）</h3>
+    <p>會議裡有人用光纖（網路超快），有人在捷運上（網路爛）。同一份高清影像送給捷運上的人，他一定卡到爆。怎麼辦？</p>
+    <div class="analogy">
+      <span class="label">📡 比喻：同一個節目，播高/中/低三種畫質</span>
+      像 YouTube 一支影片可以選 1080p / 480p / 240p。
+      視訊也是：每個人<strong>同時上傳「高、中、低」三種畫質</strong>給轉播中心。
+      網路好的訂高清，網路爛的<strong>自動切到低畫質</strong>——畫面糊一點但不卡，比卡死好。
+    </div>
+    <p>這個「同時上傳多種畫質、讓每個人各取所需」的招數叫 <strong>simulcast</strong>。
+    關鍵好處：<strong>一個網路爛的人，不會拖垮整場會議</strong>——他自己收糊的，別人照樣看高清。網路一回復，又自動升回高畫質。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>聚焦：誰在說話，就自動放大誰（active speaker）</h3>
+    <p>10 個人的九宮格，眼睛該看哪？系統會幫你決定。</p>
+    <div class="analogy">
+      <span class="label">🎤 比喻：會議室的鏡頭自動對準發言人</span>
+      高級會議室有「智慧攝影機」，<strong>誰拿起麥克風講話，鏡頭就自動轉過去拍他</strong>。
+      視訊也一樣：每個人的麥克風<strong>持續回報自己的音量</strong>，系統挑出<strong>當下音量最大的人</strong>＝主講者，通知大家把他的畫面放大。
+    </div>
+    <p>這叫 <strong>active speaker（主講者偵測）</strong>。順帶一提：被放大的主講者，通常也會優先收到<strong>高畫質</strong>（反正大家在看他）。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 開會前<strong>交換名片講好怎麼連</strong> → ② 找一個<strong>轉播中心（SFU）</strong>幫大家轉影像 → ③ 網路差的人<strong>自動收糊畫面</strong> → ④ <strong>正在說話的人自動被放大</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「卡頓 / 延遲」</span>
+    講話一來一回，超過 0.2 秒就會明顯打斷對話節奏（你會一直跟對方「搶話」）。
+    所以影像要<strong>走最短的路、不做多餘的加工</strong>。也因此影像<strong>掉了就算了不重傳</strong>——一張過時的舊畫面補回來反而更亂。<em>流暢 &gt; 完美畫質。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「一個人爆量拖垮全場」</span>
+    最怕「全員互連」那種走法：人一多，每個人都要上傳好幾份影像，弱網的人直接陣亡，還可能拖累別人。
+    所以才要<strong>轉播中心（SFU）只讓每人上傳一份</strong>，再加 <strong>simulcast 讓弱網的人自己收糊的</strong>，把「一個人爆量」隔離開。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「連不上」</span>
+    很多人在公司防火牆、家用路由器後面，<strong>沒有對外的真實地址</strong>，兩邊想直連卻找不到路。
+    所以要先「<strong>問問自己在網路上長怎樣</strong>」（STUN），真的怎麼樣都直連不通時，就<strong>找一個中繼站幫忙轉</strong>（TURN）——能通就好，雖然繞遠路。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分兩條線看：</p>
+  <ul>
+    <li>🤝 <strong>牽線那條（信令，量小）</strong>：每個人先連上<strong>信令伺服器</strong>交換名片（SDP/ICE），講好怎麼連。它只傳話，不碰影像。</li>
+    <li>📹 <strong>傳影像那條（媒體，量大）</strong>：每個人<strong>上傳一份</strong>自己的影像給 <strong>SFU 轉播中心</strong>；中心查「轉發表」（誰要看誰），把影像<strong>轉發</strong>給該看的人。</li>
+    <li>🎚️ 轉發時，中心會<strong>幫每個收看的人挑畫質</strong>（高/中/低），並標出<strong>誰是主講者</strong>。</li>
+    <li>🌐 旁邊還有 <strong>STUN/TURN</strong>：幫忙解決「在防火牆後面連不上」的問題（先問位址，不行就找中繼站轉）。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>信令 (Signaling)</td><td>開會前「交換名片、講好怎麼連」的牽線過程</td></tr>
+    <tr><td>SDP</td><td>名片內容：「我支援哪種影像格式」</td></tr>
+    <tr><td>ICE candidate</td><td>「我可以從哪幾條路被連到」的候選路徑</td></tr>
+    <tr><td>WebRTC</td><td>瀏覽器內建的「即時音視訊」技術，上面這些都是它的一部分</td></tr>
+    <tr><td>SFU（轉播中心）</td><td>每人上傳一份，伺服器「轉發」給其他人（主流）</td></tr>
+    <tr><td>MCU（混流中心）</td><td>把大家影像「合成一張九宮格」再送回，省下行但很吃力</td></tr>
+    <tr><td>Mesh / P2P（全員互連）</td><td>每人直連每人，人一多就爆，只適合 2~3 人</td></tr>
+    <tr><td>simulcast</td><td>同時上傳高/中/低三種畫質，弱網的人自動收低的</td></tr>
+    <tr><td>active speaker</td><td>自動偵測「正在說話的人」並放大</td></tr>
+    <tr><td>STUN</td><td>問「我在網路上長怎樣」，幫忙打洞直連</td></tr>
+    <tr><td>TURN</td><td>直連真的不通時，找一個中繼站幫你轉（最後手段）</td></tr>
+    <tr><td>NAT</td><td>路由器/防火牆把你藏在後面，導致外面直接連不到你</td></tr>
+    <tr><td>延遲 (Latency)</td><td>從你開口到對方聽到的時間差</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>水平擴展</td><td>一台轉播中心不夠，就「多擺幾台一起分擔」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂多大的會議室、拉多粗的網路</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>這題最該感受的，是「<strong>頻寬（網路水管粗細）</strong>」這個數字的形狀（數字不必背）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>一路高清影像多大</td><td>720p 約 1.5 Mbps（每秒約 1.5 百萬位元）</td><td>影像很「重」，是主要負擔</td></tr>
+    <tr><td>每個人上傳幾份</td><td>用 SFU 只上傳 <strong>1 份</strong>（含高中低三層約 2.5 Mbps）</td><td>上傳壓力固定，不會因人多而暴增</td></tr>
+    <tr><td>50 人會議，轉播中心要轉多少</td><td>每人收 49 路 → 中心出口約 <strong>1 Gbps（每秒 10 億位元）</strong></td><td>瓶頸在「中心的出口水管」</td></tr>
+    <tr><td>牽線（信令）的量</td><td>只有加入時幾 KB，之後幾乎是 0</td><td>牽線超輕，可跟影像分開擴展</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🚰 關鍵洞察：瓶頸不在牽線，在「出水量」</span>
+    牽線（信令）只是開頭講幾句話，輕得很。真正會撐爆的是<strong>轉播中心往外送影像的總水量</strong>——
+    50 個人每人要收 49 路影像，全部加起來就是一條巨大的水管。所以擴展的重點，永遠是<strong>「中心的出口頻寬」</strong>。
+  </div>
+  <p class="pause">💭 停一下：用「全員互連」的話，為什麼 10 個人就會先讓<strong>使用者的電腦</strong>受不了，而不是伺服器？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為全員互連沒有中心，每個人要<strong>自己對另外 9 個人各上傳一份影像</strong>，等於一個人要同時上傳 9 路（約 13 Mbps），家用網路上傳頻寬根本撐不住。改用 SFU 後，每人只上傳 1 份給中心，<strong>把使用者端的壓力從 9 份壓回 1 份</strong>，代價是換成中心的出口頻寬要夠大。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作。這題的 API 幾乎都是「牽線」用的，影像本身<strong>不走這些單子</strong>（影像直接走轉播中心）。
+  </div>
+  <p>記住幾張關鍵「點餐單」：</p>
+  <pre><code>① 加入會議
+   POST /api/join   給我：{ 房間, 名字 }
+   我回：{ 你的編號, 目前房裡有誰 }</code></pre>
+  <p class="codecaption">就像走進會議室先報到，櫃台給你一個名牌，並告訴你「現在房裡有哪些人」。</p>
+  <pre><code>② 交換名片（SDP / ICE）← 牽線的核心
+   POST /api/sdp   給我：{ 我是誰、要給誰、我的影像格式 }
+   POST /api/ice   給我：{ 我是誰、要給誰、我可以從哪條路被連到 }</code></pre>
+  <p class="codecaption">信令伺服器只是<strong>幫你把名片轉交給對方</strong>，它不看內容、不碰影像，純粹「傳話」。</p>
+  <pre><code>③ 回報「我網路只剩多少」→ 中心幫我挑畫質
+   POST /api/bandwidth  給我：{ 我是誰, 我現在頻寬只剩 400 }
+   我回：{ 幫你切到 "中畫質" }</code></pre>
+  <p class="codecaption">這就是 simulcast 的自動降階：你網路變差，中心就把你那一路切到比較糊的層，先保不卡。</p>
+  <pre><code>④ 回報「我現在音量多大」→ 中心選出主講者
+   POST /api/audio  給我：{ 我是誰, 我音量 0.83 }
+   我回：{ 現在主講者是你 }</code></pre>
+  <p class="codecaption">大家都回報音量，中心挑最大聲的當主講者，再通知所有人去放大他。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：幾本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題主要記這幾本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏠</span>房間簿 + 成員簿（誰在哪間房）</h3>
+    <p>房間簿：每間會議室一列（房號、建立時間）。成員簿：每個參加者一列
+    <code>編號、在哪間房、名字、<strong>目前頻寬</strong>、<strong>最近音量</strong></code>。</p>
+    <div class="analogy"><span class="label">為什麼要記「頻寬」和「音量」？</span>
+      頻寬 → 決定<strong>幫你挑哪種畫質</strong>（simulcast 選層）；音量 → 決定<strong>誰是主講者</strong>。這兩欄就是系統「自動調整」的依據。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📨</span>名片信箱（暫存還沒被取走的名片）</h3>
+    <p>記「誰要傳給誰、是 SDP 還是 ICE、內容、時間」。
+    就像一個<strong>公司信箱</strong>：你的名片先放著，對方上線了再來取走。這就是「信令中繼」。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔀</span>轉發表（轉播中心的核心：誰的影像要轉給誰）</h3>
+    <p>記 <code>誰上傳的影像（publisher）、要轉給誰看（subscriber）、用哪一層畫質（高/中/低）</code>。</p>
+    <div class="analogy"><span class="label">轉發表就是 SFU 的大腦</span>
+      10 個人的房間，這張表會有很多列：<strong>「A 的影像 → 轉給 B（高）、轉給 C（低）…」</strong>。
+      每一列都能挑不同畫質，因為每個收看的人網路狀況不同。表雖然長，但<strong>每個人仍然只上傳一份影像</strong>，這就是 SFU 省力的關鍵。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>小房間還架轉播中心，太浪費</td><td>2~3 人直接<strong>兩邊互連</strong>，連中心都省了</td></tr>
+    <tr><td>轉播中心出口水管被塞爆（~Gbps 級）</td><td>幫弱網的人<strong>降畫質</strong>少送一點、限制同時收的高清路數</td></tr>
+    <tr><td>萬人演講（webinar），影像流爆炸</td><td><strong>只訂主講者+少數可見的人</strong>的影像，其他人的先暫停不收</td></tr>
+    <tr><td>一台轉播中心撐不住一場大會</td><td><strong>多台中心串接</strong>：跨機只傳一份，到了當地再分送（級聯）</td></tr>
+    <tr><td>跨國開會，地球另一端很遠很慢</td><td>每個人連<strong>離自己最近的那台中心</strong>，中心之間再互聯</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 轉播中心(SFU) vs 混流中心(MCU)</span>
+    SFU 只<strong>轉發</strong>影像，不加工，所以快又省 CPU，但每個收看的人都要拉一條（下行頻寬大）。
+    MCU 把大家<strong>合成一張</strong>，下行很省，但「合成」這個重活很吃 CPU 又會變慢。
+    大房間<strong>選 SFU</strong>；只有要錄影、或相容很老的設備時，才考慮 MCU。</div>
+  <div class="fear"><span class="label">⚖️ 全員互連 vs 轉播中心</span>
+    小房間全員互連最省（不用伺服器、最快）；但人一多，<strong>每個人的上傳就爆</strong>，所以改用轉播中心把上傳壓回 1 份。
+    分界點大概就是「2~3 人 vs 更多人」。</div>
+  <div class="fear"><span class="label">⚖️ 牽線要可靠 vs 影像可以掉</span>
+    牽線（信令）的名片<strong>一定要送到</strong>，掉了就連不上；但影像幀<strong>掉了就算了，不重傳</strong>——
+    因為一張慢半拍補回來的舊畫面，反而會讓畫面更亂。<em>影像追流暢，不追完整。</em></div>
+  <details class="qa"><summary>💭 追問：有人在公司防火牆後面，怎麼樣都連不上怎麼辦？</summary>
+    先用 STUN「問自己在網路上長怎樣」嘗試打洞直連；真的不通（對稱型 NAT）就用 TURN 中繼站幫忙轉所有影像——能通就好，代價是繞遠路、多花頻寬、稍微慢一點。</details>
+  <details class="qa"><summary>💭 追問：上百人的大會議，畫面那麼多怎麼不卡？</summary>
+    用「分頁訂閱」：你的螢幕一次只看得到幾個人，系統就<strong>只送你「看得到的那幾個人」+ 主講者</strong>的影像，其他人的暫停不送。再配合給弱網的人降畫質。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「牽線 + 轉播中心決策」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8030 -t public
+# 然後瀏覽器打開 http://localhost:8030</code></pre>
+  <ol>
+    <li>先<strong>建一個房間</strong>，再讓<strong>幾個人加入</strong>（等於幾個人進會議室）。</li>
+    <li>貼一段 <strong>SDP / ICE</strong>，看它怎麼幫你「轉交名片」給對方。</li>
+    <li>觀察<strong>轉發表</strong>：誰的影像要轉給誰。</li>
+    <li>調某個人的<strong>頻寬</strong>，看他被切到哪一層畫質（降階）；回報某人<strong>音量</strong>，看誰被選成主講者。</li>
+  </ol>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    這個 demo <strong>不傳真的影像</strong>（PHP 環境跑不了真實的 WebRTC 媒體）。它模擬的是<strong>「牽線」和「轉播中心的決策」</strong>——
+    轉發表怎麼建、依頻寬怎麼挑畫質、怎麼選主講者。這些「決策邏輯」正是面試真正在考的東西，而且是<strong>真的可以跑、邏輯為真</strong>的。真實系統會把同樣的決策接到 mediasoup / Janus 等正式的 SFU 引擎上。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「交換名片」的比喻，說說信令在做什麼？為什麼影像不走信令？</summary>
+    信令＝開會前交換名片、握手講好怎麼連（我支援什麼格式、我的網路位址在哪），由信令伺服器幫忙傳話。影像不走信令，是因為信令只是開頭幾句話、量很小，而影像是持續的大流量，繞經中間會塞爆又變慢，所以影像盡量直送或走轉播中心。</details>
+  <details class="qa"><summary>Q2：10 人會議，影像三種走法（全員互連 / SFU / MCU）差在哪？大房間選哪個？</summary>
+    全員互連＝每人對每人直連，上傳會爆，只適合 2~3 人。SFU＝每人上傳一份給轉播中心，中心轉發給其他人，省力又快。MCU＝中心把大家合成一張九宮格再送回，下行省但很吃 CPU 又慢。大房間選 SFU。</details>
+  <details class="qa"><summary>Q3：simulcast 是什麼？用 YouTube 畫質選單的比喻說說看。</summary>
+    像 YouTube 同一支影片有 1080p/480p/240p。simulcast 就是每個人同時上傳高/中/低三種畫質，網路差的人自動收低畫質（糊但不卡），網路好的收高畫質。關鍵是一個弱網的人不會拖垮整場會議。</details>
+  <details class="qa"><summary>Q4：active speaker（主講者偵測）怎麼運作？</summary>
+    每個人的麥克風持續回報自己的音量，系統挑出當下音量最大的人當主講者，通知大家把他的畫面放大（通常也優先給他高畫質）。就像智慧會議室鏡頭自動對準發言人。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼說瓶頸不在「信令」而在「轉播中心的出口頻寬」？</summary>
+    信令只在加入的那幾秒交換幾 KB 名片，之後幾乎是 0，超輕。真正的負擔是中心要把每個人的影像轉發給其他所有人——50 人房每人收 49 路，加總可達 ~1 Gbps，這條出口水管才是會撐爆的地方。</details>
+  <details class="qa"><summary>Q6（工程）：SFU 的「轉發表」裡記什麼？為什麼每一列可以是不同畫質？</summary>
+    記「誰上傳的影像 → 要轉給誰看 → 用哪一層畫質（高/中/低）」。每一列可不同畫質，是因為每個收看的人網路狀況不同：網路好的那一列給高層，網路差的那一列給低層。但不管轉發表多長，每個人仍只上傳一份影像。</details>
+  <details class="qa"><summary>Q7（工程）：有人在防火牆後面連不上，STUN 和 TURN 各扮演什麼角色？</summary>
+    STUN 先幫你「問自己在公網上長怎樣」，多數情況能藉此打洞直連。如果是對稱型 NAT 怎麼樣都打不通，就用 TURN 當中繼站，把所有影像經它轉一手——能連通但繞遠路、耗頻寬、稍慢，是最後手段。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>視訊會議 = 先「講好怎麼連」，再「找轉播中心幫大家轉影像」。</strong></p>
+    <p><strong>4 個關卡：</strong>① 交換名片握手（信令 SDP/ICE）→ ② 找轉播中心 SFU 轉影像（每人只上傳一份）→ ③ 網路差的人自動收糊畫面（simulcast）→ ④ 正在說話的人自動放大（active speaker）。</p>
+    <p><strong>3 個怕：</strong>怕卡頓（影像走最短路、掉了不重傳）、怕一個人爆量拖垮全場（用 SFU + simulcast 隔離）、怕連不上（STUN 打洞、不行就 TURN 中繼）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>瓶頸在「中心出口頻寬」不在信令 → 用「點餐單(API)」交換名片、回報頻寬挑畫質、回報音量選主講者 → 用「轉發表」決定誰的影像轉給誰、各挑畫質 → 大會議靠多台中心串接、分頁訂閱、就近連線來拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉚ 視訊會議 Zoom · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

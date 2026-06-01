@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑯ Typeahead 自動完成 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑯ Typeahead 自動完成 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼一打字就能「秒回」建議？</a></li>
+      <li><a href="#steps">把系統拆成 3 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在 Google、YouTube、蝦皮的搜尋框打字，<strong>還沒打完</strong>，下面就「啪」地跳出一排建議：
+  你打「自」，它馬上列出「自動完成」「自助餐」「自行車」。而且這排建議，是<strong>大家最常搜的那幾個</strong>，
+  排在最上面的就是最熱門的。</p>
+  <p>這就是 <strong>Typeahead（自動完成）</strong>。它的難，難在三點：你<strong>每按一個鍵就要回一次</strong>（超高頻）、
+  要在<strong>幾毫秒內</strong>回完（不然你已經打下一個字了）、而且要<strong>照熱門程度排好</strong>（最多人搜的排前面）。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    自動完成 = <strong>「你打前幾個字，我秒猜出大家最常搜的那幾個」</strong>。
+    秘訣是：答案<strong>事先就算好擺著</strong>，你一打字就直接拿，不是當場現算。
+  </div>
+
+  <h2 id="why">2. 為什麼一打字就能「秒回」建議？</h2>
+  <p>很多人第一個疑問是：「全世界有上億條搜尋詞，我打一個字，它怎麼可能瞬間就從上億條裡挑出最熱門那幾個？」
+  關鍵在兩個你早就懂的生活經驗——</p>
+  <div class="analogy">
+    <span class="label">📖 經驗一：查英文字典是「按字母分層翻」</span>
+    你查 "apple" 不會從第一頁一頁頁翻。你先翻到 <strong>a</strong> 區，再進 <strong>ap</strong>，再 <strong>app</strong>……
+    一層一層往下走，幾步就到。<strong>這種「按字母一層一層分下去」的結構，就是 Trie（字典樹）</strong>：
+    打前綴就等於「走到字典裡那個位置」。
+  </div>
+  <div class="analogy">
+    <span class="label">🍱 經驗二：便利商店的「熱銷排行架」</span>
+    便利商店不會等你問「最近大家最常買什麼」才當場去翻一整年的發票統計。
+    它<strong>事先就把熱銷前幾名做成一張排行榜貼在架上</strong>，你一看就知道。
+    自動完成也一樣：<strong>每個前綴位置，都事先把「最熱門前幾名（Top-K）」算好擺在那</strong>。
+  </div>
+  <p>把這兩個合起來，就是這題的靈魂：打字 → <strong>沿字典樹走到那個前綴節點</strong>（很快，只走幾步）→
+  <strong>直接讀出那個節點上事先貼好的熱門排行榜</strong>（不用現算）。所以才能秒回。</p>
+  <p class="pause">💭 停一下：為什麼一定要「事先算好」？當場現算不行嗎？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為你<strong>每按一個鍵就是一次查詢</strong>，量超大；而且要在你打下一個字之前回完（幾毫秒）。
+    如果你打「自」，系統當場去把所有「自開頭」的詞（可能上百萬個）全撈出來、排序、取前幾名——太慢了，會卡。
+    所以改成<strong>事先（離線時）就把每個前綴的熱門榜算好擺著</strong>，打字當下只要「走過去、讀出來」。這叫「<strong>預先算好，換查詢飛快</strong>」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 3 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 3 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>建字典樹：把詞「按字母分層擺好」</h3>
+    <p>第一步，把所有人搜過的詞，照<strong>字典樹（Trie）</strong>的方式擺好——就像英文字典按字母分層。</p>
+    <div class="analogy">
+      <span class="label">🌳 比喻：一棵分岔的樹</span>
+      想像一棵樹，從樹根出發。要存「貓」就走「ㄇ→ㄠ」這條路；要存「貓咪」就在「貓」後面再接一個「咪」。
+      <strong>共用開頭的詞會共用同一段路</strong>（「貓」「貓咪」「貓砂」都先走過同一個「貓」節點）。
+    </div>
+    <p>👉 重點：打前綴就是「<strong>從樹根照著字往下走</strong>」。打「自動」就走到「自→動」那個節點。走到哪，就代表你打了哪個前綴。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>每個前綴「預先貼好熱門排行榜」（Top-K）</h3>
+    <p>光有字典樹還不夠——走到「自」這個節點，下面可能有上百萬個「自開頭」的詞。<strong>當場排序太慢</strong>。</p>
+    <div class="analogy">
+      <span class="label">🏆 比喻：每個路口都掛一塊「附近熱門榜」</span>
+      想像字典樹的<strong>每個節點，都事先掛一塊小牌子</strong>，上面寫「從這裡往下走，最多人搜的前 5 名是這些」。
+      你走到「自」就看「自」那塊牌子，走到「自動」就看「自動」那塊。<strong>看牌子，不用自己數。</strong>
+    </div>
+    <p>這個「每個前綴最熱門的前幾名」就叫 <strong>Top-K</strong>（K 通常是 5 到 10）。
+    它是<strong>事先算好</strong>的：依照「大家搜過幾次」（歷史頻率）排出來，存在每個節點上。</p>
+    <p>⚠️ 小細節：這些榜怎麼算？<strong>由下往上合併</strong>——先算好底層每個詞的熱度，
+    再把子節點的榜往上合，每往上一層就取「合起來後最熱的前 K 名」。建好後，查詢就只是「走過去、讀牌子」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查詢：打字 → 走過去 → 讀榜，秒回</h3>
+    <p>前面兩關都是<strong>事先準備</strong>。真正使用者打字時，做的事極簡單：</p>
+    <div class="analogy">
+      <span class="label">🚶 比喻：照地址走到門口，直接拿櫃台早備好的東西</span>
+      你打「自動」，系統就照「自→動」走到那個節點（走 2 步），<strong>直接讀出那節點貼好的 Top-K 榜</strong>回給你。
+      不用翻整棵樹、不用現場排序——所以無論底下有 100 個還是 100 萬個詞，<strong>都一樣快</strong>。
+    </div>
+    <p>這就是為什麼工程上說它的查詢速度是「<strong>O(前綴長度)</strong>」：
+    白話講就是「<strong>只跟你打了幾個字有關，跟總共有幾百萬個詞完全無關</strong>」。打 2 個字就走 2 步，這麼簡單。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① 把詞照<strong>字典樹</strong>分層擺好 → ② 每個前綴節點<strong>事先貼好熱門榜（Top-K）</strong> → ③ 打字就<strong>走過去讀榜</strong>，秒回。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「慢」</span>
+    你<strong>每按一個鍵就要回一次</strong>，要在你打下個字之前（幾毫秒）回完。
+    所以絕<strong>不能</strong>查詢時當場掃描排序——一定要「<strong>事先算好榜、查詢只讀</strong>」。<em>把功夫花在離線，換取線上飛快。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「榜跟不上熱點」</span>
+    突發新聞、節慶關鍵字一爆紅，大家狂搜，但你的榜還是舊的，建議就「過時」了。
+    所以要能<strong>近即時更新</strong>：一邊定時整批重算（穩），一邊對爆紅的詞做「小補丁」快速插隊（快）。<em>新鮮 vs 穩定都要顧。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「裝不下 / 擠在同一格」</span>
+    上億條詞的字典樹很大，可能<strong>一台機器的記憶體裝不下</strong>；而且像「a」「自」這種超短前綴<strong>大家都在打</strong>，流量全擠一處。
+    所以要<strong>切開放到多台機器（分片）</strong>，並對最熱的前綴<strong>多放幾份副本</strong>分攤。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分成「平常線上秒回」和「背後默默更新」兩條線：</p>
+  <ul>
+    <li>⌨️ 你<strong>打字</strong>（每按一鍵一次請求）→</li>
+    <li>⚡ <strong>建議服務</strong>（記憶體裡放著整棵字典樹）照前綴<strong>走過去、讀出該節點的 Top-K 榜</strong>→ 秒回給你 →</li>
+    <li>👀 你<strong>選了一個建議 / 真的搜了</strong> → 系統<strong>只記一筆日誌</strong>（不馬上改榜）→</li>
+    <li>📊 背後的<strong>聚合管線</strong>把日誌統計成「每個詞被搜幾次」→</li>
+    <li>🏗️ <strong>離線重建</strong>：用最新的熱度<strong>重蓋一棵新字典樹、重貼每個節點的 Top-K 榜</strong> → 整批<strong>熱載入</strong>換上線。</li>
+  </ul>
+  <p>關鍵：<strong>線上那棵樹是唯讀的、只負責秒回</strong>；更新榜的髒活全在背後離線做，永遠不拖慢你打字。</p>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>Trie（字典樹）</td><td>像英文字典「按字母一層一層分下去」的樹，打前綴就走到那個節點</td></tr>
+    <tr><td>前綴（prefix）</td><td>你打了一半的字，例如「自動」</td></tr>
+    <tr><td>節點（node）</td><td>字典樹上的一個「路口」，對應一個前綴</td></tr>
+    <tr><td>Top-K</td><td>每個前綴「最熱門的前 K 名」排行榜（K 約 5~10）</td></tr>
+    <tr><td>O(前綴長度)</td><td>查詢快慢只跟「你打幾個字」有關，跟總詞數無關</td></tr>
+    <tr><td>頻率 / 熱度</td><td>這個詞「被大家搜過幾次」，用來排榜</td></tr>
+    <tr><td>讀重型</td><td>查詢（讀）遠多於更新（寫），這題讀是寫的數百倍</td></tr>
+    <tr><td>離線重建</td><td>背後定時把整棵樹重蓋一次、重算榜，再換上線</td></tr>
+    <tr><td>近即時更新</td><td>對爆紅的詞做「小補丁」，幾分鐘就進榜</td></tr>
+    <tr><td>分片（Sharding）</td><td>樹太大裝不下，就切開放到多台機器</td></tr>
+    <tr><td>快取 (Cache)</td><td>把超熱前綴的答案另外存一份，命中就更快</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>debounce（防抖）</td><td>你連打很快時，前端「等你停半拍」才送一次，少打擾後端</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少次搜尋</td><td>~5 億次/日（約每秒 6000 次）</td><td>本身就不少</td></tr>
+    <tr><td>每秒多少次「打字查詢」</td><td>每次搜尋平均敲 6 鍵，每鍵一查 → <strong>每秒約 3.5 萬次</strong>（尖峰再 ×3 ≈ 10 萬）</td><td>打字查詢是搜尋的好幾倍，極度繁忙</td></tr>
+    <tr><td>總共多少種詞</td><td>去重後約 1 億條獨特查詢詞</td><td>字典樹會很大</td></tr>
+    <tr><td>字典樹多大</td><td>壓縮後數 GB ~ 數十 GB</td><td>還塞得進記憶體（這很重要）</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">📈 關鍵洞察：讀爆多、寫很少</span>
+    這系統是「<strong>讀重型</strong>」的極端：大家<strong>一直在打字查（讀）</strong>，但「榜要更新（寫）」相對很少。
+    就像<strong>一張貼在牆上的熱銷排行榜，每天被幾百萬人看，但一天只重印一次</strong>。
+    所以設計重心全押在「<strong>讓『讀』飛快</strong>」，更新慢一點沒關係。
+  </div>
+  <p class="pause">💭 停一下：既然「讀」這麼多、「寫」這麼少，這給了我們什麼設計上的好處？</p>
+  <details class="qa"><summary>看答案</summary>
+    可以放心<strong>把所有功夫花在「事先準備」上</strong>：離線時慢慢把每個節點的 Top-K 算到好，
+    換取線上每次查詢都「只讀不算」。寫很少，所以「離線重算整棵樹」的成本攤下來划算。
+    這正是「<strong>用空間和離線時間，換查詢速度</strong>」的經典取捨。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住兩張「點餐單」：</p>
+  <pre><code>① 取得建議（讀，超高頻，最關鍵的那條路）
+   GET /api/v1/suggest?q=自&limit=10
+   給我：你打的前綴「自」、想要幾筆
+   我回：{ 前綴:"自", 建議:[ {詞:"自動完成", 熱度:98213},
+                            {詞:"自助餐",   熱度:41020}, ... ] }</code></pre>
+  <p class="codecaption">這條路<strong>每秒被打幾萬次</strong>，所以它必須超快、可以「多開幾台一起扛」（無狀態），答案還能短暫快取一下。它就是整個系統的命脈。</p>
+  <pre><code>② 回報「被選中」（寫，只是記一筆，慢慢處理）
+   POST /api/v1/select   Body: { 詞:"自動完成" }
+   我回：202「收到了！」← 立刻回，不馬上改榜</code></pre>
+  <p class="codecaption">為什麼「立刻回 202、不馬上改榜」？因為改榜是背後離線慢慢做的髒活。
+  使用者選了什麼，我們<strong>只先記一筆日誌</strong>，絕不在你打字的關鍵路徑上去動那棵樹——就像餐廳收下你的意見卡，但不會當場停下來重排菜單。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：一棵活樹 + 兩本帳</span>
+    系統的資料分兩種：線上「<strong>那棵秒回用的字典樹</strong>」（放記憶體），和背後離線用的「<strong>兩本帳</strong>」（用來重蓋樹）。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🌳</span>字典樹節點（放記憶體，負責秒回）</h3>
+    <p>每個節點記三樣：<code>往下的分岔（children）、這裡是不是一個完整的詞（isWord）、<strong>這個前綴的 Top-K 榜</strong></code>。</p>
+    <div class="analogy"><span class="label">為什麼節點要存 Top-K？</span>
+      如果不存，查詢時就得從這個節點往下把整棵子樹翻一遍再排序——最熱門的短前綴（像「a」）底下可能上百萬個詞，會直接卡爆。
+      <strong>把榜事先算好貼在節點上</strong>，查詢就退化成「走過去、讀陣列」，跟底下有幾個詞無關。<strong>這是本題的靈魂。</strong></div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>查詢日誌（一直往後追加的流水帳）</h3>
+    <p>每次「被搜 / 被選中」就<strong>append 一筆</strong>：<code>詞、時間、地區…</code>。
+    它只負責「忠實記下發生了什麼」，不負責即時算榜。寫起來超快，因為只是往後面加一行。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📊</span>詞頻表（離線統計出來的熱度）</h3>
+    <p>把上面的流水帳<strong>聚合</strong>成：<code>詞（主鍵）、頻率（被搜幾次）</code>。
+    可以做「時間衰減」——讓<strong>最近的搜尋加重、老掉的搜尋慢慢退場</strong>，這樣榜才會反映「現在的熱門」。重蓋字典樹時就照這張表排榜。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>查詢時當場翻子樹、排序</td><td>節點<strong>預存 Top-K 榜</strong>，查詢降到「走過去讀榜」（O(前綴長度)）</td></tr>
+    <tr><td>每按一鍵一次請求，量暴衝</td><td>建議服務<strong>無狀態、多開幾台</strong>分攤 + 前端 <strong>debounce</strong>（停半拍才送）</td></tr>
+    <tr><td>上億詞的樹一台記憶體裝不下</td><td>依<strong>前綴首字分片</strong>到多台（a–f 一台、g–m 一台…）+ 索引壓縮</td></tr>
+    <tr><td>「a」「自」等超短前綴流量全擠一處</td><td>那台<strong>多放幾份副本</strong> + 在邊緣/CDN <strong>快取</strong>熱門建議</td></tr>
+    <tr><td>爆紅熱詞太慢進榜</td><td>離線整批重建（穩）＋ 串流<strong>小補丁</strong>（快）<strong>雙軌並用</strong></td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 查詢時排序 vs 事先存好榜</span>
+    當場排：省記憶體、改完馬上反映，但查詢慢。事先存榜：查詢飛快，但<strong>樹變大、更新要重算</strong>。
+    這題是讀重型，<strong>選「事先存好榜」</strong>——犧牲一點記憶體和更新成本，換每次打字都快。</div>
+  <div class="fear"><span class="label">⚖️ 整批重建 vs 近即時補丁</span>
+    整批重建（如每小時重蓋整棵樹）：簡單、穩定、一致，但熱詞進榜慢。
+    近即時補丁：熱詞幾分鐘進榜，但要處理併發更新、比較複雜。<strong>多數系統兩者並用</strong>：大盤靠重建，熱點靠補丁。</div>
+  <div class="fear"><span class="label">⚖️ Trie 字典樹 vs 直接用 (前綴→清單) 的對照表</span>
+    用 hash 表「前綴 → 建議清單」也能查，但<strong>每個詞要把它所有前綴都存一份</strong>（「自動完成」要存「自」「自動」「自動完」…），記憶體爆炸。
+    Trie 天然<strong>共用開頭、又能在節點直接掛榜</strong>，所以是首選。</div>
+  <details class="qa"><summary>💭 追問：打錯字（拼字錯誤）也想給對的建議怎麼辦？</summary>
+    用「<strong>編輯距離 / 模糊比對 / n-gram</strong>」：先把可能打錯的字猜回正確的，再去查前綴。等於「先糾錯、再走字典樹」。</details>
+  <details class="qa"><summary>💭 追問：中文沒有空白，前綴怎麼切？</summary>
+    中文以<strong>「字元」為單位</strong>一個一個往下走（不像英文用空白分詞）。
+    本題 demo 因為本機 PHP 沒載入 mbstring，是用 PCRE 的 <code>/u</code> 旗標把字串切成一個個字元來處理。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「字典樹 + 熱門榜 + 頻率改變排名」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8016 -t public
+# 然後瀏覽器打開 http://localhost:8016</code></pre>
+  <ol>
+    <li>在輸入框<strong>打前綴</strong>（例如「自」），看下面即時跳出依熱度排好的 Top-K 建議。</li>
+    <li><strong>點一個建議</strong>，等於幫它「被選一次」，它的頻率會 +1。</li>
+    <li>再<strong>查同一個前綴</strong>，看看剛才那個詞是不是<strong>往上爬了</strong>——這就是「選中事件改變排名」。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>當你打第 2、第 3 個字，建議是不是「越來越少、越來越精準」？
+  那就是你<strong>沿著字典樹往下又走了一步</strong>，讀到更深節點上那塊更專一的榜。
+  反覆點同一個建議幾次，看它怎麼一路爬到榜首——這就是<strong>頻率（熱度）決定排名</strong>。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「英文字典」解釋，打前綴怎麼瞬間找到位置？</summary>
+    詞照字典樹（Trie）按字母一層一層分下去擺好。打「自動」就像查字典：先到「自」區、再到「自動」，照著字往下走幾步就到那個節點。走到哪，就代表你打了哪個前綴。</details>
+  <details class="qa"><summary>Q2：為什麼不「當場現算」最熱門那幾名？該怎麼做？</summary>
+    因為每按一鍵就要回一次、量超大又要幾毫秒回完；當場把上百萬個同前綴的詞撈出來排序太慢。改成事先（離線）在每個前綴節點貼好「最熱門前 K 名」的榜，打字時只要「走過去、讀榜」。</details>
+  <details class="qa"><summary>Q3：Top-K 是什麼？用「便利商店排行架」說說看。</summary>
+    Top-K = 每個前綴「最熱門的前 K 名（約 5~10）」。像便利商店事先把熱銷排行榜貼在架上，你一看就知道，不用當場翻一整年發票。系統把這榜事先貼在字典樹每個節點上。</details>
+  <details class="qa"><summary>Q4：為什麼說查詢速度跟「總共有幾百萬個詞」無關？</summary>
+    因為查詢只是「照前綴走到對應節點、讀出那節點貼好的榜」。你打 2 個字就走 2 步，跟底下有 100 個還是 100 萬個詞無關——這就是 O(前綴長度)。</details>
+  <details class="qa"><summary>Q5（工程）：使用者「選了一個建議」，為什麼我們立刻回 202、不馬上改榜？</summary>
+    因為改榜是背後離線慢慢做的髒活，不能卡在你打字的關鍵路徑上。所以選中事件只先「記一筆日誌」，由離線管線聚合頻率、重建字典樹、重算各節點 Top-K，再整批換上線。線上那棵樹永遠唯讀、只負責秒回。</details>
+  <details class="qa"><summary>Q6（工程）：字典樹一台機器裝不下、或「自」這種短前綴流量爆量，怎麼辦？</summary>
+    裝不下就依「前綴首字」分片到多台機器（a–f 一台、g–m 一台…），查詢照首字導到對應分片；某些超熱前綴流量集中，就對那台多放幾份副本，並在邊緣/CDN 快取它的建議結果分攤。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼用 Trie 而不是直接拿「前綴→清單」的 hash 對照表？</summary>
+    hash 對照表要把每個詞的「所有前綴」各存一份（「自動完成」要存「自」「自動」「自動完」…），記憶體爆炸。Trie 天然共用開頭、又能直接在節點掛 Top-K 榜，省空間又好查。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>自動完成 = 你打前幾個字，我秒猜出大家最常搜的那幾個。</strong></p>
+    <p><strong>3 個關卡：</strong>① 把詞照<strong>字典樹</strong>按字母分層擺好 → ② 每個前綴節點<strong>事先貼好熱門榜（Top-K）</strong> → ③ 打字就<strong>走過去讀榜</strong>，秒回（速度跟總詞數無關）。</p>
+    <p><strong>3 個怕：</strong>怕慢（事先算好榜、查詢只讀）、怕榜跟不上熱點（重建＋補丁雙軌）、怕裝不下或擠一處（分片＋熱前綴多副本）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>它是極端「讀重型」→ 用「點餐單(API)」溝通，選中只回 202、記一筆日誌 → 一棵唯讀字典樹（節點預存 Top-K）＋背後兩本帳（日誌/詞頻）離線重建 → 找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑯ Typeahead 自動完成 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

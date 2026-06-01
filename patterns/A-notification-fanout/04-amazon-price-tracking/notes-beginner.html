@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>④ Amazon 價格追蹤 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅰️ 通知/Fan-out 扇出</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>④ Amazon 價格追蹤 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">A 通知/Fan-out</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的難點不是「存價格」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在 Amazon 上看到一支耳機要 3000 元，覺得太貴。你按下「<strong>降到 2400 就通知我</strong>」。
+  幾天後價格真的掉到 2400，你的手機「叮」一聲——這就是<strong>價格追蹤</strong>。</p>
+  <p>聽起來很簡單對吧？難的是：商店裡有<strong>好幾億件商品</strong>，盯著它們的人有<strong>好幾千萬</strong>，
+  每件商品價格隨時在變。系統要做到：價格一變，<strong>瞬間找出「誰想要這個價」並只通知對的人</strong>，而且<strong>不能因為價格上下抖動就把人吵到退訂</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    價格追蹤 = <strong>幫幾千萬人盯著降價的自動管家</strong>：價格一變 → 算出「誰等的就是這個價」→ 通知他們，
+    但同一件事<strong>只提醒一次</strong>，不會疲勞轟炸。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的難點不是「存價格」？</h2>
+  <p>很多人第一次看這題會想：「不就是把價格存起來，便宜了就寄信嗎？」——這想法漏掉了兩個會把系統壓垮的真正難關。</p>
+  <div class="analogy">
+    <span class="label">📌 比喻：徵人啟事配對</span>
+    想像一個人力銀行：每天有上千萬人留下「<strong>我想要月薪 4 萬以上的工作</strong>」「我要 5 萬以上」。
+    今天一個新職缺開出「<strong>月薪 4 萬 5</strong>」——你要<strong>瞬間找出「所有開價 4 萬 5 以下都願意」的求職者</strong>通知他們。
+    你<strong>不可能</strong>把上千萬人從頭問一遍「你要的價錢到了沒？」（太慢）。
+  </div>
+  <p>價格追蹤的核心難關就是這個：一筆價格變動，要<strong>飛快</strong>地對上「在等這個價的所有人」。這叫<strong>條件匹配</strong>。</p>
+  <p>第二個難關更隱形：價格常常<strong>在你的目標價附近上上下下抖</strong>（2400→2410→2399→2405…）。
+  如果你「每次低於 2400 就發一次」，使用者一個下午就被你吵幾十次，直接退訂。怎麼讓它<strong>只在「真的降到了」時響一次</strong>，就是第二個難關（叫<strong>去抖</strong>）。</p>
+  <p class="pause">💭 停一下：為什麼「逐一問每個人『你要的價到了沒』」在這題行不通？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為盯著商品的人有上千萬，每件商品價格一變就把這千萬人從頭問一遍，計算量會爆炸。
+    我們需要的是「<strong>反過來</strong>」：事先把「誰要什麼價」整理成一張排好序的表，新價來時<strong>一翻就知道命中誰</strong>，只碰真正達標的人。這就是後面要講的「反向索引」。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>拿價格：商品現在多少錢？</h3>
+    <p>要知道降價，得先<strong>持續知道每件商品「現在多少錢」</strong>。但商品有好幾億件，不可能每件每秒都去問一次（伺服器會被你問爆，成本也炸）。</p>
+    <div class="analogy">
+      <span class="label">🏥 比喻：醫院看診的優先順序</span>
+      護理師不會每個病人每分鐘都量一次血壓。<strong>重症的盯緊一點（常量）、穩定的久久看一次</strong>。
+      系統也一樣：<strong>很多人在盯、價格常變的熱門商品「常常查」；沒人理的冷門商品「久久查一次」</strong>。這叫<strong>分層輪詢</strong>。
+    </div>
+    <p>👉 面試時先問一句：「價格是<strong>商店會主動通知我們</strong>，還是我們得自己去<strong>一直問</strong>？」答案會大大改變這一關怎麼做。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>匹配：這個新價，誰在等？</h3>
+    <p>價格變了，馬上要回答：<strong>「降到這個價，剛好踩中誰設定的門檻？」</strong>這就是第 2 節說的「徵人啟事配對」難關。</p>
+    <div class="analogy">
+      <span class="label">📖 比喻：按價錢排好的名冊</span>
+      把所有盯這件商品的人，<strong>照他們想要的目標價從低排到高</strong>列成一本名冊。
+      新價是 2400 時，你<strong>只要翻到「2400 這一頁」往後看</strong>——後面（目標價 ≥ 2400）的人全部達標，前面的人還沒到，<strong>看都不用看</strong>。
+    </div>
+    <p>這本「照目標價排好、能一翻就命中」的名冊，工程上叫 <strong>反向索引</strong>（reverse index）。
+    它把「逐一問一千萬人」變成「<strong>翻到那一頁、往後撈</strong>」，速度天差地遠。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>去抖：別像門鈴被按住一直響</h3>
+    <p>命中的人找到了，先別急著發！價格會在門檻附近<strong>抖來抖去</strong>，如果每次低於門檻都發，使用者會被轟炸。</p>
+    <div class="analogy">
+      <span class="label">🔔 比喻：門鈴按一次別連響</span>
+      門鈴被按一下，<strong>響一聲就好</strong>。如果手指停在按鈕上微微顫抖，門鈴跟著「叮叮叮叮」連響，誰受得了？
+      價格追蹤要做的，就是<strong>「降到了 → 響一聲 → 然後安靜一陣子，別再為同一件事吵你」</strong>。
+    </div>
+    <p>系統靠一個<strong>三檔狀態</strong>來管這件事（像門鎖的三個位置）：</p>
+    <ul>
+      <li><strong>ARMED（待命）</strong>：還沒達標，隨時準備通知。像門鈴「裝好電池等著被按」。</li>
+      <li><strong>TRIGGERED → COOLDOWN（響過了、冷靜中）</strong>：剛通知過你，進入<strong>冷卻期</strong>（例如 24 小時），這段時間<strong>就算價格還在門檻下也不再吵你</strong>。</li>
+      <li><strong>回到 ARMED（重新待命）</strong>：要等價格<strong>明顯回升</strong>（不只是漲一塊，要漲過一個「安全線」）才重新武裝。這條安全線避免「降一塊→升一塊→又降」的反覆觸發。</li>
+    </ul>
+    <p>這個三檔狀態的循環就叫<strong>去抖狀態機</strong>，是這題面試最常被追問的核心。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>通知：同時送給好多人（fan-out）</h3>
+    <p>熱門商品（像新款 iPhone）可能<strong>上百萬人</strong>同時在等降價。一旦降價，要<strong>同時</strong>通知這麼多人。</p>
+    <div class="analogy">
+      <span class="label">🧑‍🏫 比喻：老師通知全班</span>
+      老師通知全班不會自己一個個打電話（慢），而是分給幾個<strong>小組長分頭傳</strong>（同時進行）。
+      系統也一樣：把名單切成很多份，丟給<strong>一大群「推播工人」同時送</strong>。
+    </div>
+    <p>這個「一筆降價 → 炸開成上百萬則通知」的動作，就叫 <strong>fan-out（扇出）</strong>，也是這一組（A 組）的共同主題。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 分層<strong>拿價格</strong> → ② 用排好序的名冊<strong>匹配出誰在等</strong> → ③ <strong>去抖</strong>（響一聲就好、別連響）→ ④ 一群工人<strong>同時推播</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「吵到退訂」</span>
+    這是價格追蹤<strong>最致命</strong>的怕。價格一抖就連發通知，使用者一氣之下把追蹤全關掉——以後真降價也收不到了。
+    所以才需要<strong>去抖狀態機 + 冷卻期 + 回升安全線</strong>，讓「同一件事只響一次」。<em>寧可少吵，不可亂吵。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「慢 / 算不動」</span>
+    幾億商品 × 幾千萬個門檻，如果每筆變價都把所有人問一遍，機器直接跑不動。
+    所以要用<strong>反向索引</strong>（排好序的名冊）只碰達標的人，還要在拿價格那關用<strong>分層輪詢</strong>省下沒必要的查詢。<em>只算必要的，不做白工。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「漏發 / 重發」</span>
+    使用者等的價真的到了卻沒收到通知（漏發）→ 信任崩盤；同一次達標卻收到十封（重發）→ 一樣惹人厭。
+    所以原則是<strong>寧可重送也不漏送</strong>（at-least-once），再用「同一次達標只算一次」的<strong>去重（冪等）</strong>把重送擋掉。<em>不漏、也不重。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🏪 <strong>外部商店</strong>有價格 →</li>
+    <li>🎣 <strong>價格擷取器</strong>分層去拿價格（熱門常拿、冷門少拿）→</li>
+    <li>🔍 <strong>變更偵測</strong>先確認「價格真的變了嗎？」沒變就丟掉，不打擾下游 →</li>
+    <li>📖 <strong>規則匹配引擎</strong>查那本排好序的名冊（反向索引），算出「誰在等這個價」→</li>
+    <li>🔔 <strong>去抖狀態機</strong>判斷「這個人現在該不該響」（待命？還在冷卻？）→</li>
+    <li>📨 通過的人丟進<strong>通知佇列</strong>，一群工人<strong>同時推播</strong>到使用者手機（送不到的會重試，真失敗丟「回收桶」事後檢討）。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>反向索引</td><td>照目標價排好的「名冊」：新價一來，翻到那頁往後撈就是達標的人</td></tr>
+    <tr><td>條件匹配</td><td>「這個價，剛好踩中誰設的門檻？」的配對動作（徵人啟事配對）</td></tr>
+    <tr><td>去抖（debounce）</td><td>價格抖來抖去時，讓通知「響一聲就好」、別連響</td></tr>
+    <tr><td>狀態機 ARMED/TRIGGERED/COOLDOWN</td><td>三檔位置：待命 / 剛響過 / 冷靜中</td></tr>
+    <tr><td>冷卻期（cooldown）</td><td>響過之後安靜一陣子（如 24h），這段時間不再為同件事吵你</td></tr>
+    <tr><td>遲滯帶 / 回升安全線（hysteresis）</td><td>價格要漲過一條線才重新武裝，避免在門檻上下反覆觸發</td></tr>
+    <tr><td>fan-out（扇出）</td><td>一筆降價 → 同時通知超多人</td></tr>
+    <tr><td>分層輪詢</td><td>熱門商品常去拿價、冷門商品久久拿一次（像醫院分輕重症）</td></tr>
+    <tr><td>CDC（變更資料擷取）</td><td>商店「主動通知」我們價格變了，省得我們一直問</td></tr>
+    <tr><td>at-least-once</td><td>「至少送一次」：寧可重送也不漏送</td></tr>
+    <tr><td>冪等 / 去重</td><td>同一次達標只算一次，不會重複發</td></tr>
+    <tr><td>佇列 (Queue)</td><td>排隊的待辦清單，工人從前面一個個拿來做</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>DLQ（死信佇列）</td><td>「怎麼送都送不到」的訊息丟進的回收桶，事後檢討用</td></tr>
+    <tr><td>水平擴展</td><td>不夠快就「多找幾台機器一起做」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>有多少商品</td><td>~5 億件</td><td>不可能每件都常常去問價（成本爆炸）→ 要分層輪詢</td></tr>
+    <tr><td>有多少「追蹤」關係</td><td>5000 萬人 × 平均 4 件 ≈ 2 億條</td><td>匹配不能逐條掃 → 要反向索引</td></tr>
+    <tr><td>每天多少件變價</td><td>5% 商品變價 ≈ 2500 萬/日 ≈ 每秒 ~290 筆</td><td>事件量其實不大，真正的爆點在後面</td></tr>
+    <tr><td>一筆變價會命中多少人</td><td>熱門商品單筆可命中數萬人</td><td>通知量遠大於變價量 → fan-out 才是壓力來源</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：壓力不在「變價」，在「命中後的通知」</span>
+    每秒才幾百筆變價，聽起來很閒。但<strong>一筆熱門商品變價，可能瞬間炸出幾萬則通知</strong>。
+    所以系統的重點不是「處理變價」，而是「<strong>一筆變價要飛快匹配出誰在等（反向索引）+ 用去抖把實際發送量壓下來</strong>」。
+  </div>
+  <p class="pause">💭 停一下：每天變價才 2500 萬筆（不算多），為什麼系統還是可能被壓垮？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為<strong>一筆變價會「放大」</strong>。一支降價的熱門 iPhone 可能同時命中幾萬個在等的人，一筆事件瞬間變成幾萬則通知。
+    真正要扛的是這個「<strong>放大後的通知洪峰</strong>」，不是原始的變價筆數——所以反向索引（快速匹配）和去抖（壓低發送量）才是設計核心。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 使用者建立追蹤（最常用）
+   POST /api/v1/watches
+   給我：{ 哪個使用者, 哪件商品, 想要的目標價(或跌幅%) }
+   我回：201「建好了！狀態：ARMED（待命）」</code></pre>
+  <p class="codecaption">門檻有兩種：「<strong>降到絕對價</strong>」（如 2400 元）或「<strong>從基準跌幾 %</strong>」（如 -15%）。後面會看到，跌幅其實可以先換算成一個「絕對觸發價」，這樣兩種門檻就能塞進同一本名冊統一處理。</p>
+  <pre><code>② 取消 / 改門檻
+   DELETE /api/v1/watches/{追蹤編號}
+   PATCH  /api/v1/watches/{追蹤編號}   給我：{ 新的目標價 }</code></pre>
+  <p class="codecaption">改了目標價，記得做兩件事：<strong>更新名冊裡這個人的位置（排序變了）</strong>，並把狀態<strong>重設回 ARMED</strong>（重新待命）。</p>
+  <pre><code>③ 查我的追蹤清單與狀態
+   GET /api/v1/users/{使用者}/watches
+   我回：[{ 商品, 目標價, 目前狀態, 已發幾次提醒, 上次價格 }, ...]</code></pre>
+  <pre><code>④ 內部：價格擷取層送來新價格（不對外）
+   POST /internal/prices   給我：{ 哪件商品, 新價格, 時間 }
+   → 系統收到後做四件事：變更偵測 → 匹配 → 去抖 → 通知 fan-out</code></pre>
+  <p class="codecaption">注意第 ④ 張是「<strong>內部</strong>」點餐單——只有自家的價格擷取器會用，不開放給外面，使用者碰不到。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：四本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題用四本（其中一本是那本「排好序的名冊」）：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏷️</span>商品簿（每件商品現在多少錢）</h3>
+    <p>每件商品一列：<code>商品編號、現價、更新時間、<strong>輪詢分層(熱/溫/冷)</strong></code>。
+    多存一欄「分層」，是為了讓拿價格那關知道「這件要常拿還是久久拿一次」。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">👀</span>追蹤簿（誰在等什麼價）</h3>
+    <p>每個追蹤一列：<code>追蹤編號、哪個使用者、哪件商品、門檻類型(絕對價/跌幅)、門檻值、<strong>狀態(ARMED/TRIGGERED/COOLDOWN)</strong>、冷卻到何時、已發幾次</code>。
+    這本就是去抖狀態機的「記憶」——每個人現在是「待命」還是「冷卻中」都記在這。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📖</span>名冊（反向索引——核心！）</h3>
+    <p>給定一件商品，要能<strong>瞬間取出所有在等的人，而且照目標價排好序</strong>。
+    工程上常用 Redis 的 <strong>ZSET（排序集合）</strong>：以「目標價」當排序分數。</p>
+    <div class="analogy"><span class="label">為什麼要「排好序」？</span>
+      因為匹配的本質是<strong>區間查詢</strong>：「新價 2400 來了，誰的目標價 ≥ 2400？」。
+      如果名冊沒排序，你得<strong>整本翻一遍比大小</strong>（一千萬人 → 慢）。排好序後，<strong>翻到 2400 那頁、往後一撈</strong>就全是達標的人——這就是把「逐條掃描」變成「翻書」的精髓。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">✅</span>提醒簿（發過沒——去重用）</h3>
+    <p>記「哪個追蹤、哪次達標、發給誰、何時發」。
+    用 <code>(追蹤編號 + 這次觸發的時段)</code> 當鑰匙——<strong>同一次達標只算一次</strong>，就能做到「重送也不會讓你收到兩封」（這就是冪等）。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>拿價格：幾億商品每件都常去問</td><td>分層輪詢（熱門常拿、冷門少拿）；能改成「商店主動通知」(CDC)更好</td></tr>
+    <tr><td>一堆「價格其實沒變」的事件灌爆下游</td><td><strong>變更偵測</strong>：跟上次比，沒變就直接丟掉，不打擾後面</td></tr>
+    <tr><td>匹配：一千萬人逐條比大小</td><td>用排好序的<strong>名冊（反向索引）</strong>，翻到那頁往後撈</td></tr>
+    <tr><td>超熱門商品：那本名冊太大、單點壓力</td><td>把這本名冊<strong>再切成幾份</strong>分開放 + 本地快取 + 批次處理</td></tr>
+    <tr><td>通知洪峰：一筆變價瞬間命中幾萬人</td><td><strong>通知佇列削峰</strong>（先排隊慢慢送）+ 多工人並行 + 每人限流</td></tr>
+    <tr><td>價格抖動造成反覆觸發</td><td><strong>去抖狀態機 + 冷卻期 + 回升安全線 + 冪等鍵</strong></td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 商店主動通知(CDC) vs 我們一直問(輪詢)</span>
+    商店主動通知最省（價格真變才動），但要對方願意發事件；自己去問最通用，但要<strong>分層控成本</strong>，而且兩次問之間的降價可能漏抓。</div>
+  <div class="fear"><span class="label">⚖️ 價格一來就主動算(推) vs 等使用者開 App 才查(拉)</span>
+    價格追蹤要<strong>主動提醒</strong>，所以選「推」：價格來就立刻匹配推送。代價是寫入時要算（寫放大），但這正是使用者要的體驗。</div>
+  <div class="fear"><span class="label">⚖️ 去抖要多嚴？</span>
+    冷卻期太長 → 漏掉「跌得更深」值得再提醒的好機會；太短 → 又開始轟炸。
+    折衷做法：冷卻期內<strong>只有「跌破更低的價」才破例再發一次</strong>。</div>
+  <details class="qa"><summary>💭 追問：使用者把目標價從 2400 改成 2000，系統要做什麼？</summary>
+    兩件事：① 更新名冊（反向索引）裡這個人的「排序分數」，因為他的位置變了；② 把他的狀態<strong>重設回 ARMED（待命）</strong>，這樣新門檻才能正常觸發。</details>
+  <details class="qa"><summary>💭 追問：怎麼決定哪些商品算「熱門、要常拿價」？</summary>
+    看兩個訊號：<strong>有多少人在追蹤</strong>（很多人盯 = 重要）+ <strong>歷史上價格波動大不大</strong>（常變 = 要盯緊）。用這兩個動態調整它的輪詢分層（熱/溫/冷）。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「匹配 + 去抖狀態機」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8004 -t public
+# 然後瀏覽器打開 http://localhost:8004</code></pre>
+  <ol>
+    <li>先<strong>建立追蹤</strong>：幫某商品設一個目標價（例如 2400）。</li>
+    <li><strong>餵入幾筆價格</strong>：手動推一筆新價，或讓它隨機波動一輪。</li>
+    <li>觀察：哪些追蹤<strong>觸發</strong>了、每個追蹤現在是 <strong>ARMED / TRIGGERED / COOLDOWN</strong> 哪一檔、已發幾次提醒。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>價格剛好降到門檻 → 觸發一次後，把價格<strong>再壓低一點點</strong>，看它<strong>會不會再發</strong>（不會！因為在冷卻中）——這就是<strong>去抖</strong>。再把價格<strong>拉高過「回升安全線」再壓低</strong>，看它是不是又能觸發了——這就是<strong>遲滯帶 re-arm</strong>。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「徵人啟事配對」解釋，這題的核心難關是什麼？</summary>
+    一筆新價（職缺開價）來了，要瞬間從上千萬個「在等某個價」的人裡，找出「這個價剛好踩中門檻」的所有人。不能逐一問每個人，要用「反過來、排好序」的方式一翻就命中——這就是條件匹配 + 反向索引。</details>
+  <details class="qa"><summary>Q2：為什麼不能「每次價格低於門檻就發一次通知」？怎麼解決？</summary>
+    因為價格會在門檻附近上下抖，這樣會把使用者轟炸到退訂。用去抖狀態機（ARMED→TRIGGERED→COOLDOWN）：響過進冷卻期不再吵，要等價格回升過「安全線」才重新待命。像門鈴按一次別連響。</details>
+  <details class="qa"><summary>Q3：fan-out 是什麼？用班級的比喻說說看。</summary>
+    fan-out = 一筆事件同時通知超多人。像老師通知全班不自己一個個打，而是分組長分頭傳；系統把命中名單切片，交給一大群推播工人同時送。熱門商品一降價可能命中上百萬人。</details>
+  <details class="qa"><summary>Q4：每天變價才 2500 萬筆不算多，為什麼系統還可能被壓垮？</summary>
+    因為一筆變價會「放大」——一支熱門商品降價可能同時命中幾萬個在等的人，瞬間炸出幾萬則通知。真正要扛的是放大後的通知洪峰，所以反向索引（快速匹配）和去抖（壓低發送量）是核心。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼那本「名冊（反向索引）」要照目標價排好序？</summary>
+    因為匹配本質是區間查詢「新價 P 來了，誰的目標價 ≥ P？」。排好序後翻到 P 那頁往後一撈就全是達標的人（O(log N + 命中數)）；沒排序就得整本掃一遍比大小（O 全部 watch），千萬級下不可行。</details>
+  <details class="qa"><summary>Q6（工程）：「冪等去重」在這題防的是什麼？怎麼做？</summary>
+    防的是「同一次達標卻發了好幾封」。原則是寧可重送不漏送（at-least-once），再用一把鑰匙 hash(追蹤編號 + 觸發時段) 記在提醒簿，同一次只算一次，把重送擋在投遞層。</details>
+  <details class="qa"><summary>Q7（工程）：使用者把目標價改掉，系統要更新哪兩個地方？</summary>
+    ① 反向索引（名冊）裡他的排序分數要改，因為位置變了；② 他的狀態要重設回 ARMED（待命），新門檻才能正常觸發。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>價格追蹤 = 幫幾千萬人盯著降價的自動管家。</strong></p>
+    <p><strong>4 個關卡：</strong>① 分層<strong>拿價格</strong> → ② 用排好序的名冊（反向索引）<strong>匹配誰在等</strong> → ③ <strong>去抖</strong>（門鈴按一次別連響）→ ④ 一群工人<strong>同時推播</strong>（fan-out）。</p>
+    <p><strong>3 個怕：</strong>怕吵到退訂（去抖最致命）、怕慢/算不動（反向索引 + 分層輪詢）、怕漏發/重發（at-least-once + 冪等去重）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>壓力不在變價筆數、在「命中後放大的通知洪峰」→ 用「點餐單(API)」溝通、新價先過變更偵測 → 四本筆記本（商品/追蹤/名冊/提醒）＋反向索引排序 → 去抖狀態機（冷卻＋回升安全線）壓低發送量 → 找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>④ Amazon 價格追蹤 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

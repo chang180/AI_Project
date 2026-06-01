@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉟ 共識演算法 Raft · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉟ 共識演算法 Raft · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 30 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把難題拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（Raft 在解什麼、怎麼解）、<strong>Part 2 工程細節</strong>（真的要寫出來得想清楚哪些事，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「一群機器要講好」這麼難？</a></li>
+      <li><a href="#steps">把 Raft 拆成 4 個關卡</a></li>
+      <li><a href="#majority">為什麼一定要「過半數」？</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#api">系統怎麼溝通？（操作與 RPC）</a></li>
+      <li><a href="#data">每台機器要記住哪些事？（狀態資料）</a></li>
+      <li><a href="#scale">為什麼不是越多台越好？（擴展與取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像一個<strong>分組作業</strong>：你跟其他幾個同學要一起維護<strong>同一份待辦清單</strong>。問題是大家不在同一間房，靠傳訊息溝通，
+  而且訊息可能<strong>遲到、漏掉</strong>，有人還可能<strong>突然斷線</strong>（電腦當機）。</p>
+  <p>這時最怕的就是：每個人手上的清單長得不一樣、順序還不同——到底要聽誰的？Raft 就是在解這件事：
+  <strong>讓一群可能會掛掉、可能網路斷掉的機器，對「同一份清單的內容與順序」達成一致。</strong></p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    Raft = <strong>用「選組長」把吵架變簡單</strong>：先選一個組長，之後大家只聽組長的，組長把每條指令抄給大家，
+    <strong>超過半數的人都抄好了才算定案</strong>。組長掉線就重選一個，已經定案的清單永遠不會丟。
+  </div>
+
+  <h2 id="why">2. 為什麼「一群機器要講好」這麼難？</h2>
+  <p>很多人第一個疑問是：「不就是大家照抄一份清單嗎？有什麼難的？」難在一個你一定遇過的生活情境——</p>
+  <div class="analogy">
+    <span class="label">🗣️ 比喻：群組裡七嘴八舌</span>
+    一個 5 人小組在群組裡討論「先做哪一題」。如果<strong>每個人都同時喊、各做各的</strong>，
+    最後 A 以為先做第 1 題、B 以為先做第 3 題——清單就亂了。更慘的是，有人手機<strong>沒網路（沒收到訊息）</strong>，
+    回來時還堅持自己那份才對。
+  </div>
+  <p>單獨一台機器最好懂，但<strong>一台會掛</strong>，掛了服務就停。為了不怕掛，我們把資料<strong>複製到好幾台</strong>。
+  可是一旦複製，就會遇到上面那個「<strong>大家手上的清單對不起來</strong>」的問題。</p>
+  <p>Raft 的聰明之處，是<strong>不讓大家七嘴八舌</strong>，而是先<strong>選一個組長（leader）</strong>：
+  之後所有指令都只交給組長，組長負責抄給每個人。一個人說了算，順序自然就一致了。</p>
+  <p class="pause">💭 停一下：如果不選組長，讓「誰先收到指令誰就先寫」，會出什麼問題？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為網路延遲不一定，A 機器可能先收到「x=1」再收到「x=2」，B 機器卻相反順序收到——兩台最後的結果就不一樣了。
+    Raft 用「一切經過組長」來強制<strong>所有人看到的順序都一樣</strong>，這就是它能保證一致的根本。
+  </details>
+
+  <h2 id="steps">3. 把 Raft 拆成 4 個關卡</h2>
+  <p>別被「共識演算法」這個名字嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>選組長（leader election）</h3>
+    <p>一群人要做事，先<strong>選一個組長</strong>，之後大家只聽他的，就不會七嘴八舌。沒組長的時候怎麼選？</p>
+    <div class="analogy">
+      <span class="label">🙋 比喻：誰先舉手喊「選我」</span>
+      平常組長會固定<strong>發訊息報平安（心跳）</strong>：「我還在，大家別亂」。如果有人<strong>等了一陣子都沒收到組長的訊息</strong>，
+      就猜「組長大概掉線了」，於是<strong>舉手喊「選我！」</strong>（變成候選人），請大家投票。
+    </div>
+    <ul>
+      <li>每次選舉開新的一屆，叫 <strong>任期編號（term）</strong>——就像「第幾屆組長」，數字只會越來越大。</li>
+      <li>候選人要拿到<strong>超過半數</strong>的票才當選。每人<strong>每一屆只能投一票</strong>，所以同一屆不可能選出兩個組長。</li>
+      <li>大家只要<strong>看到更高的屆數</strong>，就承認那是新組長，舊組長乖乖退位。</li>
+    </ul>
+    <p>⚠️ 小細節：如果大家<strong>同時</strong>舉手，票會被分散誰都沒過半（叫「分票」）。
+    Raft 讓每個人「等多久才舉手」是<strong>隨機的</strong>，錯開時間，通常一兩輪就選出來了。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>抄寫待辦清單（log replication）</h3>
+    <p>有組長之後，所有新指令都交給組長。組長把每條指令<strong>抄一份給每個組員</strong>。</p>
+    <div class="analogy">
+      <span class="label">📋 比喻：組長念、大家抄</span>
+      組長念出「第 5 條：x = 1」，每個組員把它抄到自己清單的第 5 格。組長要確認<strong>大家的前幾格跟自己一模一樣</strong>，
+      才往下抄——萬一某人第 4 格抄錯了，組長會叫他<strong>擦掉重抄</strong>，直到對齊為止。
+    </div>
+    <p>關鍵規則：一條指令只有在<strong>超過半數的人都抄好了</strong>，才算「<strong>定案（commit）</strong>」、可以真的去執行（例如真的把 x 改成 1）。
+    沒過半數之前<strong>不算數</strong>——這樣就算組長突然掉線，也不會發生「以為定了結果反悔」的窘境。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>安全規則：清單舊的人不能當組長</h3>
+    <p>選舉時還有一條保命規則：<strong>清單比別人舊（落後）的人，不可以當選組長。</strong></p>
+    <div class="analogy">
+      <span class="label">📚 比喻：別讓進度落後的人當組長</span>
+      如果讓一個「還停在第 3 條、漏抄了第 4、5 條」的人當組長，他一上任就會把大家的進度<strong>倒退</strong>回第 3 條——
+      已經定案的事就白做了。所以投票前大家會檢查：「你的清單<strong>夠新嗎</strong>？」不夠新就不投他。
+    </div>
+    <p>這條規則保證：<strong>新組長手上一定有「所有已經定案的指令」</strong>，所以定案過的東西永遠不會搞丟。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>故障演練：組長掉線了怎麼辦？</h3>
+    <p>把前三關串起來，看一次完整的「組長掛掉 → 自動換人」：</p>
+    <ol>
+      <li>組長突然<strong>當機/斷線</strong>，不再發心跳。</li>
+      <li>組員們<strong>等不到心跳</strong>，其中一個（隨機最快的）舉手喊「選我」，開<strong>新的一屆</strong>。</li>
+      <li>大家檢查他的清單<strong>夠新</strong>、投票，他拿到<strong>過半數</strong>票 → 當選新組長。</li>
+      <li>新組長開始發心跳、繼續抄清單。<strong>之前已經定案的指令，一條都不會丟</strong>（因為關卡 3 保證了）。</li>
+    </ol>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 沒組長就<strong>選一個</strong> → ② 組長把指令<strong>抄給大家</strong>、過半數才定案 → ③ <strong>清單舊的不能當組長</strong>（不丟資料）→ ④ 組長掛了就<strong>自動重選</strong>。就這樣。</div>
+
+  <h2 id="majority">4. 為什麼一定要「過半數」？</h2>
+  <p>整套 Raft 反覆出現「過半數」。為什麼是過半數，不是「全部」也不是「隨便幾個」？這背後有個超漂亮的數學直覺：</p>
+  <div class="analogy">
+    <span class="label">🔗 比喻：兩個過半數的群，一定有共同的人</span>
+    5 個人裡，任何「過半數」就是<strong>至少 3 個人</strong>。
+    你<strong>找不到兩組「各 3 人」卻完全沒有重疊的分法</strong>——3+3=6 比 5 還多，鴿籠原理保證<strong>至少有一個人同時在兩組裡</strong>。
+  </div>
+  <p>這個「共同的人」就是關鍵：他<strong>記得上一次的定案</strong>。所以當組長換人、開新一屆時，
+  新組長要過半數同意，那群人裡<strong>一定有人記得舊定案</strong>，於是新組長不可能搞丟它，也不可能出現「兩個組長各做各的」（這叫<strong>腦裂 split-brain</strong>）。</p>
+  <p>順帶解釋一個常見疑問：<strong>為什麼用奇數台（3、5）最划算？</strong></p>
+  <table>
+    <tr><th>幾台</th><th>過半數要幾票</th><th>能容忍幾台掛掉</th></tr>
+    <tr><td>3 台</td><td>2</td><td><strong>1 台</strong></td></tr>
+    <tr><td>4 台</td><td>3</td><td>1 台（跟 3 台一樣！）</td></tr>
+    <tr><td>5 台</td><td>3</td><td><strong>2 台</strong></td></tr>
+  </table>
+  <p>看出來了嗎？<strong>4 台跟 3 台一樣只能容忍 1 台掛</strong>，多買一台卻沒多賺容錯——所以用奇數台最划算。</p>
+  <p class="pause">💭 停一下：3 台機器，如果有 2 台同時掛了，叢集還能繼續服務嗎？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    不能。3 台的「過半數」是 2 票，掛了 2 台只剩 1 台，<strong>湊不到 2 票</strong>，選不出組長也無法讓任何指令定案。
+    這就是「3 台只容忍 1 台掛」的意思。想容忍 2 台掛，要用 5 台。
+  </details>
+
+  <h2 id="fears">5. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：Raft <strong>最怕三件事</strong>，每條規則都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「兩個組長」（腦裂）</span>
+    如果同時冒出兩個組長各自抄清單，兩邊內容就會分岔、再也合不回來。
+    Raft 用「<strong>每屆每人只投一票 + 要過半數才當選</strong>」把它堵死：同一屆<strong>數學上不可能</strong>有兩個組長。舊組長一看到更高屆數就立刻退位。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「丟掉已經定案的事」</span>
+    定案過的指令如果換了組長就不見，那就天下大亂。
+    Raft 用「<strong>清單舊的人不能當組長</strong>」這條安全規則保證：新組長手上<strong>一定有全部已定案的指令</strong>。寧可不選那個人，也不能讓進度倒退。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「反悔」（以為定了又改）</span>
+    如果指令還沒過半數就先去執行，萬一組長剛好掛了、新組長沒這條，就會「反悔」。
+    所以 Raft 規定<strong>過半數抄好了才算定案</strong>、才去執行——沒過半的東西一律當作「還沒發生」，事後被覆蓋也不心疼。
+  </div>
+
+  <h2 id="pic">6. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="Raft 共識演算法架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀：</p>
+  <ul>
+    <li>👤 <strong>使用者（client）</strong>想新增一條指令（例如 x=1），只能交給<strong>組長</strong> →</li>
+    <li>👑 <strong>組長（leader）</strong>把指令寫進自己的清單，再<strong>抄給每個組員</strong> →</li>
+    <li>🧑‍🤝‍🧑 <strong>組員（follower）</strong>抄好後回報「我抄好了」 →</li>
+    <li>✅ 當<strong>超過半數</strong>都抄好了，組長宣布這條<strong>定案（commit）</strong>，大家才真的去執行 →</li>
+    <li>💓 組長平時持續發<strong>心跳</strong>說「我還在」；組員等不到心跳就會<strong>重新選組長</strong>。</li>
+  </ul>
+
+  <h2 id="words">7. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>共識（consensus）</td><td>一群機器對「同一份清單的內容與順序」講好、達成一致</td></tr>
+    <tr><td>leader / follower / candidate</td><td>組長 / 組員 / 想當組長的候選人</td></tr>
+    <tr><td>term（任期）</td><td>「第幾屆組長」的編號，只會越來越大；看到更大的就承認新組長</td></tr>
+    <tr><td>log（日誌）</td><td>那份「有編號、有順序的待辦清單」</td></tr>
+    <tr><td>log replication</td><td>組長把清單<strong>抄給每個組員</strong></td></tr>
+    <tr><td>commit（定案）</td><td>過半數的人都抄好了，這條才算數、可以真的去執行</td></tr>
+    <tr><td>commitIndex</td><td>清單「已經定案到第幾格」的標記</td></tr>
+    <tr><td>過半數（majority / quorum）</td><td>超過一半的人；兩個過半數一定有共同的人 → 不會搞丟舊決定</td></tr>
+    <tr><td>心跳（heartbeat）</td><td>組長定時發的「我還在」訊息，壓住別人別亂選</td></tr>
+    <tr><td>選舉逾時</td><td>等多久沒收到心跳就舉手選舉（每人隨機，避免一起舉手）</td></tr>
+    <tr><td>腦裂（split-brain）</td><td>同時冒出兩個組長各做各的——Raft 嚴禁的災難</td></tr>
+    <tr><td>RPC</td><td>一台機器「打電話」叫另一台做事的標準格式</td></tr>
+    <tr><td>快照（snapshot）</td><td>清單太長時，把目前狀態拍張照存起來，丟掉前面的舊紀錄</td></tr>
+    <tr><td>CP 系統</td><td>寧可暫時不服務，也要保證大家資料一致（強一致）</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手寫，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="api">8. 系統怎麼溝通？（操作與 RPC）</h2>
+  <div class="analogy">
+    <span class="label">📞 比喻：講好的「打電話格式」</span>
+    機器之間靠 <strong>RPC</strong> 溝通，可以想成「<strong>講好格式的電話</strong>」：我打給你、固定講哪幾件事，你固定回我哪幾句。
+    Raft 整套協定，其實只靠<strong>兩通電話</strong>撐起來。
+  </div>
+  <p>先看使用者怎麼用它（很簡單）：</p>
+  <pre><code># 使用者只跟「組長」互動（找錯人會被導去組長）
+提交指令  propose { command: "x=1" }   → 等這條被「定案」才回成功
+讀資料    read   key=x                  → 想要最新值就走組長</code></pre>
+  <p class="codecaption">為什麼讀也要走組長？因為只有組長最確定「現在的定案到哪」。組員手上的清單<strong>可能還差幾格沒抄到</strong>，讀它可能讀到舊值。</p>
+  <p>再看內部那兩通關鍵電話：</p>
+  <pre><code># 電話一：拉票（候選人 → 大家）「投我好嗎？」
+RequestVote {
+  我的屆數 term, 我是誰 candidateId,
+  我的清單到第幾格、最後一格是第幾屆      ← 給對方檢查「我的清單夠不夠新」
+} → { 對方屆數, 投不投你 voteGranted }
+
+# 電話二：抄清單 + 心跳（組長 → 組員）
+AppendEntries {
+  我的屆數 term, 我是組長 leaderId,
+  你前一格應該是第幾格、第幾屆            ← 對齊檢查：對不上就拒絕
+  要你抄的新指令 entries[]               ← 清單為空時，這通電話就只是「心跳」
+  我已經定案到第幾格 leaderCommit         ← 讓組員跟著把定案推進
+} → { 對方屆數, 抄成功了嗎 success }       ← 失敗 → 組長往前退一格重抄，直到對齊</code></pre>
+  <p class="codecaption">注意「電話二」清單為空時就是<strong>心跳</strong>——同一通電話兼任「報平安」和「抄清單」，很省。</p>
+
+  <h2 id="data">9. 每台機器要記住哪些事？（狀態資料）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：每個人的小抄</span>
+    每台機器都要在自己的小抄上記幾件事。有些「<strong>就算斷電重開也得記得</strong>」（寫進硬碟），有些只是「<strong>當下算一算</strong>」（記在記憶體）。
+  </div>
+  <div class="step">
+    <h3><span class="badge">💾</span>斷電也要記得的（持久化）</h3>
+    <ul>
+      <li><code>目前屆數 currentTerm</code>：我見過最大的屆數（避免被舊組長騙）。</li>
+      <li><code>這屆投票給誰 votedFor</code>：每屆只能投一票，記住投了誰，免得重複投。</li>
+      <li><code>清單 log[]</code>：那份「有編號、有順序」的待辦清單，每格記著 <code>{第幾屆寫的, 指令內容}</code>。</li>
+    </ul>
+    <p class="codecaption">為什麼這三樣一定要寫硬碟？因為機器重開後，如果忘了「這屆投過票了」就可能投第二次 → 選出兩個組長（腦裂）。所以這是保命資料。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧠</span>當下算就好的（揮發）</h3>
+    <ul>
+      <li><code>定案到第幾格 commitIndex</code>：已知「過半數抄好」的最高格，這格以前都能安心執行。</li>
+      <li><code>執行到第幾格 lastApplied</code>：真的拿去做了的最高格（永遠 ≤ commitIndex）。</li>
+    </ul>
+  </div>
+  <div class="step">
+    <h3><span class="badge">👑</span>只有組長要記的</h3>
+    <ul>
+      <li><code>下一格要抄給某組員第幾格 nextIndex</code>：對每個組員各記一份，先樂觀地猜，抄失敗就往前退。</li>
+      <li><code>某組員已對齊到第幾格 matchIndex</code>：用來數「這格到底有沒有過半數抄好」。</li>
+    </ul>
+  </div>
+
+  <h2 id="scale">10. 為什麼不是越多台越好？（擴展與取捨）</h2>
+  <div class="analogy">
+    <span class="label">🐢 比喻：每件事都要過半數簽名</span>
+    Raft 很安全，但每條指令都得「<strong>等過半數的人簽名確認</strong>」才算數。人越多，要等的簽名就越多，<strong>反而越慢</strong>。
+    所以 Raft 不是拿來扛海量流量的，而是拿來守護「<strong>少量但絕對不能錯</strong>」的關鍵資料（設定、誰是主機、分散式鎖）。
+  </div>
+  <table>
+    <tr><th>會卡住的地方</th><th>為什麼</th><th>怎麼解</th></tr>
+    <tr><td>所有寫入都擠在組長一個人身上</td><td>組長要逐條抄 + 等過半數確認</td><td>把資料<strong>切成好幾份</strong>，每份一個獨立的小組（multi-Raft）分頭跑</td></tr>
+    <tr><td>連「讀」都跑去煩組長很貴</td><td>每次讀都確認自己還是組長要花一輪</td><td>給組長一段<strong>租約時間</strong>，租約內直接本地回答（lease read）；能接受舊一點的值就讀組員</td></tr>
+    <tr><td>清單越來越長，重開要重抄很久</td><td>指令一直累積不刪</td><td>定期拍<strong>快照（snapshot）</strong>存目前狀態，丟掉前面的舊紀錄；落後太多的組員直接傳快照給它追上</td></tr>
+    <tr><td>網路一抖就一直重選組長</td><td>選舉逾時設太短</td><td>逾時設合理；先「<strong>試探有沒有勝算</strong>」（pre-vote）再真正開新屆</td></tr>
+  </table>
+  <div class="fear">
+    <span class="label">⚖️ 最大的取捨：強一致 vs 永遠能用（CP）</span>
+    Raft 是<strong>「寧可一致，不惜暫停服務」</strong>的 CP 系統。網路把叢集切成兩半時，<strong>湊不到過半數的那半邊不能寫入</strong>——它選擇「停一下也不要給你錯的資料」。
+    如果你的業務其實能接受「稍微舊一點但永遠能用」，那用別的設計（最終一致、AP）反而更便宜——<strong>別把共識亂套到不需要的地方</strong>。
+  </div>
+  <p class="pause">💭 停一下：為什麼一個 3 台的叢集，被網路切成「2 台一邊、1 台一邊」時，<strong>只有 2 台那邊能繼續寫入</strong>？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為過半數是 2。2 台那邊湊得到 2 票，能選組長、能讓指令定案；1 台那邊湊不到 2 票，<strong>什麼都不能定案</strong>。
+    這正是 Raft 防腦裂的關鍵——<strong>最多只有一邊能過半數</strong>，所以絕不會兩邊各自寫出不一樣的內容。
+  </details>
+
+  <h2 id="play">11. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「選舉 + 抄清單 + 定案」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8035 -t public
+# 然後瀏覽器打開 http://localhost:8035</code></pre>
+  <ol>
+    <li>先按 <strong>reset</strong>（重置成 3~5 台都還沒選組長）。</li>
+    <li>按幾次 <strong>tick</strong>（手動推進「時間」）→ 看其中一台等不到心跳，舉手選舉、變成<strong>組長</strong>。</li>
+    <li>提交一條指令（例如 <code>x=1</code>）→ 看組長把它<strong>抄給組員</strong>，過半數抄好後<strong>定案（commit）</strong>。</li>
+    <li>把組長 <strong>kill</strong> 掉 → 再 tick → 看叢集<strong>自動選出新組長</strong>，而且<strong>已定案的清單一條都沒丟</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">為什麼要「手動 tick」？</span>
+    真實的 Raft 靠背景計時器自動跑，但 PHP 沒有常駐背景行程，所以 demo 改成<strong>你按一下 tick、時間就走一步</strong>。
+    好處是你可以<strong>慢動作觀察</strong>選舉與複製的每一步，看得比真實系統還清楚。選舉、投票限制、過半數定案這些<strong>核心規則都是真的</strong>。</div>
+
+  <h2 id="quiz">12. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「分組作業」的比喻，說說 Raft 在解什麼問題？</summary>
+    一群同學要維護同一份待辦清單，但靠傳訊息溝通、訊息會遲到/漏掉、有人會斷線。Raft 讓大家先選一個組長，之後只聽組長的，組長把指令抄給每個人，過半數抄好才算定案——這樣大家的清單內容與順序就一致了。</details>
+  <details class="qa"><summary>Q2：為什麼一定要「過半數」，而不是隨便幾個或全部？</summary>
+    因為任何兩個「過半數的群」一定至少有一個共同的人，這個人記得上一次的定案，所以換組長時新組長不會搞丟舊定案，也不會出現兩個組長各做各的（腦裂）。要全部同意則太脆弱——一台掛了就動不了。</details>
+  <details class="qa"><summary>Q3：一條指令什麼時候才算「定案」？為什麼不提早執行？</summary>
+    要超過半數的人都抄好了才算定案、才去執行。提早執行的話，萬一組長剛好掛掉、新組長沒這條，就會「反悔」造成不一致。沒過半的一律當還沒發生，被覆蓋也不心疼。</details>
+  <details class="qa"><summary>Q4：為什麼「清單比較舊的人」不能當組長？</summary>
+    因為讓進度落後的人當組長，他一上任會把大家的進度倒退，已定案的事就丟了。投票前大家檢查候選人的清單夠不夠新，不夠新就不投——這保證新組長一定有全部已定案的指令。</details>
+  <details class="qa"><summary>Q5：3 台機器能容忍幾台掛掉？想容忍 2 台要幾台？</summary>
+    3 台過半數是 2，所以只能容忍 1 台掛（剩 2 台還湊得到 2 票）。想容忍 2 台掛要用 5 台（過半數 3，掛 2 台還剩 3 台）。用奇數台最划算，4 台跟 3 台一樣只容 1 台。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼「目前屆數、這屆投給誰」一定要寫進硬碟？</summary>
+    因為機器斷電重開後，如果忘了「這屆已經投過票」，就可能再投第二次，導致同一屆選出兩個組長（腦裂）。把屆數和投票對象持久化，是防止重複投票的保命資料。</details>
+  <details class="qa"><summary>Q7（工程）：清單（log）會無限變長，工程上怎麼處理？為什麼讀資料通常走組長？</summary>
+    用快照（snapshot）：定期把目前狀態拍照存下，丟掉前面的舊紀錄，重開時從快照恢復就好；落後太多的組員直接收快照追上。讀走組長是因為只有組長最確定「定案到哪」，組員的清單可能還差幾格沒抄到，讀它可能讀到舊值（可用 lease read 讓組長免於每次都跑一輪共識）。</details>
+
+  <h2 id="recap">13. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>Raft = 用「選組長」讓一群會掛掉的機器，對同一份清單的內容與順序達成一致。</strong></p>
+    <p><strong>4 個關卡：</strong>① 沒組長就選一個（過半數票、隨機逾時避免分票）→ ② 組長把指令抄給大家、過半數才定案 → ③ 清單舊的不能當組長（不丟已定案資料）→ ④ 組長掛了自動重選。</p>
+    <p><strong>3 個怕：</strong>怕兩個組長（每屆一票+過半數堵死腦裂）、怕丟掉已定案（清單舊的不能當組長）、怕反悔（過半數才算數）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>靠兩通電話（拉票 RequestVote、抄清單/心跳 AppendEntries）→ 屆數和投票要寫硬碟防腦裂 → 它是強一致的 CP 系統（分區時少數派不服務），不是拿來扛海量流量，要省就分片、快照、lease read。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉟ 共識演算法 Raft · 初學者友善版 · K 分散式系統 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

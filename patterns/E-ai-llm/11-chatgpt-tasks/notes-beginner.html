@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑪ ChatGPT 排程任務 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅴 AI/LLM 系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑪ ChatGPT 排程任務 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">E AI/LLM</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼需要「排程」這件事？</a></li>
+      <li><a href="#steps">把系統拆成 3 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你可以叫 ChatGPT「<strong>每天早上 7 點，幫我把今天最重要的科技新聞摘成 3 條</strong>」，
+  然後你就不管它了。隔天早上一睜眼，摘要已經躺在你手機裡。</p>
+  <p>它怎麼做到的？你<strong>沒有</strong>在早上 7 點打開 App 按按鈕，可是事情就是準時發生了。
+  這套系統就是在當你的「<strong>私人秘書</strong>」：你交代一件「之後才要做、或要反覆做」的事，它記下來、時間到了自己去做、做完回報給你。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    ChatGPT 排程任務 = <strong>一個會「定時 / 週期幫你做事」的 AI 秘書</strong>：
+    你交代「什麼時候、做什麼」→ 它到時間自動去叫 AI 做 → 做完通知你。
+  </div>
+
+  <h2 id="why">2. 為什麼需要「排程」這件事？</h2>
+  <p>很多人第一個疑問是：「我自己時間到再叫它做不就好了？幹嘛搞這麼複雜？」關鍵在一個你早就懂的生活經驗——</p>
+  <div class="analogy">
+    <span class="label">⏰ 設鬧鐘 vs 一直盯著時鐘</span>
+    你想明早 7 點起床，你會<strong>設個鬧鐘</strong>然後安心去睡——而不是<strong>整晚不睡、每分鐘看一次時鐘</strong>等 7 點到。
+    排程系統就是那個「鬧鐘」：你登記好時間，系統幫你記著，時間到了它<strong>主動</strong>叫你（觸發任務）。
+  </div>
+  <p>差別在於「<strong>誰來盯時間</strong>」。如果要你（或你的 App）一直開著、一直盯著，那太累也太脆弱（你關機了怎麼辦？）。
+  排程系統把「盯時間」這件事接手過去，讓你登記完就能放手。</p>
+  <p>而且這個秘書一次要服務<strong>幾千萬人</strong>，每個人都登記了好幾個鬧鐘。所以難的不是「設一個鬧鐘」，
+  而是「<strong>同時看管幾千萬個鬧鐘，每個都要準時、不能漏、也不能重複叫</strong>」。</p>
+  <p class="pause">💭 停一下：如果有 2000 萬個任務，系統要怎麼知道「<strong>現在這一刻</strong>有哪些該做了」？難道每秒把 2000 萬個全部翻一遍嗎？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    不用全部翻。系統替每個任務記一個「<strong>下次該跑的時間</strong>」，並把這個時間做成索引（像通訊錄按姓氏排好）。
+    每分鐘只要問一句「有沒有人的時間 ≤ 現在？」就能快速撈出該做的那一小撮，其他幾千萬個動都不用動。這就是 Part 2 會講的 <code>next_run_at</code> 索引。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 3 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 3 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>排程：時間到才動手（像鬧鐘）</h3>
+    <p>你登記「每天早上 7 點」，系統不會傻傻一直問「到了沒？到了沒？」。它把這件事放進一個<strong>會按時間排隊的清單</strong>裡。</p>
+    <div class="analogy">
+      <span class="label">📮 比喻：郵局的「限時投遞」</span>
+      你寄一封<strong>限時信</strong>，註明「6 月 1 日才能送到」。郵局<strong>不會今天就送</strong>——它先把信收進倉庫，
+      <strong>到了那天才拿出來投遞</strong>。我們系統裡那個「會卡住、時間到才放行」的清單，就叫<strong>延遲佇列</strong>（佇列＝排隊清單）。
+    </div>
+    <p>所以「排程」的本質就是：把「未來才要做的事」先收著，<strong>時間到了才丟出來給工人做</strong>。
+    週期任務（每天 7 點）做完一次，馬上算出「下一次是明天 7 點」再排回去——像鬧鐘關掉後自動設好明天的。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>執行：工人接手，狀態一路推進</h3>
+    <p>時間到、任務被丟出來了，由一群<strong>工人（worker）</strong>接手：去叫 AI 把新聞摘要寫出來。
+    一個任務從登記到完成，會經過好幾個<strong>階段</strong>。</p>
+    <div class="analogy">
+      <span class="label">📦 比喻：網購包裹的物流狀態</span>
+      你網購後，訂單狀態會一路變：<strong>已下單 → 處理中 → 已出貨 → 已送達</strong>（萬一卡關就變「退回重寄」）。
+      每個包裹任何時刻都<strong>剛好停在某一個狀態</strong>，而且只能照規定往下走，不能跳。
+    </div>
+    <p>我們的任務也一樣，有固定的幾個狀態：<strong>待辦 → 執行中 → 完成</strong>（失敗就走「重試」或最後判「失敗」）。
+    這套「只能照規矩一步步走的狀態流程」就叫<strong>狀態機</strong>。有了它，你隨時查任務「現在到哪了」都清清楚楚。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>把關：同一件事千萬別做兩次</h3>
+    <p>叫一次 AI 是要花錢的（也會發一次通知）。如果系統不小心把「今天 7 點的摘要」叫了兩次，你會<strong>被收兩次費、收到兩則一樣的通知</strong>。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：演唱會門票的條碼</span>
+      演唱會門票上有個<strong>唯一條碼</strong>。進場掃過一次後，<strong>同一張票再掃就會嗶嗶叫，不讓你重複進場</strong>。
+      系統給「每一次該做的任務」也發一個獨一無二的編號（=「哪個任務 + 哪個時間點」），<strong>同一個編號只認一次</strong>。
+    </div>
+    <p>這個「同一件事重複來，第二次自動被擋掉、結果不變」的特性，工程上叫 <strong>冪等</strong>。
+    搭配「<strong>做不成就重試</strong>」（網路抖一下、AI 忙線）就很穩：寧可多試幾次也別放生，但靠那張「唯一條碼」保證<strong>真正成功的只算一次</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① 像鬧鐘一樣<strong>排程</strong>（時間到才動手）→ ② 工人接手、任務<strong>狀態一路推進</strong> → ③ 用「唯一條碼」<strong>確保同一件事只做一次</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「做兩次」</span>
+    每叫一次 AI 都要花錢、發一則通知。重複做＝<strong>重複扣錢 + 重複煩你</strong>。
+    所以系統<strong>寧可重試也要做成</strong>，但用「唯一條碼」（冪等）保證真正算數的只有一次。<em>可以多試，不可以重複算。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「不準時」</span>
+    你說「早上 7 點」就該 7 點左右響，太晚了新聞都過時了。麻煩的是<strong>大家都愛設整點</strong>（7:00、8:00），
+    一到那一刻幾百萬個任務同時湧上來。所以要想辦法<strong>把這波尖峰抹平</strong>，不然全擠在一起反而誰都不準。<em>準時，且不要全擠同一秒。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「被慢任務拖垮」</span>
+    叫 AI 寫一篇摘要可能要好幾秒，比點一下按鈕慢得多。如果讓你登記任務時<strong>站在原地等它做完</strong>，體驗很糟。
+    所以「<strong>排時間的人</strong>」和「<strong>真正做事的工人</strong>」要<strong>分開</strong>——AI 再慢，也不能拖累「準時觸發」這件事。<em>慢的歸慢的，別卡住排程。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，跟著資料的旅程走一遍：</p>
+  <ul>
+    <li>📝 你<strong>建立任務</strong>（「每天 7 點摘要新聞」）→ 存進<strong>任務簿</strong>，順手算好「下次該跑＝明早 7 點」。</li>
+    <li>⏰ <strong>排程器</strong>像鬧鐘，每分鐘問一次「有誰時間到了？」→ 撈出到期的，發一張<strong>唯一條碼</strong>丟進佇列。</li>
+    <li>📮 <strong>延遲佇列</strong>＝限時投遞的倉庫：時間到才把任務放出來給工人。</li>
+    <li>🛠️ <strong>工人</strong>取出任務、推進狀態（待辦→執行中）、<strong>呼叫 AI</strong>產生結果；做不成就退一步<strong>重試</strong>。</li>
+    <li>✅ 成功 → 狀態變<strong>完成</strong>、存結果 → <strong>通知</strong>你（push / email）；真的怎麼都做不成 → 丟「<strong>失敗回收桶</strong>」事後檢討。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>排程器 (Scheduler)</td><td>系統裡的「鬧鐘管理員」：盯著時間，到了就把任務叫醒</td></tr>
+    <tr><td>cron 表達式</td><td>描述「多久做一次」的暗號，例如 <code>0 7 * * *</code>＝每天 7 點</td></tr>
+    <tr><td>延遲佇列</td><td>郵局的「限時投遞倉庫」：先收著，時間到才放出來</td></tr>
+    <tr><td>佇列 (Queue)</td><td>排隊的待辦清單，工人從前面一個個拿來做</td></tr>
+    <tr><td>worker（工人）</td><td>真正動手做事的人：取任務、叫 AI、回報結果</td></tr>
+    <tr><td>狀態機</td><td>任務的「物流狀態」：待辦→執行中→完成，只能照規矩走</td></tr>
+    <tr><td>冪等 (idempotent)</td><td>同一件事重複來，第二次自動被擋，結果不變（門票條碼只認一次）</td></tr>
+    <tr><td>冪等鍵</td><td>那張「唯一條碼」＝哪個任務 + 哪個時間點</td></tr>
+    <tr><td>重試 / 退避</td><td>沒成功就再試，而且每次間隔拉長一點，別猛敲</td></tr>
+    <tr><td>at-least-once</td><td>「至少送一次」：寧可重送也不漏送</td></tr>
+    <tr><td>時區 / DST</td><td>「早上 7 點」是你當地時間；日光節約還會差一小時，要算清楚</td></tr>
+    <tr><td>jitter（抖動）</td><td>故意讓每個人的時間錯開幾秒，避免大家擠同一瞬間</td></tr>
+    <tr><td>DLQ（死信佇列）</td><td>「怎麼做都做不成」的任務丟進的回收桶，事後檢討用</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>水平擴展</td><td>不夠快就「多找幾個工人一起做」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>總共多少任務</td><td>1000 萬人 × 每人 2 個 ≈ <strong>2000 萬個</strong></td><td>掃描不能每次把全部翻一遍，要靠索引</td></tr>
+    <tr><td>一天觸發幾次</td><td>多數每天 1 次 ≈ 2000 萬次/日</td><td>平均每秒約 230 次，看起來還好…</td></tr>
+    <tr><td>尖峰多可怕</td><td>大家都設早上 → 那一刻爆到平常的 10 倍</td><td>真正難的是「早高峰那一瞬間」</td></tr>
+    <tr><td>AI 每次多久</td><td>~3 秒、約 2000 字的量</td><td>很慢！所以一定要「丟給工人慢慢做」，別卡住排程</td></tr>
+    <tr><td>結果要存多久</td><td>每筆 ~4KB、留 90 天</td><td>2000萬×90×4KB ≈ <strong>約 7 TB</strong>，不少</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🚇 關鍵洞察：通勤尖峰</span>
+    這系統<strong>平常不忙，但「早上 7、8 點」會突然塞爆</strong>——像捷運的<strong>通勤尖峰</strong>：離峰時車廂空空，
+    一到上班時間月台瞬間擠滿人。所以重點不是「平均多忙」，而是<strong>「能不能扛住那一波尖峰」</strong>，
+    辦法是讓大家的時間<strong>錯開幾秒</strong>（jitter），別全擠同一秒。
+  </div>
+  <p class="pause">💭 停一下：明明平均每秒才 230 次，為什麼還要這麼擔心？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為「平均」會騙人。一整天攤平看起來很閒，但任務不是平均分布——<strong>大家都愛設整點、早上</strong>，
+    結果負載全堆在那幾個瞬間（峰值是平均的好幾倍）。系統要扛得住的是<strong>尖峰</strong>，不是平均。
+    對策：給觸發時間加一點<strong>隨機抖動</strong>，把那座山推平。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 建立一個排程任務（最重要）
+   POST /api/v1/tasks
+   給我：{ 名稱, 排程("每天7點"/"某時跑一次"), 你的時區, 要叫AI做什麼, 怎麼通知你 }
+   我回：201「建好了！任務編號 task_123，下次會在明早 7 點跑」</code></pre>
+  <p class="codecaption">注意我回的東西裡有「<strong>下次什麼時候跑</strong>」（next_run_at）——這就是那個鬧鐘的鈴聲時間，系統靠它來判斷何時該叫醒這個任務。</p>
+  <pre><code>② 管理任務（暫停 / 刪除）
+   PATCH  /api/v1/tasks/{編號}   → { "status": "paused" }  暫停或恢復
+   DELETE /api/v1/tasks/{編號}   → 不想要了，刪掉</code></pre>
+  <p class="codecaption">暫停就像把鬧鐘關靜音：任務還在，但時間到不會響。</p>
+  <pre><code>③ 查「做得怎樣了」（讀，看歷史與結果）
+   GET /api/v1/tasks/{編號}/runs   → 列出每一次跑的紀錄
+   GET /api/v1/runs/{單次編號}      → { 狀態:"完成", 結果:"今天的新聞摘要…" }</code></pre>
+  <p class="codecaption">這裡看得到任務的「物流狀態」：跑到第幾次、成功還失敗、結果是什麼。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題的巧思是<strong>把「任務定義」和「每次執行紀錄」分成兩本</strong>：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📋</span>任務簿（你交代了什麼，很少變）</h3>
+    <p>每個任務一列：<code>任務編號、誰的、類型(一次/週期)、排程暗號、時區、要叫AI做什麼、狀態(進行/暫停)、<strong>下次跑的時間</strong></code>。</p>
+    <div class="analogy"><span class="label">為什麼「下次跑的時間」要建索引？</span>
+      因為排程器每分鐘都要問「<strong>有誰時間到了？</strong>」。把這欄做成索引（像通訊錄排好順序），
+      就能<strong>秒撈</strong>出到期的那一小撮，不必把 2000 萬個全翻一遍——這叫「<strong>建好索引，換查詢飛快</strong>」。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧾</span>執行簿（每跑一次記一筆，很頻繁）</h3>
+    <p>每次觸發一列：<code>單次編號、屬於哪個任務、<strong>唯一條碼(任務+時間點)</strong>、這次排定的時間、狀態(待辦/執行中/完成/失敗/重試)、試了第幾次、結果、錯誤</code>。</p>
+    <div class="analogy"><span class="label">為什麼要拆成兩本？</span>
+      任務簿少量、偶爾改；執行簿是<strong>一直在加新紀錄</strong>（每天每個任務都+1 筆）。分開存比較好管。
+      更重要的是那欄「<strong>唯一條碼</strong>」設成「不准重複」——資料庫會<strong>從根本擋掉</strong>同一個時間點被排兩次，這就是冪等的鋼鐵後盾。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>一個鬧鐘管理員要看管 2000 萬個鬧鐘</td><td>把任務<strong>分組</strong>，每組派一個管理員各看一份（分片）；多請幾個管理員，但用「<strong>租約</strong>」講好誰管哪份，免得搶著叫同一個</td></tr>
+    <tr><td>大家都設「早上 7:00」，那一刻爆量</td><td>給觸發時間加一點<strong>隨機抖動</strong>（jitter），把山推平；或分桶錯開</td></tr>
+    <tr><td>AI 很慢，工人被一個慢任務佔住</td><td><strong>多請一群工人</strong>同時做（水平擴展）；佇列當緩衝；忙不過來就自動增援</td></tr>
+    <tr><td>叫 AI 太頻繁被人家限速（429）</td><td>給每個用戶<strong>配額</strong>；相同的提示<strong>快取</strong>結果；批次送</td></tr>
+    <tr><td>下游壞掉導致大量任務一直失敗重試</td><td><strong>退避</strong>（間隔拉長別猛敲）+ <strong>死信回收桶</strong> + 斷路器（壞太兇就先停手）</td></tr>
+    <tr><td>同一觸發被重複丟進佇列</td><td>「<strong>唯一條碼</strong>」+ 資料庫不准重複，重複的自動被擋</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 簡單的鬧鐘 vs 精準的鬧鐘</span>
+    最簡單的做法是「每分鐘翻一次資料庫看誰到期」（好懂、夠用）；規模超大時改用更專業的計時工具（Redis 排序、佇列原生延遲），<strong>更準但要多搭一層基建</strong>。面試先講簡單版，再說大了怎麼換。</div>
+  <div class="fear"><span class="label">⚖️ 剛好一次 vs 至少一次 + 唯一條碼</span>
+    分散式系統裡，想保證「不多不少剛好做一次」非常難。務實做法是<strong>「至少做一次（寧可重來）＋ 用唯一條碼去重」</strong>，效果上等於「剛好一次」。<em>這是本題最重要的一句話。</em></div>
+  <div class="fear"><span class="label">⚖️ 排程 vs 執行要不要分家</span>
+    把「盯時間的鬧鐘」和「真正叫 AI 做事的工人」<strong>分開</strong>，AI 再慢也不拖累準點。代價是系統多了一層佇列，但非常值得。</div>
+  <details class="qa"><summary>💭 追問：「每天早上 7 點」遇到日光節約（DST）會怎樣？</summary>
+    要存使用者的<strong>時區名稱</strong>（像 Asia/Taipei），每次重算下次時間時用當地規則換算——不能只記死板的「+8 小時」，
+    不然 DST 切換那天就會早一小時或晚一小時響。台灣沒 DST，但歐美有，系統要顧到。</details>
+  <details class="qa"><summary>💭 追問：週期任務「補跑」會不會瘋狂連跑？</summary>
+    假設系統當機 3 天才修好，一個「每天 7 點」的任務難道要一口氣補跑 3 次？通常做<strong>對齊到未來下一個時間點</strong>（catch-up），
+    跳過積欠的，避免一醒來就瘋狂連環跑。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「排程 → 佇列 → 狀態機 + 冪等 / 重試」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8011 -t public
+# 然後瀏覽器打開 http://localhost:8011</code></pre>
+  <ol>
+    <li>先<strong>建立任務</strong>：開一個「週期」的（每隔幾秒跑）和一個「一次性」的。</li>
+    <li>按 <strong>⏩ tick</strong>（模擬「時間往前走」）→ 看系統把到期的任務<strong>撈出來丟進佇列</strong>。</li>
+    <li>按 <strong>▶️ run</strong>（叫工人來做）→ 看任務狀態從 <strong>待辦 → 執行中 → 完成</strong>，並產生結果與通知。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>
+    勾「模擬失敗」再 run，看任務怎麼<strong>退一步重試</strong>、最後進「失敗回收桶」——這就是<strong>重試 + 死信</strong>。
+    把同一個時間點的任務<strong>連 tick 兩次</strong>，看它會不會被排進去兩次——你會發現「唯一條碼」把第二次擋掉了，這就是<strong>冪等去重</strong>。</div>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    Demo 裡「叫 AI」是<strong>假呼叫</strong>（依你的提示產生固定文字，可勾選模擬失敗）；
+    但<strong>排程算下次時間、延遲佇列、任務狀態機、冪等去重、失敗重試</strong>這些系統邏輯<strong>都是真的在跑</strong>。
+    想接真的 AI，只要把那個假呼叫換成真的 API，其他完全不用改。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「鬧鐘」的比喻，解釋為什麼需要排程系統？</summary>
+    想 7 點起床你會設鬧鐘，而不是整晚盯著時鐘。排程系統就是那個鬧鐘：你登記好時間就能放手去睡，時間到它主動叫你。差別在「誰來盯時間」——交給系統，你（或你的 App）就不必一直開著一直盯。</details>
+  <details class="qa"><summary>Q2：「延遲佇列」是什麼？用郵局的比喻說說看。</summary>
+    像郵局的限時投遞：你寄一封註明「某天才送到」的信，郵局先收進倉庫，到那天才拿出來投。延遲佇列就是這個「先收著、時間到才放出來給工人做」的排隊清單。</details>
+  <details class="qa"><summary>Q3：什麼是「狀態機」？任務會經過哪些狀態？</summary>
+    像網購包裹的物流狀態，只能照規矩一步步走。任務狀態：待辦 → 執行中 → 完成；中途失敗就走重試，重試用盡才判失敗。任何時刻任務剛好停在某一個狀態，不能亂跳。</details>
+  <details class="qa"><summary>Q4：為什麼「同一件事千萬別做兩次」？怎麼防？</summary>
+    叫一次 AI 要花錢、發一則通知，做兩次＝重複扣錢 + 重複煩你。靠「唯一條碼」（冪等鍵＝任務+時間點）：同一個條碼只認一次，第二次自動被擋。所以可以放心重試，真正算數的只有一次。</details>
+  <details class="qa"><summary>Q5（工程）：明明平均每秒才 230 次，為什麼還怕扛不住？</summary>
+    因為「平均」會騙人。大家都愛設整點、早上，負載全堆在那幾個瞬間（尖峰是平均的好幾倍），像捷運通勤尖峰。系統要扛的是尖峰不是平均。對策：給觸發時間加隨機抖動（jitter）把山推平。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼「下次跑的時間」這一欄要建索引？</summary>
+    排程器每分鐘要問「有誰時間到了？」。把這欄做成索引（像通訊錄排好順序），就能秒撈出到期的一小撮，不用把 2000 萬個全翻一遍。建好索引，換查詢飛快。</details>
+  <details class="qa"><summary>Q7（工程）：分散式下難保「剛好做一次」，務實怎麼做？</summary>
+    用「至少做一次（寧可重來）＋ 唯一條碼去重」，效果上等於「剛好一次」。佇列重投、掃描器搶著掃、工人逾時復活都可能造成重複，但唯一條碼配上資料庫「不准重複」就能擋住。這是本題最重要的一句話。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>ChatGPT 排程任務 = 一個會「定時 / 週期幫你做事」的 AI 秘書。</strong></p>
+    <p><strong>3 個關卡：</strong>① 像鬧鐘一樣<strong>排程</strong>（延遲佇列：時間到才放行）→ ② 工人接手、任務<strong>狀態一路推進</strong>（待辦→執行中→完成）→ ③ 用「唯一條碼」<strong>確保同一件事只做一次</strong>（冪等＋重試）。</p>
+    <p><strong>3 個怕：</strong>怕做兩次（冪等去重）、怕不準時（尖峰要抹平）、怕被慢任務拖垮（排程與執行分家）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估「通勤尖峰」般的爆量、用 jitter 推平 → 用「點餐單(API)」溝通、回應裡帶「下次跑的時間」 → 兩本筆記本（任務 / 執行）＋「下次時間」建索引、唯一條碼設不准重複 → 找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑪ ChatGPT 排程任務 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉝ 物件儲存 S3 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉝ 物件儲存 S3 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼不直接「丟進一台大硬碟」就好？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你經營一間<strong>超大型連鎖倉儲</strong>，幫全世界的人「寄放東西」。你不在乎客人放的是照片、影片、還是備份檔——對你來說都只是「<strong>一箱不知道裝什麼的貨</strong>」。客人交貨時你給一張<strong>取件單號</strong>，之後憑單號就能把那箱貨原封不動拿回去。</p>
+  <p>這就是<strong>物件儲存（S3 是最有名的那一家）</strong>：你把任何大小的檔案丟上雲端，它幫你<strong>可靠地存著</strong>，之後用一個名字（<code>bucket/key</code>，等於「哪間倉庫／哪個單號」）原封不動取回。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    物件儲存 = <strong>全世界共用的超大連鎖倉儲</strong>：你寄一箱貨（檔案）拿一張單號，它保證「<strong>幾乎永遠不會弄丟</strong>」，要拿時憑單號還你一模一樣的東西。
+  </div>
+
+  <h2 id="why">2. 為什麼不直接「丟進一台大硬碟」就好？</h2>
+  <p>很多人第一個疑問是：「存檔案而已，買顆大硬碟不就好了？」問題在這個生活經驗——</p>
+  <div class="analogy">
+    <span class="label">📦 把所有家當塞同一個房間</span>
+    如果你把全部重要東西堆在<strong>同一個房間</strong>，那房間<strong>一淹水、一失火，全部一起沒了</strong>。
+    硬碟也一樣：硬碟一定會壞（只是早晚），全押一顆 = 賭命。
+  </div>
+  <p>所以物件儲存不靠「一顆很猛的硬碟」，而是靠「<strong>一大群普通、便宜、會壞的硬碟</strong>」，加上一套聰明的擺法，讓<strong>就算隨時有硬碟在壞，你的東西也不會不見</strong>。S3 號稱可靠到「<strong>11 個 9</strong>」（99.999999999%）——白話說：你存一千萬個檔案進去，<strong>放一萬年都不一定會掉一個</strong>。</p>
+  <p>它怎麼做到的？答案就藏在後面的關卡裡：把東西<strong>拆小、分散放、還多存幾份備份</strong>。</p>
+  <p class="pause">💭 停一下：為什麼「東西不能改、只能整個重存」反而讓這套系統更好做？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為物件儲存規定「檔案一旦存進去就<strong>不能就地修改</strong>，要改就用同名字重存一份新的」。這叫<strong>不可變（immutable）</strong>。好處是：既然永遠不會有人「邊存邊改」，系統就能放心大膽地複製、快取、分散——不用煩惱「複製到一半別人又改了」這種同時動手的亂局。把問題簡化掉，海量又便宜才做得到。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「分散式儲存」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>收件：超大行李，拆箱寄（分段上傳）</h3>
+    <p>客人要寄一個<strong>50 GB 的影片</strong>。如果硬要「一口氣傳完」，網路傳到一半斷線——<strong>整個重來</strong>，氣死人。</p>
+    <div class="analogy">
+      <span class="label">🧳 比喻：超大行李拆成好幾箱寄</span>
+      行李太大塞不進一個箱子，你會<strong>拆成好幾箱、分批寄</strong>。哪一箱寄丟了，<strong>只補寄那一箱</strong>就好，不用全部重來。
+      傳完了再說「我寄完了，請組裝」，倉庫才把幾箱拼回成原本那件行李。
+    </div>
+    <p>這就是 <strong>multipart（分段上傳）</strong>：大檔切成小塊、<strong>分批甚至同時傳</strong>（更快），斷了只<strong>續傳那一塊</strong>，全部到齊再喊一聲「組裝」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>放置：這箱貨放哪間倉庫？（一致性雜湊）</h3>
+    <p>連鎖倉儲有<strong>幾千間分倉</strong>。每一箱貨該放哪間？總不能擲骰子，不然之後要拿時根本不知道去哪找。</p>
+    <div class="analogy">
+      <span class="label">🕐 比喻：圓圈時鐘指位置</span>
+      想像把所有倉庫排成一個<strong>圓圈時鐘</strong>。每箱貨用名字算出一個「時間點」，<strong>順著時針往前走，遇到的第一間倉庫</strong>就是它的家。
+      之後要拿，再算一次同樣的時間點，<strong>一定走到同一間</strong>——不用問人，自己就找得到。
+    </div>
+    <p>這套「圓圈時鐘」叫 <strong>一致性雜湊（consistent hashing）</strong>。它最大的好處：<strong>新增或關掉一間倉庫，只有那附近的一小撮貨要搬家</strong>，其他統統不動。要是用笨方法（例如「箱號除以倉庫數量取餘數」），一旦倉庫數量改變，<strong>幾乎全部都要重搬</strong>，天下大亂。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>防丟：多存幾份 or 拼圖備份（容錯）</h3>
+    <p>硬碟（倉庫）一定會壞。怎麼讓「壞了也不會掉東西」？有兩招，是<strong>本題最核心的取捨</strong>：</p>
+    <div class="analogy">
+      <span class="label">📑 招式 A：影印 3 份（副本）</span>
+      最直覺：同一份東西<strong>完整複製 3 份</strong>，放在 3 間不同倉庫。掉了一份，<strong>直接拿另一份</strong>，超快。缺點：<strong>佔 3 倍空間、3 倍成本</strong>。
+    </div>
+    <div class="analogy">
+      <span class="label">🧩 招式 B：同位拼圖（抹除碼 / Erasure Coding）</span>
+      更省空間的魔術：把資料切成幾塊，<strong>另外算出一塊「拼圖校驗片」</strong>。神奇之處是——<strong>就算掉了其中任一塊，都能用剩下的塊「算」回來</strong>。
+      最簡單版本：<code>校驗片 = 資料片1 ⊕ 資料片2</code>（互斥或），缺哪片就拿另兩片反推回去。這樣只多存約 <strong>0.5 倍</strong>就能扛掉一片損失（共 1.5 倍），比影印 3 份省很多。
+    </div>
+    <p>👉 怎麼選？<strong>常用、要拿很快的熱門資料 → 用副本</strong>（讀最快）；<strong>很少動、又大又冷的資料 → 用抹除碼</strong>（省錢省空間）。背景還會有<strong>巡邏隊</strong>，發現某份東西備份不夠了就默默補回——這才是「11 個 9」真正的來源。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>取件：給外人一張「有期限的取件碼」（預簽 URL）</h3>
+    <p>你想把一個檔案分享給朋友下載，但<strong>不可能</strong>把倉庫的萬能鑰匙（金鑰）交給他——那他不就能亂翻你所有東西？</p>
+    <div class="analogy">
+      <span class="label">🎟️ 比喻：超商有期限的取件碼</span>
+      就像超商寄件給你一組<strong>取件碼</strong>：只能領「那一件」、而且<strong>過期就失效</strong>。你不用把店家保險箱鑰匙給人，對方也能順利取貨。
+    </div>
+    <p>這叫 <strong>預簽 URL（presigned URL）</strong>：伺服器用自己的祕密簽出一條<strong>限定這個檔案、限定時間內有效</strong>的連結。對方拿去用，伺服器一驗「簽章對不對、過期了沒」就放行；竄改網址或超時，立刻擋下。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 大檔<strong>拆箱寄</strong>（multipart）→ ② <strong>圓圈時鐘</strong>決定放哪間倉庫（一致性雜湊）→ ③ <strong>多存幾份或拼圖備份</strong>防丟（副本／抹除碼）→ ④ 給外人<strong>有期限取件碼</strong>（預簽 URL）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「弄丟東西」</span>
+    存東西的最高指令就是<strong>絕對不能掉</strong>。硬碟、倉庫、甚至整個機房都可能壞，所以東西要<strong>分散放在好幾個不同地點</strong>（不能全押一處），還要<strong>多存備份＋巡邏隊持續補</strong>。<em>耐久度壓倒一切。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「太貴」</span>
+    要存的是 <strong>EB 等級</strong>（億 GB）的海量資料。如果每份都影印 3 倍，電費機器費爆炸。所以<strong>能用抹除碼（1.5 倍）就別用副本（3 倍）</strong>，冷門大檔尤其要省——<strong>耐久度要高，但錢包也要顧</strong>。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「找不到 / 拿到舊的」</span>
+    幾兆個檔案，<strong>單號（key）對照表本身就大到一台機器裝不下</strong>，要拆開分散管理；而且「我剛存好，馬上去拿」<strong>必須拿到最新版</strong>，不能拿到還沒寫完或舊的。所以「<strong>記東西放哪的帳本</strong>」要又快又準。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，跟著上傳一路看：</p>
+  <ul>
+    <li>🚪 <strong>客人交貨</strong>（上傳）到<strong>櫃台（API 前端）</strong>，大檔自動拆成好幾箱 →</li>
+    <li>📒 櫃台先去<strong>帳本（Metadata 服務）</strong>登記「這個單號的貨，分成哪幾塊、各放哪」→</li>
+    <li>🕐 用<strong>圓圈時鐘（一致性雜湊）</strong>決定每塊放進哪幾間<strong>分倉（儲存節點）</strong>→</li>
+    <li>📑🧩 每塊在分倉<strong>存好幾份副本，或存成拼圖（抹除碼）</strong>，分散在不同地點 →</li>
+    <li>📥 要<strong>取貨（下載）</strong>時：查帳本 → 去各分倉把塊拿回來 → <strong>拼回原本的檔案</strong>（少了哪塊就用拼圖算回來）→</li>
+    <li>🎟️ 外人想拿？櫃台發一張<strong>有期限的取件碼（預簽 URL）</strong>，憑碼直接領。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>物件 / object</td><td>你寄放的「一箱貨」（任何檔案）</td></tr>
+    <tr><td>bucket / key</td><td>「哪間倉庫 / 哪個單號」，合起來唯一指定一箱貨</td></tr>
+    <tr><td>不可變 immutable</td><td>東西存進去不能改，要改就用同單號整個重存</td></tr>
+    <tr><td>multipart（分段上傳）</td><td>超大行李拆成好幾箱分批寄，斷了只補寄那一箱</td></tr>
+    <tr><td>一致性雜湊</td><td>「圓圈時鐘」決定每箱貨放哪間倉庫，增減倉庫只搬一小撮</td></tr>
+    <tr><td>副本 replica</td><td>影印好幾份分開放（如 3 份＝3 倍空間）</td></tr>
+    <tr><td>抹除碼 EC</td><td>「同位拼圖」：多算一塊校驗片，掉一塊也能算回來（約 1.5 倍）</td></tr>
+    <tr><td>耐久度 / 11 個 9</td><td>幾乎永遠不會弄丟（99.999999999%）</td></tr>
+    <tr><td>metadata（帳本）</td><td>記「每箱貨拆成哪幾塊、各放哪間倉庫」的對照表</td></tr>
+    <tr><td>預簽 URL</td><td>給外人的「有期限取件碼」，不用交出鑰匙</td></tr>
+    <tr><td>ETag</td><td>貨物的「指紋」，用來核對拿到的跟存進去的一模一樣</td></tr>
+    <tr><td>repair / 巡邏隊</td><td>背景默默巡查，發現備份不夠就補回</td></tr>
+    <tr><td>故障域</td><td>「會一起壞的一群」（同機架、同機房），備份要避開放在同一個</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>要存多少箱貨</td><td>10 億用戶 × 每人 1000 個檔 ≈ <strong>1 兆個</strong></td><td>「帳本」筆數多到爆，一台機器裝不下</td></tr>
+    <tr><td>總共多少資料量</td><td>平均每個 ~1 MB → 約 <strong>1 EB</strong>（億 GB）</td><td>只能放在「一大群便宜硬碟」上</td></tr>
+    <tr><td>備份後實際佔多少</td><td>抹除碼 ≈ 1.4 倍 → ~1.4 EB（若影印 3 份則 3 EB）</td><td>選哪種備份法，差「兩倍空間 / 成本」</td></tr>
+    <tr><td>帳本本身多大</td><td>1 兆筆 × 每筆 ~1 KB ≈ <strong>1 PB</strong></td><td>連「目錄」都大到必須拆開分散管理</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🧠 關鍵洞察：兩個世界，分開蓋</span>
+    其實有<strong>兩種完全不同的東西</strong>要管：一是<strong>「貨」（真正的位元組，又大又笨重）</strong>——丟便宜硬碟、靠分塊＋備份；二是<strong>「帳本」（記哪箱貨放哪的小紙條，又小又要查得飛快）</strong>——放快速的小型資料庫。
+    把這兩個<strong>分開蓋</strong>、各用各的技術，是物件儲存最重要的架構決定。
+  </div>
+  <p class="pause">💭 停一下：為什麼「帳本」要跟「貨」分開存，不放同一個地方？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為它們需求剛好相反。「貨」又大又重、寫一次就不太動，要的是<strong>便宜＋耐放</strong>；「帳本」每筆超小、但要<strong>每秒被查超多次、而且要查得快又準</strong>。硬塞同一種技術，必然有一邊很慘。分開後，貨放便宜大倉、帳本放高速小型資料庫，<strong>各自用最適合的工具、各自擴展</strong>。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 小檔，一口氣寄（單次上傳）
+   PUT /{倉庫}/{單號}   Body: &lt;檔案內容&gt;
+   我回：200，附一張「指紋」ETag（核對沒傳壞）</code></pre>
+  <p class="codecaption">ETag 是內容的「指紋」。你下次拿回來時比對指紋，就知道<strong>跟當初存進去的一模一樣、沒壞沒被動過</strong>。</p>
+  <pre><code>② 大檔，拆箱寄（分段上傳 multipart）
+   POST /{倉庫}/{單號}?uploads         → 先拿一個「批次號 uploadId」
+   PUT  ...?partNumber=N&uploadId=..   → 第 N 箱（可同時傳、可單獨重傳）
+   POST ...?uploadId=.. (complete)     → 「我寄完了，請組裝」</code></pre>
+  <p class="codecaption">關鍵在「<strong>能單獨重傳某一箱</strong>」：第 7 箱傳到一半斷線，只補第 7 箱，不用整個 50 GB 重來。小撇步：分段上傳組裝後的 ETag 結尾會有 <code>-箱數</code>（例如 <code>-12</code>），<strong>看 ETag 尾巴就知道這是不是拆箱寄的</strong>。</p>
+  <pre><code>③ 取件 + 給外人取件碼
+   GET  /{倉庫}/{單號}                 → 拿回檔案
+   GET  /{倉庫}/{單號}?Expires=..&Signature=..  → 預簽 URL（有期限、免鑰匙）</code></pre>
+  <p class="codecaption">預簽 URL 就是<strong>把「取件碼」直接寫進網址</strong>：裡面包含「准你拿這個檔、有效到幾點、以及一段防偽簽章」。改網址或過期，簽章對不上，直接 403 擋下。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩種帳冊</span>
+    系統要把資料記在「帳冊」裡。這題重點是分清楚<strong>「小紙條（帳本）」和「真正的貨（資料塊）」是兩套東西</strong>：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📒</span>帳本：每箱貨的「分裝清單」（小、要查得快）</h3>
+    <p>每個檔案一張清單：<code>單號(bucket/key)、大小、指紋ETag、用哪種備份法(副本/抹除碼)、每一塊放在哪幾間倉庫</code>。</p>
+    <div class="analogy"><span class="label">為什麼要記「放在哪幾間倉庫」？</span>
+      因為貨被<strong>拆成好幾塊、分散各地</strong>。沒這張清單，之後根本不知道去哪把塊撿回來拼。所以帳本＝<strong>尋寶圖</strong>，又小又必須超準。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📦</span>倉庫裡的「塊」：真正的貨（大、不可改）</h3>
+    <p>每間倉庫（儲存節點）裡，存的是一塊塊<strong>不可變</strong>的位元組：<code>塊編號 → 內容</code>。它可能是「一份副本」或「一塊抹除碼拼圖片」。</p>
+    <div class="analogy"><span class="label">為什麼塊「只能新增、不能改」？</span>
+      因為不可變，倉庫只要會「放好、找到」就行，永遠不用煩惱「有人邊讀我邊改」。簡單，所以可以塞超便宜的硬碟、堆到海量。</div>
+  </div>
+  <div class="box"><span class="label">🔑 一個關鍵順序</span>
+    存東西時，一定<strong>先把所有塊＋備份都寫好放穩，最後才在帳本上蓋章「完成」</strong>。
+    這樣就不會發生「帳本說有貨，去倉庫卻找到半箱」的慘劇——<strong>帳本指到的，一定是已經放穩的貨。</strong></div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>太多<strong>小檔</strong>：每個都要一張帳本＋翻硬碟一次，帳本和硬碟都累垮</td><td>把很多小檔<strong>打包進一個大塊</strong>（packing）、帳本多用快取</td></tr>
+    <tr><td>某間<strong>熱門倉庫被擠爆</strong>（大家的貨都算到同一間）</td><td>用雜湊把單號<strong>打散</strong>（別照字母排）、熱門的自動<strong>再切分</strong></td></tr>
+    <tr><td>一台倉庫掛掉，巡邏隊<strong>瘋狂補備份</strong>，把網路頻寬吃光</td><td>幫補備份的速度<strong>踩煞車（節流）</strong>、備份本來就<strong>分散多地</strong>降低衝擊</td></tr>
+    <tr><td>單一連線<strong>拉大檔太慢</strong>，跑不滿網速</td><td>大檔本來就分散在多間倉庫 → <strong>同時從多間平行拿</strong></td></tr>
+    <tr><td>整個<strong>機房（區域）出事</strong>，全區拿不到</td><td>背景<strong>跨區域再複製一份</strong>，一區垮了另一區頂上</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 副本 vs 抹除碼</span>
+    副本：<strong>讀很快、小檔友善，但佔 3 倍空間</strong>。抹除碼：<strong>省空間（1.5 倍），但拿的時候要「算」、小檔不划算</strong>。一句話收尾：<strong>熱資料用副本、冷資料／大檔用抹除碼。</strong></div>
+  <div class="fear"><span class="label">⚖️ 扁平命名 vs 真的資料夾</span>
+    S3 沒有真的資料夾，單號 <code>a/b/c.jpg</code> 只是<strong>看起來像路徑</strong>，其實是一整串字。好處是簡單、好水平擴展；代價是<strong>「重新命名一個資料夾」其實要搬一大堆檔案，很貴</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 帳本要超準 vs 貨可以慢慢同步</span>
+    「帳本（指到貨在哪）」必須<strong>強一致</strong>——剛存完馬上要查得到、且是最新。但「貨本身複製到其他區域」可以<strong>慢慢來（最終一致）</strong>。把「指標」和「資料」的一致性需求<strong>分開談</strong>，是高分關鍵。</div>
+  <details class="qa"><summary>💭 追問：「11 個 9」這麼誇張的耐久度，到底怎麼來的？</summary>
+    三件事相乘：<strong>① 多份冗餘</strong>（副本或抹除碼，扛得住掉幾份）＋<strong>② 分散在不同故障域</strong>（不同機架／機房，不會一次全壞）＋<strong>③ 巡邏隊持續修復</strong>（一發現備份變少就立刻補回）。三者一起，把「同時壞掉超過容忍數量」的機率壓到極低極低。</details>
+  <details class="qa"><summary>💭 追問：怎麼防止「帳本說好了，貨其實只寫一半」？</summary>
+    靠寫入順序：<strong>先把所有塊和備份都寫好放穩，最後才在帳本上原子性地蓋章「完成」</strong>。在那之前帳本根本看不到這筆，所以使用者絕不會查到指向半成品的紀錄。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「拆塊存放、製造倉庫故障、再還原」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8033 -t public
+# 然後瀏覽器打開 http://localhost:8033</code></pre>
+  <ol>
+    <li>先<strong>建一個 bucket（倉庫）</strong>，再<strong>一鍵分段上傳</strong>一個檔案。</li>
+    <li>看它被切成<strong>哪幾塊、各自落在哪些「倉庫」</strong>（demo 用資料夾模擬倉庫）。</li>
+    <li><strong>故意弄壞一個倉庫</strong>（製造節點失效）→ 再下載，看它怎麼<strong>用副本或拼圖（抹除碼）把缺的塊算回來</strong>，並核對指紋一致。</li>
+    <li>產生一條<strong>預簽 URL</strong>，試試<strong>改網址或等過期</strong>會不會被擋下。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把同一個檔案分別用「副本」和「抹除碼」存，比較<strong>佔的空間差多少</strong>（3 倍 vs 1.5 倍）——這就是<strong>關卡 3 的核心取捨</strong>。再弄壞一個倉庫，看抹除碼怎麼用 <code>剩下的塊 ⊕ 校驗片</code> 把缺的那塊變回來——這就是<strong>同位拼圖</strong>的魔術。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「連鎖倉儲」的比喻說說看，物件儲存在幹嘛？</summary>
+    它像幫全世界寄放東西的超大連鎖倉儲：你丟一箱貨（檔案）進去拿一張單號（bucket/key），它保證幾乎永遠不弄丟，要拿時憑單號還你一模一樣的東西。重點不是「存檔案」，而是「<strong>用一大群會壞的便宜硬碟，做到幾乎永不掉資料</strong>」。</details>
+  <details class="qa"><summary>Q2：為什麼大檔要「拆箱寄」（multipart）？好處是什麼？</summary>
+    一口氣傳大檔，網路一斷就整個重來。拆成好幾塊分批／同時傳，斷了只補那一塊，還能平行加速、組裝後算整體指紋。就像超大行李拆成好幾箱寄。</details>
+  <details class="qa"><summary>Q3：副本和抹除碼差在哪？什麼時候用哪個？</summary>
+    副本＝影印好幾份（如 3 份），讀很快但佔 3 倍空間；抹除碼＝多算一塊「同位拼圖校驗片」，掉一塊能算回來，只佔約 1.5 倍但拿的時候要算。熱門／小檔用副本，冷門／大檔用抹除碼。</details>
+  <details class="qa"><summary>Q4：預簽 URL 是什麼？為什麼不直接把鑰匙給人？</summary>
+    它是「有期限的取件碼」：伺服器簽出一條限定某檔案、限定時間有效的連結。給金鑰等於把保險箱鑰匙交出去，對方能亂翻所有東西；預簽 URL 只准拿那一件、過期失效，安全多了。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼「帳本」要跟「貨」分開存？</summary>
+    需求相反：貨又大又重、寫一次不太動，要便宜耐放；帳本超小但要被查超多次、又快又準。分開後貨放便宜大倉、帳本放高速小型資料庫，各用最適合的工具、各自擴展。這是物件儲存最核心的架構決定。</details>
+  <details class="qa"><summary>Q6（工程）：「一致性雜湊（圓圈時鐘）」比「箱號除以倉庫數取餘數」好在哪？</summary>
+    用取餘數的笨方法，一旦倉庫數量變了，幾乎全部的貨都要重搬，天下大亂。一致性雜湊把倉庫排成圓圈，新增／關掉一間只影響附近一小撮貨要搬家，其他都不動——增減機器的成本極低。</details>
+  <details class="qa"><summary>Q7（工程）：怎麼防止「帳本說有貨、倉庫卻只有半箱」？「11 個 9」又怎麼來的？</summary>
+    防半箱：先把所有塊和備份寫好放穩，最後才在帳本上原子蓋章「完成」，之前查不到。11 個 9：多份冗餘 ＋ 分散不同故障域 ＋ 巡邏隊持續修復，三者相乘把「同時壞超過容忍數」的機率壓到極低。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>物件儲存 = 全世界共用的超大連鎖倉儲：寄一箱貨拿一張單號，幾乎永遠不弄丟。</strong></p>
+    <p><strong>4 個關卡：</strong>① 大檔<strong>拆箱寄</strong>（multipart）→ ② <strong>圓圈時鐘</strong>選倉庫（一致性雜湊）→ ③ <strong>多存幾份或拼圖備份</strong>（副本 3 倍／抹除碼 1.5 倍）→ ④ 給外人<strong>有期限取件碼</strong>（預簽 URL）。</p>
+    <p><strong>3 個怕：</strong>怕弄丟（分散放＋多備份＋巡邏隊）、怕太貴（能用抹除碼就別影印 3 份）、怕找不到／拿到舊的（帳本要快又準、剛寫完馬上讀得到）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>把「貨（海量位元組）」和「帳本（小紙條尋寶圖）」<strong>分開蓋</strong> → 用點餐單(API)溝通、看 ETag 指紋核對 → 先寫穩塊與備份再原子蓋章 → 找出小檔／熱點／修復風暴等塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉝ 物件儲存 S3 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

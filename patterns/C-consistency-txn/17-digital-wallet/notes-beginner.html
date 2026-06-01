@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑰ 數位錢包 / 支付系統 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅲 一致性/交易</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑰ 數位錢包 / 支付系統 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">C 一致性/交易</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼錢包不是「餘額加加減減」這麼簡單？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 4 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你開了一家<strong>記帳超嚴格的銀行</strong>。每天有上億筆「A 付錢給 B」，
+  你要保證一件最簡單卻最難的事：<strong>錢一塊都不能多、不能少、不能憑空消失</strong>。</p>
+  <p>數位錢包 / 支付系統就是在做這件事。它的難，難在四點：手滑點兩次不能扣兩次、餘額不夠不能硬扣、
+  同一筆轉帳要嘛全成要嘛全敗、而且<strong>整本帳隨時加起來都要對得上</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    數位錢包 = <strong>一本永遠對得起來的會計帳本</strong>：每筆交易都「有借必有貸」，錢只是從一個口袋搬到另一個口袋，
+    全系統的總額永遠守恆——絕不會憑空多出或少掉一塊錢。
+  </div>
+
+  <h2 id="why">2. 為什麼錢包不是「餘額加加減減」這麼簡單？</h2>
+  <p>很多人第一個直覺是：「錢包不就是每個人一個 <code>balance</code> 數字，付錢就減、收錢就加？」
+  聽起來合理，但這正是會出大事的地方。關鍵在一個你早就懂的生活經驗——</p>
+  <div class="analogy">
+    <span class="label">📒 記帳本 vs 便利貼</span>
+    把餘額當一個「<strong>可以隨手改的數字</strong>」，就像把存款記在<strong>一張便利貼</strong>上，塗掉再寫新的。
+    出錯了你<strong>完全查不出哪裡錯、錯多少</strong>——便利貼沒有歷史。
+    真正的會計用的是<strong>記帳本</strong>：每筆錢的進出都一行一行「<strong>只能往下加，不能塗改</strong>」地記下來。
+  </div>
+  <p>而且會計記帳有個鐵律：<strong>有借必有貸、借貸金額相等</strong>。A 付給 B 100 元，記成兩行：
+  「A 少 100（借）」和「B 多 100（貸）」，兩行金額一樣、方向相反。這叫<strong>雙分錄</strong>。</p>
+  <p>這樣做的好處超大：因為每筆交易都是「從一個口袋搬到另一個口袋」，<strong>全系統的錢加起來永遠是同一個數字</strong>。
+  哪天總額對不上，你立刻知道「有 bug 或有人動了手腳」——這叫<strong>守恆</strong>，是金融系統的安全網。</p>
+  <p class="pause">💭 停一下：如果用「便利貼」式的餘額欄位，兩筆轉帳<strong>同時</strong>想花你帳戶裡同一筆錢，會發生什麼事？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    兩筆交易可能<strong>同時讀到「餘額還有 100」</strong>，於是都判斷「夠扣」，結果各扣 100——你只有 100 卻被花掉 200，憑空多花了一筆（這叫「雙花」/競態）。便利貼擋不住這種事；後面講的「條件更新防透支」就是來治它的。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「支付系統」嚇到。錢的事說穿了就是闖 4 關，每一關都在守護「錢不會算錯」：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>記帳：每筆交易「有借必有貸」（這是靈魂）</h3>
+    <p>A 轉 B 100 元，系統<strong>不是</strong>把 A 的數字減 100、B 的數字加 100 就算了。
+    它會在帳本上「<strong>只往下加、永不塗改</strong>」地寫兩行：A 借 100、B 貸 100。</p>
+    <div class="analogy"><span class="label">🏦 比喻</span>就像銀行的<strong>存摺</strong>：你只會看到一行一行「+」「−」往下記，<strong>沒人能用立可白塗掉某一行</strong>。要更正只能再記一行「沖正」。完整保留歷史，隨時可查帳。</div>
+    <p>👉 這帶來一個威力：<strong>「餘額」其實不是存起來的，而是把帳本所有行加總「算出來」的。</strong>就算系統當機，只要帳本還在，餘額隨時能重算。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>防手滑：同一筆轉帳手滑按兩次，只扣一次（冪等）</h3>
+    <p>網路很不可靠。你按下「轉帳」，畫面卡住，你<strong>又按了一次</strong>——錢不能被扣兩次。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：演唱會的票根存根</span>
+      你交一張票進場，工作人員<strong>撕下一半存根、記下你的座位號</strong>。如果你拿同一張票<strong>再來一次</strong>，
+      他一看存根「這張已經進過了」，就直接放你進去（你還是在原座位），<strong>不會幫你多開一個座位</strong>。
+    </div>
+    <p>系統的做法：每筆轉帳你帶一張獨一無二的「<strong>冪等鍵</strong>」（idempotency key，就是那個座位號）。
+    系統處理前先看「這把鑰匙用過沒？」——用過就<strong>直接回上次的結果，不再扣款</strong>。
+    這叫<strong>冪等</strong>：同一個動作做幾次，效果都跟做一次一樣。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>防透支：餘額不夠，就不准扣</h3>
+    <p>你只有 100，卻想轉 150——系統必須擋下來，<strong>餘額絕不能變負數</strong>。聽起來理所當然，難在「兩筆同時來」。</p>
+    <div class="analogy">
+      <span class="label">🚪 比喻：只有一道窄門，一次只放一個人</span>
+      想像帳戶門口有一道<strong>只容一人通過的窄門</strong>。要扣款的人得先擠進門，門裡的人檢查完餘額、扣完款、出來，下一個才能進。
+      這樣<strong>第二筆扣款進門時，看到的已經是扣過的餘額</strong>，發現不夠就被擋下——不會兩筆都以為自己夠扣。
+    </div>
+    <p>工程上的招數叫「<strong>條件更新</strong>」：扣款時下一道命令「<em>餘額夠才扣，不夠就一毛都別動</em>」，
+    由資料庫保證這個「檢查＋扣款」是一口氣做完、中間插不進別人。第二筆一看不夠，就被乾淨地拒絕。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>對帳：全部加起來要對得上（守恆）</h3>
+    <p>跑得再快，也要<strong>賠得起</strong>——系統要能隨時證明「錢一塊都沒少」。</p>
+    <div class="analogy">
+      <span class="label">🧮 比喻：店長每晚盤點收銀機</span>
+      便利商店店長每晚會<strong>數收銀機現金</strong>，跟「今天賣了多少」對一對。對得上就安心，對不上立刻查。
+      系統也有個「<strong>對帳 Job</strong>」定期把整本帳<strong>重新加總一遍</strong>，驗證「全部的借 = 全部的貸」、
+      算出來的餘額跟系統顯示的一致。一旦對不上馬上告警。
+    </div>
+    <p>因為有了關卡 1 的「有借必有貸」，這個對帳才做得到——全系統的錢理論上永遠守恆，差一塊都會被抓出來。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 每筆交易<strong>有借必有貸</strong>記進帳本 → ② 手滑兩次只扣一次（<strong>冪等</strong>）→ ③ 餘額不夠<strong>不准扣</strong>（防透支）→ ④ 全帳加總<strong>永遠對得上</strong>（對帳守恆）。</div>
+
+  <h2 id="fears">4. 設計時最怕的 4 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：錢的系統<strong>最怕四件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「重複扣款」</span>
+    網路重試、用戶連點，同一筆付款被執行兩次——你少了一筆錢。所以每筆付款帶一把<strong>冪等鍵</strong>，
+    系統認鑰匙不認次數，<strong>同鑰匙只生效一次</strong>，重送只回上次結果。<em>做幾次 = 做一次。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「憑空多花（雙花 / 透支）」</span>
+    餘額不夠卻扣成功、或兩筆同時花同一筆錢——錢憑空多出來。所以扣款一律走<strong>條件更新</strong>
+    （夠才扣）＋「窄門」序列化，<strong>餘額永不為負</strong>。<em>沒這筆錢，誰都別想扣走。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「扣一半（不原子）」</span>
+    最可怕的情況：<strong>A 扣了、B 卻沒加</strong>，錢蒸發了。所以「借」和「貸」兩行<strong>綁在同一個交易裡</strong>，
+    <strong>要嘛兩行都成、要嘛兩行都不發生</strong>，絕不會只做一半。<em>全成或全敗，沒有中間態。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「算不清、賴帳」</span>
+    出了糾紛卻查不出錢怎麼跑的，最致命。所以帳本<strong>只能追加、不能塗改</strong>（append-only），
+    每塊錢來去都留痕，加上定期<strong>對帳</strong>驗證守恆。<em>隨時攤開帳本，一筆都賴不掉。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，跟著付款的旅程走一遍：</p>
+  <ul>
+    <li>💳 你發起付款，帶著一把<strong>冪等鍵</strong> →</li>
+    <li>🚦 <strong>支付 API</strong>先翻「鑰匙登記簿」：這把用過沒？用過就直接回上次結果（不再扣）→</li>
+    <li>🔐 沒用過 → 交給<strong>交易服務</strong>，在<strong>同一個交易裡</strong>：條件更新防透支、寫下借／貸兩行分錄 →</li>
+    <li>📒 全部記進<strong>雙分錄帳本</strong>（只追加、不塗改，這是錢的「真相來源」）→</li>
+    <li>⚡ 順手更新一份<strong>餘額快取</strong>，讓「查餘額」秒回 →</li>
+    <li>🧮 後台<strong>對帳 Job</strong>定期把整本帳重算一遍，驗證「借 = 貸」、餘額對得上，不對就告警。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>雙分錄帳本<br>(double-entry ledger)</td><td>會計記帳法：每筆交易記兩行「有借必有貸」，金額相等方向相反</td></tr>
+    <tr><td>分錄 (entry)</td><td>帳本上的一行：誰、借還是貸、多少錢</td></tr>
+    <tr><td>append-only</td><td>「只能往下加、不能塗改」的帳本，像存摺</td></tr>
+    <tr><td>冪等 (idempotent)</td><td>同一個動作做幾次，效果都跟做一次一樣</td></tr>
+    <tr><td>冪等鍵 (idempotency key)</td><td>每筆付款獨一無二的「票根存根號」，用來認出重送</td></tr>
+    <tr><td>原子 (atomic)</td><td>一組動作「全成或全敗」，不會只做一半</td></tr>
+    <tr><td>交易 / 交易 (transaction)</td><td>把多個動作綁成一包，全成或全敗的那層保護</td></tr>
+    <tr><td>防透支</td><td>餘額不夠就不准扣，餘額永不為負</td></tr>
+    <tr><td>條件更新</td><td>「夠才扣，不夠一毛別動」的一口氣指令</td></tr>
+    <tr><td>雙花 (double-spend)</td><td>同一筆錢被花兩次（兩筆同時扣）</td></tr>
+    <tr><td>對帳 (reconciliation)</td><td>定期把整本帳重算、驗證「借=貸」、餘額對得上</td></tr>
+    <tr><td>守恆</td><td>全系統的錢加總永遠是同一個數，不多不少</td></tr>
+    <tr><td>物化 / 快取</td><td>把「算好的餘額」先存一份，查餘額才不用每次掃全帳</td></tr>
+    <tr><td>沖正 (reversal)</td><td>記錯了不塗改，而是再記一行相反的把它抵銷</td></tr>
+    <tr><td>TPS / QPS</td><td>每秒幾筆交易／請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>分片 (sharding)</td><td>資料太大，拆給好幾台機器分開存</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少筆付款（寫）</td><td>1 億筆/日 ≈ 每秒 ~1,200 筆，尖峰再 ×10</td><td>寫入要扛得住，且每筆都得正確</td></tr>
+    <tr><td>帳本長多快</td><td>每筆至少 2 行分錄 → 每天 ≥ 2 億行</td><td>帳本只增不刪，一年十幾 TB，要分冷熱</td></tr>
+    <tr><td>查餘額（讀）多頻繁</td><td>讀遠多於寫，可達 50:1</td><td>查餘額要快 → 存一份算好的「餘額快取」</td></tr>
+    <tr><td>付款要多快回應</td><td>p99 &lt; 200 毫秒</td><td>付款是關鍵路徑，不能讓人等</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💰 關鍵洞察：一分都不能用浮點數</span>
+    錢一律用<strong>「分」這種整數</strong>存（1500 分 = 15.00 元），<strong>絕不用小數（浮點數）</strong>。
+    因為電腦算小數會有微小誤差（0.1 + 0.2 居然不等於 0.3），<strong>一兆筆交易累積下來會「吃掉錢」</strong>——對銀行是大忌。
+  </div>
+  <p class="pause">💭 停一下：查餘額比付款頻繁這麼多倍，如果每次查餘額都去「把整本帳加總一遍」，會怎樣？</p>
+  <details class="qa"><summary>看答案</summary>
+    會慢到爆、還把資料庫壓垮。所以系統<strong>另外存一份「算好的餘額」（物化／快取）</strong>，查的時候直接讀這個數字，秒回。帳本（慢、但正確）負責「真相」，餘額快取（快）負責「給人看」——這就是「寫路徑保正確、讀路徑求飛快」。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」，最重要的是<strong>第一張（轉帳）一定要帶冪等鍵</strong>：</p>
+  <pre><code>① 轉帳 / 付款（最重要，必帶冪等鍵）
+   POST /transfers
+   附上一把鑰匙：Idempotency-Key: 9f1c2e7a-...   ← 你產生的、獨一無二
+   給我：{ 從誰 from, 給誰 to, 金額 amount:1500（分）, 幣別 }
+   我回：201「成功，這是交易編號 txn_123，借貸兩行如下」</code></pre>
+  <p class="codecaption">同一把鑰匙再送一次 → 我回 <strong>200 + 上次那筆 txn_123，不再扣款</strong>。這就是「票根存根」在運作。若同鑰匙卻帶了不同金額？我回 409「衝突」——一把鑰匙只能對應一筆交易，不准冒充。</p>
+  <pre><code>② 儲值 / 提領（其實也是轉帳：系統金庫 ↔ 你）
+   POST /topups        { to:"你", amount:10000 }   ← 充值
+   POST /withdrawals   { from:"你", amount:3000 }  ← 提領</code></pre>
+  <p class="codecaption">把「系統金庫」也當成一個帳戶，儲值就是「金庫 → 你」、提領就是「你 → 金庫」。這樣<strong>連充值提領都遵守「有借必有貸」</strong>，全帳照樣守恆。</p>
+  <pre><code>③ 查餘額（很頻繁 → 讀那份算好的快取）
+   GET /accounts/{id}/balance   → { available:8500, currency:"TWD" }
+
+④ 看對帳單 / 帳本（只追加、可審計）
+   GET /accounts/{id}/ledger    → { entries:[ 一行一行的借貸... ] }</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：三本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題只要三本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📒</span>帳本簿（最重要：每筆借/貸都在這，只追加）</h3>
+    <p>每一行記：<code>分錄ID、這筆轉帳的編號 transfer_id、是誰的帳戶、借(D)還是貸(C)、多少錢、時間</code>。</p>
+    <div class="analogy"><span class="label">為什麼這本是「真相」？</span>
+      因為它<strong>只追加、不塗改</strong>，完整保留每一塊錢的來去。
+      鐵律：<strong>同一個 transfer_id 的所有行，借的總和 = 貸的總和（淨額為 0）</strong>。
+      任何違反都代表出 bug 或被竄改——這就是對帳能抓漏洞的根據。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">💳</span>帳戶簿（餘額快取，可由帳本重算）</h3>
+    <p>每個帳戶一列：<code>帳戶ID、餘額(整數分)、幣別、版本號</code>。</p>
+    <div class="analogy"><span class="label">餘額為什麼只是「快取」？</span>
+      因為真正的餘額是「帳本所有行加總」算出來的。這裡存一份是為了<strong>查詢飛快</strong>，
+      就算這份壞了或當機，<strong>拿帳本重算一遍就能補回來</strong>。那個「版本號」是給「窄門」防並發用的。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🎫</span>鑰匙簿（冪等去重，防手滑）</h3>
+    <p>每把用過的冪等鍵一列：<code>鑰匙、請求內容的指紋、對應的交易編號、狀態(處理中/已完成)、何時過期</code>。</p>
+    <div class="analogy"><span class="label">就是那本「票根存根」</span>
+      新付款先來這本登記、佔位；重送的同鑰匙一查「已完成」，<strong>直接回上次結果，不再扣款</strong>。
+      鑰匙留一段時間（涵蓋重試窗口）就能<strong>到期自動回收</strong>，不會無限長大。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>單一資料庫寫不下這麼多交易</td><td>依<strong>帳戶 ID 分片</strong>：不同人的帳分到不同機器</td></tr>
+    <tr><td>熱門帳戶（金庫、人氣商家）被狂扣狂加</td><td>把它的計數<strong>拆成好幾桶分開記</strong>，再定期合併</td></tr>
+    <tr><td>A、B 不在同一台機器，無法用「一個交易」綁住</td><td>用 <strong>Saga（分段做＋出錯就補償沖正）</strong>，靠冪等＋對帳兜底</td></tr>
+    <tr><td>查餘額的請求把主資料庫打爆</td><td>餘額<strong>物化＋快取（Redis）</strong>，讀寫分開</td></tr>
+    <tr><td>帳本只增不刪，越長越大</td><td>冷熱分層＋定期<strong>存「快照」</strong>，重算時不用從頭加</td></tr>
+    <tr><td>鑰匙簿無限累積</td><td>設<strong>到期時間自動回收</strong>（留夠重試窗口即可）</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的四個怕」是核心。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 餘額欄位 vs 雙分錄帳本</span>
+    便利貼式餘額簡單，但<strong>無法查帳、並發易錯</strong>；雙分錄帳本可審計、守恆、可重建，是金融標準。本題務必選<strong>帳本</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 餘額「即時更新」 vs 「事後慢慢算」</span>
+    寫的時候同步更新餘額 → 你立刻看到正確數字，但寫比較重；事後背景慢慢算 → 寫得快但餘額有點延遲。錢包通常選<strong>即時更新</strong>（用戶要馬上看到對的餘額）。</div>
+  <div class="fear"><span class="label">⚖️ 悲觀鎖（窄門）vs 樂觀鎖（先做後驗）</span>
+    同帳戶常常搶 → 用「窄門」鎖住排隊最穩；很少搶 → 用「版本號比對（先做，提交時驗有沒有被別人改過）」吞吐更高。</div>
+  <details class="qa"><summary>💭 追問：扣了我的款，但對方系統沒收到，怎麼辦？</summary>
+    投遞保證「至少送到一次」＋對方<strong>冪等消費</strong>（同一筆只認一次）＋<strong>對帳補償</strong>：對帳發現缺口，就追加一行<strong>沖正</strong>把帳補平。錢不會卡在半空中。</details>
+  <details class="qa"><summary>💭 追問：系統崩潰重開後，餘額會不會就錯了？</summary>
+    不會。帳本是「真相」且只追加，重開後<strong>拿帳本重放／用快照重算</strong>就能把每個餘額還原。餘額快取只是加速用，壞了能重建。</details>
+  <details class="qa"><summary>💭 追問：怎麼向別人「證明」錢一塊都沒少？</summary>
+    跑對帳：驗證<strong>全系統的借總和 = 貸總和</strong>，再把帳本重算的餘額跟系統顯示的餘額逐一比對。全對得上，就是錢沒少的鐵證。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「雙分錄＋冪等＋防透支」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8017 -t public
+# 然後瀏覽器打開 http://localhost:8017</code></pre>
+  <ol>
+    <li>先<strong>開幾個帳戶</strong>並給初始餘額（等於開幾個錢包）。</li>
+    <li>做一筆<strong>轉帳</strong> → 再用<strong>同一把冪等鍵重送一次</strong>，看是不是<strong>只扣一次</strong>。</li>
+    <li>故意<strong>轉超過餘額</strong>的金額 → 看它被乾淨地<strong>拒絕（防透支）</strong>。</li>
+    <li>最後<strong>列出帳本</strong>，驗證每筆都「借 = 貸」、全帳<strong>總額守恆</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>同一把冪等鍵重送，餘額有沒有少第二次？這就是<strong>關卡 2 的冪等</strong>。轉一筆超過餘額被拒，餘額有沒有變負？這就是<strong>關卡 3 的防透支</strong>。最後列帳本看「借總和 = 貸總和」——這就是<strong>關卡 4 的守恆</strong>在運作。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「記帳本 vs 便利貼」解釋，為什麼餘額不該是一個「可隨手改的數字」？</summary>
+    便利貼式餘額塗掉重寫、沒有歷史，出錯查不出哪裡錯、也擋不住兩筆同時扣的競態。記帳本「只追加不塗改」，每塊錢來去都留痕、可查帳、可重算餘額，還能驗證全帳守恆。</details>
+  <details class="qa"><summary>Q2：什麼是「雙分錄（有借必有貸）」？它帶來什麼好處？</summary>
+    每筆轉帳記成金額相等、方向相反的兩行（一借一貸），共用同一個 transfer_id。好處是錢只是從一個口袋搬到另一個口袋，全系統總額永遠守恆——對帳時驗「借總和 = 貸總和」就能抓出任何漏洞。</details>
+  <details class="qa"><summary>Q3：用「演唱會票根存根」說明「冪等」，為什麼手滑按兩次只扣一次？</summary>
+    每筆付款帶一把獨一無二的冪等鍵（像票根存根號）。系統處理前先查這把鑰匙用過沒，用過就直接回上次結果、不再扣款。同一個動作做幾次，效果都跟做一次一樣。</details>
+  <details class="qa"><summary>Q4：用「窄門」說明，為什麼餘額不會被透支或雙花？</summary>
+    扣款得擠過一道一次只放一人的窄門：第一筆檢查並扣完款出來，第二筆進門時看到的已是扣過的餘額，不夠就被擋下。工程上靠「條件更新（夠才扣）」＋鎖序列化，餘額永不為負。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼金額一律用整數「分」，不用小數（浮點數）？</summary>
+    電腦算小數有微小誤差（0.1+0.2≠0.3），大量交易累積會「吃掉錢」。用整數分（1500 分 = 15.00 元）做運算與儲存，精確不漏。</details>
+  <details class="qa"><summary>Q6（工程）：「借、貸兩行」為什麼一定要綁在「同一個交易」裡？</summary>
+    為了原子性——要嘛兩行都成、要嘛都不發生。否則可能「A 扣了、B 沒加」，錢憑空蒸發。同一個 DB 交易保證全成或全敗，沒有扣一半的中間態。</details>
+  <details class="qa"><summary>Q7（工程）：餘額快取壞了或系統崩潰，餘額會不會永久算錯？</summary>
+    不會。真相來源是 append-only 帳本，餘額只是由帳本加總而來的快取。崩潰後重放帳本（或用快照加速）就能把每個帳戶餘額重算還原。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>數位錢包 = 一本永遠對得起來的會計帳本。</strong>錢只在口袋間搬，不憑空多也不憑空少。</p>
+    <p><strong>4 個關卡：</strong>① 有借必有貸記帳本 → ② 手滑兩次只扣一次（冪等）→ ③ 餘額不夠不准扣（防透支）→ ④ 全帳加總對得上（對帳守恆）。</p>
+    <p><strong>4 個怕：</strong>怕重複扣款（冪等鍵）、怕憑空多花（條件更新防透支/雙花）、怕扣一半（同交易原子）、怕算不清（只追加＋對帳）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>金額用整數分、寫路徑保正確讀路徑求快 → 用「點餐單(API)」溝通、轉帳必帶冪等鍵 → 三本筆記本（帳本/帳戶/鑰匙）＋帳本是真相 → 找出塞車環節（分片/快取/Saga）各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑰ 數位錢包 / 支付系統 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

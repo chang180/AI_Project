@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉕ 分散式訊息佇列 Kafka · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅷 基礎設施/平台元件</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉕ 分散式訊息佇列 Kafka · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">H 基礎設施</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這東西在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼不直接打電話，要放一條輸送帶？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 4 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像一間工廠：<strong>前面的師傅</strong>一直做半成品，<strong>後面的師傅</strong>負責加工。如果前面做一個、就走過去拍後面肩膀塞一個給他，
+  那只要後面那位手忙腳亂或請假，<strong>前面整條線就被卡死</strong>。</p>
+  <p>聰明的工廠會在中間放一條<strong>輸送帶</strong>：前面師傅做好就<strong>往輸送帶上一放</strong>，繼續做下一個，完全不用管後面是誰、在不在、做得快不快；
+  後面師傅<strong>有空就從輸送帶拿一個來做</strong>。兩邊各做各的，誰也不卡誰。</p>
+  <p><strong>訊息佇列（Message Queue）就是軟體世界裡的這條輸送帶。</strong>Kafka 是其中最有名的一條，而且它的輸送帶很特別——
+  東西放上去<strong>不會被拿走就消失</strong>，而是像<strong>一條長長的紀錄帶一直往後排</strong>，後面想重看可以倒帶重播。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    訊息佇列 = <strong>放在兩個系統中間的輸送帶</strong>：放東西的人（生產者）和拿東西的人（消費者）<strong>互不依賴、各做各的</strong>，
+    Kafka 還讓這條帶子<strong>可以倒帶重播</strong>。
+  </div>
+
+  <h2 id="why">2. 為什麼不直接打電話，要放一條輸送帶？</h2>
+  <p>你可能會問：「兩個系統要溝通，直接呼叫對方不就好了？幹嘛中間多放一條帶子？」答案藏在三個你早就有的生活經驗裡。</p>
+  <div class="analogy">
+    <span class="label">📞 經驗一：解耦——「我放著就走，不等你接」</span>
+    打電話要對方<strong>當下接</strong>，沒接到就尷尬卡住。但你<strong>傳訊息</strong>就不一樣：丟出去就去忙別的，對方有空再看。
+    輸送帶讓兩邊「不必同時在線」——前面師傅不用認識後面師傅是誰，後面換人、請假，前面照樣放東西。
+  </div>
+  <div class="analogy">
+    <span class="label">🌊 經驗二：削峰——「先收進來，再慢慢消化」</span>
+    餐廳尖峰時段客人一次湧進，廚房不可能瞬間出 100 份餐。聰明的做法是<strong>先收單（排隊單堆著）</strong>，廚房<strong>照自己的速度</strong>一份份出。
+    輸送帶就是那疊排隊單：突發流量先堆在帶子上，後面的人按自己步調消化，<strong>不會被一次打爆</strong>。
+  </div>
+  <div class="analogy">
+    <span class="label">⏪ 經驗三：可重播——「錄影帶可以倒帶重看」</span>
+    一般輸送帶東西拿走就沒了。Kafka 的帶子像<strong>監視器錄影</strong>：畫面一直錄著留在那，
+    新來的保全可以<strong>從頭看一遍</strong>，發現之前看漏了也能<strong>倒帶重看</strong>。這在軟體裡超有用——程式改好 bug 後，可以把舊資料重跑一遍。
+  </div>
+  <p>所以放輸送帶不是多此一舉，而是換來三樣寶：<strong>兩邊解耦、扛得住突發、還能倒帶重播</strong>。</p>
+  <p class="pause">💭 停一下：如果前面師傅做得飛快、後面師傅做得很慢，沒有輸送帶會發生什麼事？有輸送帶又會怎樣？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    沒有輸送帶（直接呼叫）：前面每做一個都要等後面接走，前面就被後面的慢拖住，整條線只能跑後面那個人的速度，後面一掛前面也跟著掛。
+    有輸送帶：前面照樣全速放上帶子，東西先堆在帶子上（這就是「削峰／緩衝」），後面慢慢追。代價是帶子上會越堆越多（這叫「消費者落後 lag」），但至少前面不被卡死、後面掛了重啟還能接著拿。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「分散式訊息佇列」這串字嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>放上帶子：生產者把訊息丟進來</h3>
+    <p>放東西的人叫<strong>生產者（Producer）</strong>。它只做一件事：把一則訊息<strong>往帶子上一放</strong>就走，不管後面誰來拿。</p>
+    <div class="analogy"><span class="label">🏭 比喻</span>前段師傅做好半成品，<strong>放上輸送帶就轉身做下一個</strong>，從不回頭確認後面有沒有人接。這份「放完就走」的瀟灑，就是「解耦」的精髓。</div>
+    <p>👉 一個關鍵字：放上去的訊息<strong>不會消失</strong>，它會被<strong>寫進一份永久的紀錄</strong>（落到磁碟），所以就算機器重開，東西還在。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>分流：一條變多條，同類走同一條</h3>
+    <p>一條輸送帶不夠快怎麼辦？答案是<strong>並排放好幾條</strong>。Kafka 把一個主題（topic，就是「某類訊息」）切成好幾條帶子，每條叫一個<strong>分區（partition）</strong>。</p>
+    <div class="analogy">
+      <span class="label">📮 比喻：郵局按地區分流</span>
+      郵局不會把全國的信塞進同一個輸送帶（太慢）。它會<strong>按地區開好幾條線</strong>：台北的信走 1 號線、台中走 2 號線……
+      重點是——<strong>同一個地區的信，永遠走同一條線</strong>，這樣同一地區的信就會<strong>照寄出順序到達</strong>，不會亂掉。
+    </div>
+    <p>那「怎麼決定一則訊息走哪條」？靠訊息上貼的一個標籤，叫 <strong>key（鑰匙）</strong>。系統用一個固定算法（雜湊）把同一個 key 永遠算到同一條帶子。</p>
+    <ul>
+      <li>同一位顧客的所有訂單，貼上同一個 key（顧客編號）→ <strong>永遠走同一條帶子 → 保證照順序</strong>。</li>
+      <li>不同顧客的訂單散在不同帶子上 → <strong>多條同時跑，速度就上來了</strong>。</li>
+    </ul>
+    <p>⚠️ 重點：Kafka 只保證<strong>「同一條帶子上」照順序</strong>，<strong>不保證</strong>不同帶子之間誰先誰後。想要某類東西有序，就把它們貼同一個 key、塞進同一條帶子。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>拿下來：消費者用「書籤」記住看到哪</h3>
+    <p>拿東西的人叫<strong>消費者（Consumer）</strong>。它<strong>主動</strong>去帶子上拿（不是被塞），拿完還要記住「我拿到第幾號了」。</p>
+    <div class="analogy">
+      <span class="label">🔖 比喻：看書夾書籤</span>
+      你看一本永遠不會被撕掉的書，每次看到哪就<strong>夾一張書籤</strong>，下次從書籤接著看。這個書籤位置就叫 <strong>offset（位移）</strong>——
+      帶子上每則訊息都有一個流水號（0、1、2…），書籤記的就是「我看到第幾號」。
+    </div>
+    <p>因為書是不會被撕掉的（訊息留著），所以你<strong>隨時可以把書籤往回挪</strong>，從頭重看一遍——這就是 Kafka 最神的<strong>「倒帶重播（replay）」</strong>。</p>
+    <p>👉 重要分別：<strong>書（訊息）和書籤（offset）是分開存的</strong>。書是大家共用的事實，書籤是每個讀者自己的進度。所以好幾個讀者能各看各的、各夾各的書籤，互不干擾。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>分工：一群消費者組隊瓜分帶子</h3>
+    <p>後面活太多，一個人做不完？就找<strong>一群人組隊</strong>，這隊叫<strong>消費者組（consumer group）</strong>。隊長把帶子分給隊員，<strong>每人負責幾條，分頭做</strong>。</p>
+    <div class="analogy">
+      <span class="label">🧑‍🏭 比喻：工頭分配輸送帶</span>
+      工廠有 3 條輸送帶、2 個工人，工頭就分：工人 A 顧帶子 1、2，工人 B 顧帶子 3。一條帶子<strong>同一時間只給一個人顧</strong>（才不會搶、才保順序）。
+      有人請假或新人加入，工頭就<strong>重新分配一次</strong>（這叫 rebalance）。
+    </div>
+    <p>關鍵限制：<strong>一條帶子同時只能一個隊員顧</strong>，所以<strong>隊員再多，也不會超過帶子的數量</strong>。想讓更多人一起做、做更快？得先<strong>多開幾條帶子</strong>。</p>
+    <p>還有一招：<strong>不同的隊</strong>可以同時讀同一批帶子、各看各的（像「計費組」和「數據分析組」都讀同一份訂單，各做各的事），互不影響。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 生產者<strong>放上帶子就走</strong> → ② 一個主題<strong>分成多條帶子</strong>、同 key 走同一條保順序 → ③ 消費者<strong>主動拿、用書籤記進度、可倒帶</strong> → ④ 一隊人<strong>瓜分帶子分頭做</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 4 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕四件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「順序亂掉」</span>
+    同一位顧客「先下單、後取消」如果到達順序顛倒，系統就會錯亂。所以<strong>同一個東西的事件一定要走同一條帶子</strong>（貼同一個 key）。
+    代價是：想要<strong>全部東西都全域有序</strong>，就只能用<strong>一條帶子</strong>——那就完全沒辦法並行、超慢。<em>所以只保「同一實體有序」，不貪「全部有序」。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「漏掉訊息」</span>
+    放上去的東西絕不能憑空消失。所以訊息要<strong>寫進磁碟（落盤）</strong>、還能<strong>多存幾份副本</strong>（一台機器壞了還有別台）。
+    消費這端也有講究：<strong>先處理完、確定好了才挪書籤</strong>，這樣就算中途當機，重開後會<strong>從書籤重拿一次</strong>，寧可重複也不漏。<em>寧可重做，不可漏做。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「重複惹麻煩」</span>
+    「寧可重做」帶來副作用：同一則可能被處理兩次（例如重複扣款）。怎麼辦？讓後面的處理<strong>「做兩次跟做一次結果一樣」</strong>——
+    例如用訂單編號去重、或用「覆蓋寫入」而非「累加」。這叫<strong>冪等</strong>。<em>重複沒關係，只要結果不變。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「某條帶子特別擠」</span>
+    如果某個大客戶訂單超多，他那條帶子就<strong>塞爆</strong>，其他帶子卻很閒（這叫<strong>熱點</strong>）。
+    解法是調整 key 的分法把它打散，但打散就會<strong>犧牲那個維度的順序</strong>——又是一個魚與熊掌。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>📥 <strong>生產者</strong>把訊息丟進來，依照 key 算出<strong>要走哪一條帶子</strong> →</li>
+    <li>🗄️ <strong>Broker（帶子管理員／伺服器）</strong>把一個主題的<strong>好幾條帶子（分區）</strong>都收著，每條帶子上的東西照流水號（offset）一直往後排 →</li>
+    <li>🔖 <strong>消費者組</strong>來拿，每條帶子各自有一個<strong>書籤</strong>記到哪；不同的組各有各的書籤（圖中組 B 的書籤往回挪＝倒帶重播）→</li>
+    <li>🧭 旁邊還有一個<strong>協調員（ZooKeeper / KRaft）</strong>：負責記「叢集裡有哪些機器、哪條帶子歸誰顧、有人進出就重新分配」。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>訊息佇列 / MQ</td><td>放在兩個系統中間的「輸送帶」</td></tr>
+    <tr><td>生產者 (Producer)</td><td>把東西放上帶子的人</td></tr>
+    <tr><td>消費者 (Consumer)</td><td>從帶子上拿東西做的人</td></tr>
+    <tr><td>主題 (topic)</td><td>「某一類訊息」的總稱（例如「所有訂單」）</td></tr>
+    <tr><td>分區 (partition)</td><td>同一主題並排的好幾條帶子，多條才能同時跑</td></tr>
+    <tr><td>key（鑰匙）</td><td>訊息上的標籤，決定走哪條帶子；同 key 永遠同一條</td></tr>
+    <tr><td>offset（位移）</td><td>帶子上每則訊息的流水號；消費者的「書籤」</td></tr>
+    <tr><td>消費者組 (consumer group)</td><td>組隊瓜分帶子的一群人；不同組互不影響</td></tr>
+    <tr><td>commit（提交進度）</td><td>把書籤往前挪一格＝「這則我做完了」</td></tr>
+    <tr><td>replay / seek（重播 / 倒帶）</td><td>把書籤往回挪，從頭或某處重看一遍</td></tr>
+    <tr><td>rebalance（重新分配）</td><td>有人進出隊伍時，工頭重新分配誰顧哪條帶子</td></tr>
+    <tr><td>副本 / ISR</td><td>同一條帶子多存幾份，壞一台不丟資料</td></tr>
+    <tr><td>at-least-once（至少一次）</td><td>寧可重送也不漏送（搭配冪等去重）</td></tr>
+    <tr><td>冪等</td><td>同一則做幾次，結果都一樣（不怕重複）</td></tr>
+    <tr><td>lag（落後量）</td><td>帶子上還有多少沒拿走＝消費者落後多少</td></tr>
+    <tr><td>削峰 / 緩衝</td><td>突發流量先堆在帶子上，後面照步調慢慢消化</td></tr>
+    <tr><td>水平擴展</td><td>不夠快就「多開幾條帶子 + 多找幾個人」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備幾條帶子、多少硬碟。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每秒丟進多少訊息</td><td>100 萬則/秒，每則約 1 KB</td><td>每秒約 1 GB 進來，一條帶子扛不住</td></tr>
+    <tr><td>一條帶子能扛多少</td><td>單條約 10 MB/秒安全</td><td>1 GB ÷ 10 MB ≈ <strong>要開約 100 條帶子</strong>（再留餘裕）</td></tr>
+    <tr><td>東西要留多久</td><td>留 7 天可重播</td><td>1 GB/秒 × 7 天 ≈ <strong>約 600 TB</strong>（再 ×3 份副本 ≈ 1.8 PB）</td></tr>
+    <tr><td>後面最多幾人同時做</td><td>一條帶子只能一人顧</td><td><strong>同隊人數 ≤ 帶子數</strong>；想更多人一起做就先加帶子</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：帶子數＝「速度單位」也＝「人數上限」</span>
+    分區（帶子）數這個數字很特別：它<strong>同時決定了「能跑多快」和「最多幾人一起做」</strong>。
+    而且一旦開始用 key 分流，<strong>事後改帶子數量會打亂「同 key 同帶子」的對應關係</strong>（順序就亂了）。所以<strong>一開始就要估寬一點</strong>，寧可多開。
+  </div>
+  <p class="pause">💭 停一下：如果現在 50 條帶子不夠快，「再加 200 個消費者」能不能讓它變快？</p>
+  <details class="qa"><summary>看答案</summary>
+    不能。因為<strong>一條帶子同時只能一個人顧</strong>，所以 50 條帶子最多只有 50 個人在做，多出來的 150 個人只能<strong>乾坐著閒置</strong>。
+    想真的變快，要<strong>先加帶子（分區）數</strong>，人才有得分。「加人就能無限加速」是最經典的誤會。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住四張「點餐單」，剛好對應上面四個關卡：</p>
+  <pre><code>① 放上帶子（生產）
+   POST /produce
+   給我：{ 主題:"orders", key:"user-42", value:{金額:100} }
+   我回：{ partition:1, offset:37 } ← 告訴你「放在第 1 條帶子的第 37 號」</code></pre>
+  <p class="codecaption">為什麼回 partition 和 offset？等於給你一張「存放位置收據」：第幾條帶子、第幾號。key 決定走哪條帶子（同 user 永遠同一條）。</p>
+  <pre><code>② 拿東西（消費，先拿不自動記書籤）
+   POST /poll   給我：{ 組:"billing", 主題:"orders", 一次最多:100 }
+   我回：{ 訊息清單: [ {partition:1, offset:37, key, value}, ... ] }</code></pre>
+  <p class="codecaption">注意「拿」和「記書籤」是<strong>兩個動作分開</strong>的——這很關鍵，下一張單就是記書籤。</p>
+  <pre><code>③ 記書籤（提交進度，處理完才做）
+   POST /commit  給我：{ 組:"billing", 主題:"orders", offsets:{ "1": 38 } }</code></pre>
+  <p class="codecaption">為什麼「拿」和「記書籤」要分開？這樣你能選擇：<strong>先做完、成功了才記書籤</strong>＝寧可重做不漏做（崩潰會重拿，所以下游要冪等）；
+  <strong>先記書籤再做</strong>＝崩潰就漏掉。綁死成一步，就失去這個選擇權了。</p>
+  <pre><code>④ 倒帶重播（把書籤往回挪）
+   POST /seek    給我：{ 組:"billing", 主題:"orders", 挪到:0 }  ← 0=從頭重看</code></pre>
+  <p class="codecaption">因為書（訊息）一直留著，把書籤挪回 0 就能從頭重看一遍——拿來「新消費者回填歷史」「改完 bug 重跑」超好用。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩種筆記本</span>
+    系統要把資料記在「筆記本」裡。這題的精髓是——<strong>「書」和「書籤」要分開記</strong>。
+  </div>
+  <div class="step">
+    <h3><span class="badge">📜</span>帶子本體（一直往後排、永不修改）</h3>
+    <p>每條帶子（分區）就是<strong>一本一直往後寫、永遠不改前面</strong>的紀錄簿：</p>
+    <pre><code>第 0 號 : { key, value, 時間 }
+第 1 號 : { key, value, 時間 }
+第 2 號 : { key, value, 時間 }
+...      ← 只能往後加，不能改前面；過了保留期才整段丟掉</code></pre>
+    <div class="analogy"><span class="label">為什麼只加不改？</span>
+      因為「只往後加」是磁碟最快的寫法（順序寫），而且<strong>不改舊的</strong>，才能讓任何人隨時倒帶重看到一模一樣的歷史。
+      這種「只記事實、不塗改」的帳本，就是 Kafka 的靈魂——一份<strong>提交日誌（commit log）</strong>。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔖</span>書籤本（誰看到第幾號，跟帶子分開存）</h3>
+    <p>另一本記每個組的進度：</p>
+    <pre><code>(組, 主題, 第幾條帶子) → 書籤位置
+例：(billing, orders, 1) → 38   表示這組在第 1 條帶子已看到 37 號，下次從 38 號接著看</code></pre>
+    <div class="analogy"><span class="label">設計精髓：書和書籤分開</span>
+      訊息（書）是<strong>大家共用、不可改的事實</strong>；書籤只是「每個組各自讀到哪」。
+      正因分開，<strong>好幾個組能各讀各的、同一份訊息能被無限倒帶重播</strong>——這就是 Kafka 跟傳統「拿走就消失」佇列最根本的差別。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>一條帶子吞吐到頂（只能順序寫、只能一人顧）</td><td><strong>多開幾條帶子（加分區）</strong>，生產和消費的並行度一起上來</td></tr>
+    <tr><td>某條帶子特別擠（大客戶＝熱點）</td><td>調整 key 的分法把它打散（會犧牲該維度順序），或讓熱客戶<strong>單獨開一個主題</strong></td></tr>
+    <tr><td>後面追不上前面（lag 越堆越多）</td><td>加人（但不超過帶子數）、優化處理速度、一次拿一批；<strong>盯著 lag 設告警</strong></td></tr>
+    <tr><td>硬碟被塞爆（高流量 × 長保留）</td><td>設保留期（時間/容量）、壓縮（同 key 只留最新）、舊資料搬去便宜的物件儲存</td></tr>
+    <tr><td>隊員一直進進出出，老是在重新分配</td><td>調心跳逾時、用「溫和搬動」策略，減少每次重分配的搬動量</td></tr>
+  </table>
+  <div class="box warn"><span class="label">經典陷阱</span>「加消費者就能無限加速」是錯的——<strong>一隊的有效並行上限 = 帶子（分區）數</strong>。人多於帶子，多的就閒置。要更快得先加帶子。</div>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的四個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 主動拿 (pull) vs 被塞 (push)</span>
+    Kafka 讓消費者<strong>自己主動去拿</strong>。好處是消費者<strong>按自己步調拿、天然不會被打爆</strong>、想一次拿一批也行；
+    代價是沒東西時要一直問「有了嗎」（空轉）。反之「被塞」很即時，但慢的消費者容易被塞爆。</div>
+  <div class="fear"><span class="label">⚖️ 至少一次 vs 剛好一次</span>
+    預設<strong>至少送一次</strong>（先做後記書籤，崩潰會重做 → 下游要冪等去重）。要做到「剛好一次」需要更複雜的機制（交易、去重生產），<strong>成本很高，非必要不開</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 有序 vs 並行</span>
+    要的「有序範圍」越大 → 能用的帶子越少 → 越不能並行、越慢。<strong>用 key 把「需要有序」的範圍縮到單一實體</strong>（同顧客、同訂單），是兩者兼得的標準解。</div>
+  <details class="qa"><summary>💭 追問：Kafka、RabbitMQ、SQS 差在哪？</summary>
+    <strong>Kafka</strong>：紀錄帶型、可倒帶重播、超高吞吐、同帶子有序，適合事件流／日誌。
+    <strong>RabbitMQ</strong>：傳統 broker，路由超靈活、拿走即移除（重播非強項），適合任務佇列／複雜路由。
+    <strong>SQS</strong>：雲端全託管、免維護、幾乎無限擴展，標準佇列不保嚴格序，適合雲上解耦。</details>
+  <details class="qa"><summary>💭 追問：有一則訊息怎麼處理都失敗，會不會把整條帶子卡住？</summary>
+    會。因為同一條帶子要照順序，一則卡住後面全排隊。解法：設「處理逾時」，把這種「<strong>毒訊息</strong>」丟到一個專門的<strong>死信佇列（DLQ）</strong>事後檢討，讓帶子繼續往下跑。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「分區路由 + 書籤前進 + 倒帶」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8025 -t public
+# 然後瀏覽器打開 http://localhost:8025</code></pre>
+  <ol>
+    <li>先<strong>建一個主題</strong>並設定「切成幾條帶子」（分區數）。</li>
+    <li><strong>同一個 key</strong> 連續放好幾次 → 看它是不是<strong>都落在同一條帶子</strong>，流水號 0、1、2… 往後排。</li>
+    <li><strong>換一個 key</strong> 再放 → 看它可能落到<strong>別條帶子</strong>。</li>
+    <li>用某個組去<strong>消費</strong>，看書籤（offset）一格格前進；再按<strong>倒帶（seek）</strong>挪回 0，看它能不能從頭重拿。</li>
+    <li>看<strong>分配表（rebalance）</strong>：幾條帶子、幾個消費者，各自被分到哪幾條。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把同一個 key 連放幾次，是不是永遠同一條帶子、且照順序？這就是<strong>「同 key 同分區保順序」</strong>。
+  把書籤倒帶回 0 再消費一次，東西是不是又全部出現？這就是<strong>「訊息留著、可重播」</strong>——傳統佇列做不到。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「輸送帶」解釋，為什麼兩個系統中間要放訊息佇列？</summary>
+    前面師傅做好就往輸送帶一放、繼續做，不用等後面接（解耦）；突發太多先堆在帶子上、後面照步調消化（削峰）；Kafka 的帶子像錄影一直留著，可以倒帶重看（可重播）。換來解耦、扛突發、可重播三樣寶。</details>
+  <details class="qa"><summary>Q2：為什麼一個主題要切成好幾條帶子（分區）？同類東西怎麼保證照順序？</summary>
+    一條帶子太慢，多條才能同時跑。用郵局分流法：給訊息貼一個 key（如顧客編號），同 key 永遠走同一條帶子，所以同一個顧客的事件就照順序到達。Kafka 只保「同一條帶子有序」，不保跨帶子。</details>
+  <details class="qa"><summary>Q3：offset（書籤）是什麼？為什麼「書」和「書籤」要分開存？</summary>
+    offset 是帶子上每則訊息的流水號，消費者用它當書籤記「看到第幾號」。書（訊息）是大家共用、不可改的事實；書籤是每個組自己的進度。分開存，好幾個組才能各讀各的、同一份訊息才能被無限倒帶重播。</details>
+  <details class="qa"><summary>Q4：消費者組是幹嘛的？為什麼「加人」不一定變快？</summary>
+    一群人組隊瓜分帶子分頭做。但一條帶子同時只能一個人顧，所以人數最多等於帶子數，多出來的閒置。要更快得先加帶子（分區）。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼「拿訊息(poll)」和「記書籤(commit)」要分成兩個動作？</summary>
+    分開才能控制交付語意：先處理完、成功才記書籤＝至少一次（崩潰會重拿，下游要冪等去重）；先記書籤再處理＝崩潰會漏。綁成一步就失去這個選擇權。</details>
+  <details class="qa"><summary>Q6（工程）：分區（帶子）數一開始為什麼要估寬一點？事後改有什麼風險？</summary>
+    分區數同時是「吞吐單位」和「並行人數上限」。一旦用 key 分流後再改分區數，會打亂「同 key 同帶子」的對應，順序就亂了。所以一開始寧可多開。</details>
+  <details class="qa"><summary>Q7（工程）：什麼是「倒帶重播 (replay/seek)」？它靠的是什麼設計才做得到？</summary>
+    把某個組的書籤往回挪（挪到 0 就從頭），重新消費歷史。它靠的是「訊息持久留在 log、不可改」加上「書籤與訊息分開存」——書沒被撕掉、書籤又能自由移動，所以隨時能重看。用於新消費者回填、改完 bug 重跑。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>訊息佇列 = 放在兩個系統中間、可以倒帶重播的輸送帶。</strong></p>
+    <p><strong>4 個關卡：</strong>① 生產者放上帶子就走 → ② 一主題分多條帶子、同 key 同一條保順序 → ③ 消費者主動拿、用書籤記進度、可倒帶 → ④ 一隊人瓜分帶子分頭做。</p>
+    <p><strong>4 個怕：</strong>怕順序亂（同實體同帶子）、怕漏訊息（落盤＋副本＋先做後記書籤）、怕重複惹禍（冪等去重）、怕熱點（打散 key 或單獨開主題）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估「每秒 1 GB」要開約 100 條帶子 → 用「點餐單(API)」溝通、拿與記書籤分開選交付語意 → 兩種筆記本（帶子本體只加不改 + 書籤分開存）→ 不夠快先加帶子再加人，盯著 lag、熱點、毒訊息。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉕ 分散式訊息佇列 Kafka · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

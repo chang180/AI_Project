@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑱ 附近的人 / 地點 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅶 搜尋/索引/地理空間</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑱ 附近的人 / 地點 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">G 搜尋/索引</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「找附近」這麼難？</a></li>
+      <li><a href="#steps">把系統拆成 3 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你打開手機 App，按下「<strong>找附近的咖啡廳</strong>」。一秒內，畫面跳出離你最近、由近到遠排好的店家。
+  Yelp、Google Maps、外送 App「找附近餐廳」都是在做這件事。</p>
+  <p>聽起來很簡單對吧？但系統手上有<strong>全球 2 億家店</strong>，而你只想要「我腳邊那一圈」。
+  難就難在：<strong>怎麼從 2 億家裡，在你滑動地圖的瞬間，挑出你身邊那幾十家、還順手排好序？</strong></p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    找附近 = <strong>用「位置郵遞區號」先框出同一格的店，再精算距離排序</strong>：先粗略框出一小撮候選，再仔細量距離，最後由近到遠排好。
+  </div>
+
+  <h2 id="why">2. 為什麼「找附近」這麼難？</h2>
+  <p>很多人第一個想法是：「不就把每家店量一下距離，挑最近的嗎？」——對，但 2 億家店都量一遍，等你算完天都黑了。
+  我們需要一個「<strong>不用全部量，就能先框出附近</strong>」的辦法。先看一個你早就會的生活經驗——</p>
+  <div class="analogy">
+    <span class="label">📮 郵遞區號 / 地址前幾個字</span>
+    你要找「住我家附近的人」，<strong>不會</strong>把全國電話簿從頭一個個量距離。
+    你會先看<strong>郵遞區號或地址前幾個字</strong>，先框出「跟我同一區」的人，這群通常就在附近，再從這一小撮細看。
+  </div>
+  <p>關鍵在：<strong>地址前幾個字一樣 = 大概住在同一塊</strong>。系統把這招用在地圖上，靠的就是一個叫 <strong>geohash</strong> 的東西。</p>
+  <div class="analogy">
+    <span class="label">🗺️ geohash：地圖的郵遞區號</span>
+    把整張地圖切成<strong>一格一格的小網格</strong>，每格給一個<strong>短代碼</strong>（像 <code>wsq6m</code>）。
+    巧妙的地方是：<strong>位置越接近，代碼開頭就越像</strong>。於是「找附近」就變成「找代碼開頭一樣的店」——這是電腦最擅長、最快的事（比字串開頭）。
+  </div>
+  <p class="pause">💭 停一下：為什麼把「二維的經緯度」變成「一個字串代碼」之後，找附近反而變快了？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為「同時靠近某經度<strong>又</strong>靠近某緯度」是兩個維度的條件，電腦的一般索引（B-Tree）一次只擅長處理一個欄位，兩個一起就卡。geohash 把「位置」壓成<strong>一條字串</strong>，而且「開頭一樣 = 地理相近」，於是二維的「找附近」就退化成一維的「比字串開頭」——這正是資料庫最快的操作。這就是 geohash 存在的理由。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 3 個關卡</h2>
+  <p>別被「地理空間搜尋」嚇到。整件事其實就是闖 3 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>粗篩：先用「郵遞區號」框出同格的店</h3>
+    <p>你站在某個位置，系統先算出「你在哪一格」（你的 geohash），再撈出<strong>這一格裡的所有店</strong>。
+    一格大概一兩公里見方，市區一格裡通常就幾十到幾百家——一下子從 2 億縮到幾十家。</p>
+    <div class="analogy"><span class="label">📮 比喻</span>就像找附近的人先看「同郵遞區號」：先不管精確距離，<strong>先把範圍縮到同一區</strong>，把茫茫大海變成一個小池塘。</div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>補鄰格：你站在格子邊緣怎麼辦？</h3>
+    <p>這是最容易被忽略、卻最致命的細節。想像你<strong>站在自己這格的最右邊</strong>，真正離你最近的咖啡廳，
+    其實在<strong>隔壁那一格</strong>——只差幾公尺，但代碼開頭不一樣，只查你這格就<strong>漏掉它了</strong>。</p>
+    <div class="analogy">
+      <span class="label">🏠 比喻：你家在巷口，最近的超商在隔壁里</span>
+      你家剛好在「里」的邊界上，最近的超商明明就在馬路對面，卻屬於<strong>隔壁的里</strong>。
+      只查「自己里」會錯過它。聰明的做法是：<strong>連旁邊的里一起看</strong>。
+    </div>
+    <p>所以系統的鐵律是：<strong>不只查你這格，連周圍 8 格一起撈</strong>，總共 9 格（中心 + 上下左右斜角）。
+    這 9 格的店全當「候選人」，<strong>寧可多撈，不可漏掉就在隔壁格的鄰居</strong>。</p>
+    <p>👉 這跟第②題地震預警「<strong>連旁邊 8 格一起撈，免得漏掉邊界上的人</strong>」是<strong>同一招</strong>——一個是找店、一個是找人，但「補鄰格防漏」的道理一模一樣。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>精算：量真實距離，由近到遠排好</h3>
+    <p>現在手上只剩 9 格裡的幾十家候選，數量小到可以<strong>一家一家精算</strong>了。系統對每家算出「離你實際幾公里」（用一個叫 haversine 的地球距離公式），
+    然後：<strong>丟掉半徑外的 → 順手過濾條件（只要餐廳、評分 4 星以上）→ 由近到遠排序 → 分頁送回前 20 家</strong>。</p>
+    <div class="analogy">
+      <span class="label">🎯 比喻：先海選，再評分</span>
+      像選秀節目：第 1～2 關是「<strong>海選</strong>」（快速刷掉一大半，只看大概）；第 3 關是「<strong>細評</strong>」（對剩下的人仔細打分、排名次）。
+      先粗後細，才不會把時間浪費在量 2 億家身上。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① 用 geohash <strong>框出你這格</strong> → ② 連<strong>周圍 8 格一起撈</strong>（防邊界漏掉）→ ③ 對這幾十家<strong>精算距離、過濾、排序</strong>。粗篩→細算，就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「漏掉最近的那家」</span>
+    使用者最氣的就是：明明對面就有一家，App 卻沒列出來。罪魁禍首通常是<strong>格子邊界</strong>。
+    所以鐵律是<strong>一律多撈周圍 8 格</strong>，寧可多算幾家，也不能讓「就在隔壁格的鄰居」消失。<em>寧可多撈，不可漏。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「慢」</span>
+    你在地圖上滑動、縮放，每個動作都要立刻出結果（&lt; 0.1 秒）。如果還傻傻地量 2 億家，早就卡死。
+    所以一定要<strong>先粗篩、再精算</strong>，而且把<strong>熱門商圈的查詢結果快取起來</strong>（大家都在搜信義區，算一次就好）。<em>先框小範圍，才談精算。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「格子大小選錯」</span>
+    格子畫太大 → 一格裝太多店，精算時要量一大堆（慢）；格子畫太小 → 你要的半徑超出一格，得撈更多鄰格才夠（也麻煩）。
+    訣竅是：<strong>讓一格的大小，差不多剛好等於大家常搜的半徑</strong>，最省力。<em>格子大小要配合查詢半徑。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分成「寫」和「讀」兩條路：</p>
+  <ul>
+    <li>✍️ <strong>寫（很少發生）</strong>：商家開店或改資料 → 系統幫它<strong>算好 geohash 代碼</strong> → 存進地點資料庫 + 更新網格索引。</li>
+    <li>🔍 <strong>讀（超級頻繁）</strong>：你搜「附近咖啡廳」→ 先看<strong>快取</strong>有沒有現成答案（熱門商圈常有）→</li>
+    <li>🗺️ 沒有的話，查<strong>網格索引</strong>：算出你的格子 + <strong>周圍 8 格共 9 格</strong>，撈出候選店 →</li>
+    <li>📏 對候選店用 <strong>haversine 精算距離</strong> → 過濾（半徑/類別/評分）→ 由近到遠排序 →</li>
+    <li>📱 把前 20 家（含「距離 0.3 公里」這種標示）送回你的手機。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>geohash</td><td>位置的「郵遞區號」：把地圖切成網格，每格一個代碼，開頭越像 = 越接近</td></tr>
+    <tr><td>粗篩 / 細篩</td><td>先用格子框出一小撮候選（粗），再對候選精算距離（細）</td></tr>
+    <tr><td>中心格 + 8 鄰格</td><td>查你這格時連周圍 8 格一起查（共 9 格），防止漏掉邊界上的店</td></tr>
+    <tr><td>haversine</td><td>算地球上兩點實際距離的公式（細篩、排序用）</td></tr>
+    <tr><td>半徑查詢</td><td>「離我 2 公里內的店」，由近到遠排序</td></tr>
+    <tr><td>最近 K 查詢</td><td>「離我最近的 5 家」（就算超過半徑也要湊滿）</td></tr>
+    <tr><td>讀多寫少</td><td>查詢超頻繁、商家資料幾乎不變——所以拚命優化「讀」</td></tr>
+    <tr><td>快取 (Cache)</td><td>把熱門查詢的答案先存起來，下次直接給，不用重算</td></tr>
+    <tr><td>讀副本</td><td>多複製幾份資料庫專門應付「查詢」，分擔讀的壓力</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>QuadTree / S2</td><td>比 geohash 更聰明的網格：人多的地方切細、人少的地方切粗</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>全球有多少店</td><td>~2 億家</td><td>聽起來嚇人，但…</td></tr>
+    <tr><td>這些資料佔多大</td><td>每家約 1KB → 共約 200 GB</td><td>其實<strong>整份索引塞得進一台機器的記憶體</strong>，不算大</td></tr>
+    <tr><td>每秒多少人在搜</td><td>5 千萬人 × 每天 10 次 ≈ 每秒約 6 千次（尖峰再 ×5）</td><td>讀<strong>非常</strong>頻繁，要拚命優化查詢</td></tr>
+    <tr><td>每秒多少店在改資料</td><td>每秒不到 100 次</td><td>寫超少——<strong>讀比寫多 100 倍以上</strong></td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">📚 關鍵洞察：圖書館 vs 菜市場</span>
+    這系統像一座<strong>圖書館</strong>：書（店家資料）幾乎不動，但一整天有無數人來借閱（查詢）。
+    不像菜市場那樣貨物一直進進出出。既然「讀爆、寫超少」，整套設計就圍繞<strong>「把讀做到飛快」</strong>：
+    資料全放記憶體、熱門查詢存快取、多複製幾份資料庫專門應付查詢。
+  </div>
+  <p class="pause">💭 停一下：既然「讀多寫少」，為什麼可以「大膽快取查詢結果」？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為快取最怕「資料一直變、存起來馬上就過期」。但這題的店家座標幾乎不動，所以「信義區附近的咖啡廳」這個答案<strong>可以存很久都還是對的</strong>，下次有人搜同樣的就直接給，不用重算。而且大家的搜尋很集中（都在熱門商圈），<strong>快取命中率超高</strong>。只有商家改了資料時，才主動把相關快取清掉。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」：</p>
+  <pre><code>① 找附近的店（最常用，每秒幾千次）
+   GET /places/nearby?lat=我的緯度&lng=我的經度&radius=2km
+        &category=restaurant&min_rating=4.0&limit=20
+   我回：{ 結果:[ {店名, 離你0.11公里, ...} ], 共幾家, 下一頁從哪開始 }</code></pre>
+  <p class="codecaption">看懂這張單就懂這題了：<strong>給我「你在哪 + 半徑 + 條件」，我回你「由近到遠排好的店，附上距離」</strong>。<code>limit=20</code> 是一次只給 20 家（分頁），你滑到底再要下一批。</p>
+  <pre><code>② 找最近的 K 家（不限半徑，一定湊滿）
+   GET /places/nearest?lat=..&lng=..&k=5&category=cafe
+   → 就算你在郊區、附近很空，也保證找出最近的 5 家</code></pre>
+  <p class="codecaption">跟①的差別：①問「<strong>這個圈圈裡有誰</strong>」（可能空空如也）；②問「<strong>不管多遠，給我最近的 5 家</strong>」（一定有答案）。</p>
+  <pre><code>③ 新增 / 改店家資料（很少用）
+   POST  /places          給我：{ 店名, 類別, 評分, 經緯度 }
+   PATCH /places/{店家編號}  例：把評分改成 4.7</code></pre>
+  <p class="codecaption">注意：改了座標就要<strong>重算 geohash 代碼、更新網格索引、清掉相關快取</strong>（不然你會查到舊答案）。但因為寫很少，這點麻煩可以接受。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題其實只要兩本：一本記「店」、一本記「哪些店在哪一格」。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏪</span>店家簿（每家店的基本資料）</h3>
+    <p>每家店一列：<code>店家編號、店名、類別、評分、經緯度、<strong>geohash</strong></code>。</p>
+    <div class="analogy"><span class="label">為什麼多存一欄 geohash？</span>
+      把每家店的「郵遞區號代碼」<strong>在開店登記時就算好寫進去</strong>，使用者來搜時才能用前綴秒查同格的店。
+      如果每次有人搜才一家家算代碼，2 億家算到天荒地老——這叫「<strong>預先算好，換查詢飛快</strong>」。
+      把評分、類別也放同一列，精算距離時<strong>順手就把不符條件的刷掉</strong>。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🗂️</span>網格索引（每一格裝了哪些店）</h3>
+    <p>一個對照表：<code>geohash 代碼 → 這格裡的店家清單</code>。代碼開頭一樣的，地理上就相鄰。</p>
+    <div class="analogy"><span class="label">比喻：圖書館的索引卡</span>
+      就像圖書館不會讓你一櫃一櫃翻書，而是給你一張「<strong>分類號 → 在哪一櫃</strong>」的索引卡。
+      網格索引就是地圖版的索引卡：<strong>給代碼，秒查這格有哪些店</strong>。這份索引小到可以整個放進記憶體，查起來飛快。</div>
+  </div>
+  <p class="codecaption">補充：實務上常直接用 Redis 的「GEO」功能，它底層就是 geohash 排序集，幫你把上面這套打包好。但原理就是這兩本簿子。</p>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>查詢：2 億家一個個量距離</td><td>用網格索引（郵遞區號法）先粗篩 9 格，再對幾十家細算</td></tr>
+    <tr><td>大家都在搜同一個熱門商圈</td><td>把<strong>熱門查詢的答案快取</strong>起來，下次直接給，不重算</td></tr>
+    <tr><td>查詢太多，一台資料庫扛不住</td><td>多複製幾份<strong>讀副本</strong>專門應付查詢（反正店家資料幾乎不變）</td></tr>
+    <tr><td>市區一格擠了一堆店、海上的格子卻空空</td><td>改用<strong>QuadTree / S2</strong>：人多的地方切細、人少的地方切粗（密度自適應）</td></tr>
+    <tr><td>全球使用者，跨洲查詢很慢</td><td>各大洲<strong>就近放一份服務和快取</strong>，台灣的人查台灣的機器</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 簡單(geohash) vs 聰明(QuadTree/S2)</span>
+    geohash 超好實作（普通字串索引就能跑），但格子大小固定、有邊界問題；QuadTree/S2 會依密度自動調整、邊界處理好，但複雜。
+    面試<strong>先講 geohash</strong>（好寫好答），再補一句「資料密度極不均（市區 vs 海上）時改 QuadTree/S2」。</div>
+  <div class="fear"><span class="label">⚖️ 精確 vs 近似</span>
+    地圖類通常「<strong>先填滿你畫面看得到的範圍</strong>」就好（近似），不必嚴格算半徑。只有真要「嚴格 2 公里內」才對每家精算 haversine。能近似就省力。</div>
+  <div class="fear"><span class="label">⚖️ 格子畫多大？</span>
+    格子太大 → 一格店太多、精算慢；太小 → 半徑超過一格、要撈更多鄰格。取一個<strong>剛好接近常見查詢半徑</strong>的大小，並一律多撈周圍 8 格保險。</div>
+  <details class="qa"><summary>💭 追問：如果是找「附近的<strong>人</strong>」（會移動），跟找店有什麼不同？</summary>
+    店的座標幾乎不變（讀多寫少，主攻快取＋讀副本）；但「人」一直在移動，位置要<strong>高頻更新</strong>，且舊位置要快速過期（短 TTL）。這就變成另一種題型（接近即時叫車／媒合）。本題是<strong>靜態</strong>的版本。</details>
+  <details class="qa"><summary>💭 追問：為什麼不用兩個一般索引——一個記經度、一個記緯度？</summary>
+    因為「同時靠近某經度<strong>且</strong>靠近某緯度」是把兩個範圍<strong>交集</strong>，一般索引各自只擅長一個維度，交集起來效率很差。geohash 的高明就是把二維「壓成」一維字串，讓「找附近」變成「比字串開頭」。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「粗篩 9 格 + 精算排序」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8018 -t public
+# 然後瀏覽器打開 http://localhost:8018</code></pre>
+  <ol>
+    <li>先按「<strong>塞入示範地點</strong>」（等於在地圖上放一堆店）。</li>
+    <li>輸入<strong>你的座標</strong>和<strong>半徑</strong> → 做「半徑查詢」或「最近 K」。</li>
+    <li>觀察回應裡的 <code>buckets_scanned</code>：那就是它實際掃描的 <strong>9 個 geohash 格子（中心 + 8 鄰格）</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把座標移到一格的<strong>邊緣</strong>，看看「9 格粗篩」是不是仍然抓到了隔壁格的店——這就是<strong>關卡 2 的補鄰格防漏</strong>在運作。把半徑調很小，看結果怎麼變少；把它調很大，看它是不是得掃更多格子。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「郵遞區號」解釋，為什麼不用把 2 億家店一個個量距離？</summary>
+    因為 geohash 把每個位置編成一個代碼，「開頭一樣 = 地理相近」。先用你所在那格的代碼前綴，秒撈出同格的幾十家店當候選，再對這一小撮精算距離——先粗篩、再細算，不用碰其他 1.9999 億家。</details>
+  <details class="qa"><summary>Q2：什麼是「邊界問題」？為什麼要查「中心格 + 8 鄰格」？</summary>
+    geohash 把連續的地圖切成硬邊界的格子，兩個只差幾公尺的點可能落在不同格（代碼開頭不同）。如果你站在格子邊緣，最近的店可能在隔壁格，只查自己這格就漏了。所以一律多撈周圍 8 格共 9 格做粗篩——寧可多撈，不可漏。</details>
+  <details class="qa"><summary>Q3：「半徑查詢」和「最近 K 查詢」差在哪？</summary>
+    半徑查詢問「離我 X 公里內有哪些店」，可能一家都沒有（郊區）。最近 K 查詢問「不管多遠，給我最近的 K 家」，保證湊滿——附近不夠就放大格子（縮短 geohash 前綴）繼續找。</details>
+  <details class="qa"><summary>Q4：這題跟第②題地震預警有什麼共通點？</summary>
+    都用 geohash 把位置變成「郵遞區號」做空間篩選，而且都要「連旁邊 8 格一起撈，免得漏掉邊界上的目標」。差別只在一個找店、一個找人；一個重排序、一個重同時推播（fan-out）。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼店家簿要「事先存好 geohash」這一欄？</summary>
+    使用者來搜時才一家家算代碼，2 億家會慢死。開店登記時就把代碼算好寫進去並建索引，查詢就退化成「比字串開頭」，飛快。預先算好，換查詢飛快。</details>
+  <details class="qa"><summary>Q6（工程）：這題「讀多寫少」，設計上帶來什麼好處？</summary>
+    店家資料幾乎不變 → 查詢結果可以「大膽快取」（存很久都還對）、可以多開「讀副本」分擔查詢、索引整份塞進記憶體。寫路徑很輕鬆，火力全集中在把「讀」做到飛快。</details>
+  <details class="qa"><summary>Q7（工程）：什麼時候 geohash 會不夠用？要換成什麼？</summary>
+    當資料密度極不均（市區一格擠爆、海上的格子全空）時，geohash 固定格子大小就不划算。改用 QuadTree 或 Google S2：人多的地方自動切細、人少的地方切粗，邊界處理也更精確。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>找附近 = 用「位置郵遞區號(geohash)」先框出同格的店，再精算距離排序。</strong></p>
+    <p><strong>3 個關卡：</strong>① 用 geohash 框出你這格 → ② 連周圍 8 格一起撈（防邊界漏掉）→ ③ 對這幾十家精算距離、過濾、由近到遠排序。</p>
+    <p><strong>3 個怕：</strong>怕漏掉最近那家（一律多撈 8 鄰格）、怕慢（先粗篩再精算＋快取熱門查詢）、怕格子大小選錯（讓格子≈常見半徑）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>資料量不大但「讀爆寫少」像圖書館 → 用「點餐單(API)」溝通 → 兩本簿子（店家簿＋網格索引）＋預存 geohash → 拚命優化讀（快取＋讀副本＋索引進記憶體），密度太不均就升級成 QuadTree / S2。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑱ 附近的人 / 地點 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

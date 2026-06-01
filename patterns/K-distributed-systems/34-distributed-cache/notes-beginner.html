@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉞ 分散式快取 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉞ 分散式快取 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（快取到底在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「放近一點」就快這麼多？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你在<strong>大圖書館</strong>查資料。每查一本書，都要走到很裡面的<strong>大書庫</strong>慢慢找——又遠又慢。
+  聰明的做法是：把<strong>最多人借的那幾本熱門書</strong>，放在<strong>大門口的小書架</strong>上，拿了就走。</p>
+  <p><strong>快取（cache）</strong>就是那個「大門口的小書架」：把熱門資料放在「拿了就走的近處」，省去每次都跑去問又慢又累的<strong>資料庫</strong>（大書庫）。</p>
+  <p>「分散式」快取，就是當<strong>一個小書架放不下、人也擠不下</strong>時，改成<strong>開好幾家連鎖店</strong>，把書分到各分店去——這就是這題的全部主題。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    分散式快取 = <strong>大門口的連鎖小書架</strong>：把熱門資料放近處（快取），一家放不下就分成很多家分店（分片），讓「拿資料」又快又裝得多。
+  </div>
+
+  <h2 id="why">2. 為什麼「放近一點」就快這麼多？</h2>
+  <p>很多人會想：「不就少走幾步路嗎，能差多少？」差超多。用一個你有感覺的比喻——</p>
+  <div class="analogy">
+    <span class="label">🥤 冰箱 vs 跑超市</span>
+    口渴想喝水：打開<strong>桌邊的冰箱</strong>（記憶體快取）→ <strong>幾秒</strong>就喝到。
+    但如果每次都要<strong>開車去超市買</strong>（問資料庫）→ 要<strong>幾十分鐘</strong>。差距是「秒」對上「幾十分鐘」。
+  </div>
+  <p>電腦世界也一樣：快取把資料放在<strong>記憶體</strong>裡（像桌邊冰箱，奈秒～微秒級），資料庫則要去<strong>硬碟</strong>撈（像跑超市，毫秒級）。差距常常是<strong>幾百到幾千倍</strong>。</p>
+  <p>而且大多數系統是<strong>「讀多寫少」</strong>：同一筆熱門資料（首頁、爆款商品、熱門貼文）被<strong>無數人重複讀</strong>。每個人都跑一次超市太蠢了——買一次放冰箱，後面大家從冰箱拿就好。</p>
+  <p class="pause">💭 停一下：如果一筆資料<strong>每秒被讀 100 萬次</strong>，但<strong>內容幾乎不變</strong>，把它放快取能省下什麼？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    省下幾乎全部對資料庫的查詢。原本資料庫每秒要扛 100 萬次同樣的查詢（會被打垮），現在只要<strong>第一次</strong>去問資料庫拿來放冰箱（快取），後面 99.9999% 的人都從冰箱拿，資料庫幾乎沒壓力。這就是快取最大的價值：<strong>用一份記憶體副本，擋掉海量重複的慢查詢</strong>。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「分散式快取」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>放近處：先有「拿了就走的小書架」</h3>
+    <p>最核心的一關：把熱門資料放進<strong>記憶體</strong>（快取），讀的時候先問它。
+    <strong>有（命中）</strong>就直接拿走，超快；<strong>沒有（未命中）</strong>才去問慢吞吞的資料庫，拿到後<strong>順手放一份到快取</strong>，下次就快了。</p>
+    <div class="analogy"><span class="label">📚 比喻</span>就像櫃台後的小書架：客人要書，先看架上有沒有；有就遞給他，沒有才跑去裡面的大書庫拿，順便<strong>放一本到架上</strong>，下個人就不用等了。</div>
+    <p>👉 一個關鍵字：<strong>命中率</strong>——架上「剛好有」的比例。命中率越高，越少人需要跑去大書庫，系統就越快、資料庫越輕鬆。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>分店：一家放不下，就開連鎖店（分片）</h3>
+    <p>資料多到<strong>一台機器的記憶體裝不下</strong>，或人多到<strong>一台扛不住</strong>時，就要把資料<strong>分到很多台快取</strong>。問題是：每筆資料該放<strong>哪一家分店？</strong></p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：用號碼牌分配分店</span>
+      連鎖店不會憑感覺塞貨。它給每件商品算一個固定的<strong>號碼（0～16383，共 16384 個號碼）</strong>，
+      然後規定「<strong>0～5000 號去 A 店、5001～10000 號去 B 店…</strong>」。同一件商品永遠算出同一個號碼 → 永遠在同一家店，找得到。
+    </div>
+    <p>這個「號碼」工程上叫 <strong>slot（槽位）</strong>：把資料的名字（key）丟進一個固定公式算出 0～16383 的號碼，再照號碼分給各分店（shard）。
+    所以查資料變兩步：<strong>① 算號碼 → ② 照號碼直接走對的那家店</strong>，不用問每一家。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>擴張：開新分店時，只搬一部分貨（重分片）</h3>
+    <p>生意變好要<strong>多開一家分店</strong>，或某家要<strong>關門</strong>。難就難在：搬貨會中斷營業，<strong>能不能少搬一點？</strong></p>
+    <div class="analogy">
+      <span class="label">📦 比喻：只搬被分走的那幾個號碼</span>
+      多開 D 店時，<strong>不</strong>把全部商品重新洗牌（那要全部搬，店都別開了）。而是請現有各店「<strong>各勻幾個號碼段</strong>」給 D 店，<strong>只搬這些號碼對應的貨</strong>，其他原封不動。
+    </div>
+    <p>這就是「號碼牌制度」的精髓：因為位置是綁在<strong>號碼</strong>而不是「現在有幾家店」，加減一家店時，<strong>只有被重新分配的那些號碼要搬家</strong>，絕大多數貨都不動。這叫 <strong>重分片（resharding）</strong>。</p>
+    <p>另外每家分店都配一個<strong>備胎店（replica）</strong>：平時跟著抄一份貨，主店突然倒了，備胎立刻頂上繼續營業——這叫<strong>故障轉移</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>整理：架子滿了，丟掉最沒人要的（淘汰）</h3>
+    <p>小書架空間有限，<strong>放滿了又來新書</strong>怎麼辦？總得丟掉一些舊的，騰位置。問題是：<strong>丟哪一本？</strong></p>
+    <div class="analogy">
+      <span class="label">🧹 比喻：丟最久沒人碰 / 最少人借的</span>
+      整理書架時你會丟「<strong>最久沒人碰</strong>的那本」（叫 <strong>LRU</strong>），或「<strong>整體最少人借</strong>的那本」（叫 <strong>LFU</strong>）。
+      反正都是<strong>留下熱門、丟掉冷門</strong>，讓寶貴的架位放最多人要的書。
+    </div>
+    <p>LRU 看「<strong>最近</strong>有沒有人用」，LFU 看「<strong>總共</strong>多少人用」。兩者各有適用，但目的一樣：<strong>架子滿了，優先丟最沒價值的，保住命中率。</strong></p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 把熱資料<strong>放近處</strong>（快取）→ ② 用<strong>號碼牌(slot)</strong>把貨分到很多<strong>分店(分片)</strong> → ③ 加減分店時<strong>只搬被分走的號碼</strong> → ④ 架滿了<strong>丟最沒人要的</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：快取系統<strong>最怕三件事</strong>，而且這三件事有個共通點——<strong>都是「大家一起湧去資料庫」，把後面的資料庫打垮</strong>。快取本來是來保護資料庫的，最怕的就是它<strong>沒擋住</strong>。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「穿透」——一直問根本不存在的東西</span>
+    有人（或惡意程式）一直查<strong>根本不存在</strong>的資料，例如「會員編號 -999」。快取裡當然<strong>永遠沒有</strong>，於是每次都直接跑去問資料庫，快取<strong>完全沒擋到</strong>。
+    <br>👉 解法：把「<strong>查無</strong>」這個結果也快取一下下（空值快取）；或用一個叫<strong>布隆過濾器</strong>的「黑名單守門員」，一看就知道「這東西一定不存在」，直接擋掉不放行。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「擊穿」——熱門品剛好過期，大家同時湧入</span>
+    一筆<strong>超熱門</strong>的資料（如爆款商品）剛好<strong>到期被清掉</strong>的那一瞬間，成千上萬個人「同時」發現架上沒了，於是<strong>同時</strong>衝去資料庫補貨——資料庫瞬間被同一個查詢灌爆。
+    <br>👉 解法：像超市補貨一樣，<strong>只放一個人去後台補貨，其他人在門口等他補好</strong>（互斥鎖 / singleflight）；或讓這種超熱門品<strong>乾脆不過期</strong>，背景默默續期。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「雪崩」——一堆資料同時過期</span>
+    如果一大批資料設成<strong>同一個時間到期</strong>，時間一到就<strong>全部一起消失</strong>，海量請求同一秒全打去資料庫——資料庫直接被雪崩埋掉。
+    <br>👉 解法：到期時間<strong>各加一點隨機（抖動）</strong>，讓大家<strong>錯開時間</strong>到期，別擠在同一秒。就像把放學時間錯開，避免全校同時擠校門。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，跟著一筆查詢走一遍：</p>
+  <ul>
+    <li>🙋 <strong>使用者</strong>要一筆資料（給一個 key，例如「user:42」）→</li>
+    <li>🎫 系統先<strong>算號碼(slot)</strong>：把 key 丟進固定公式 → 得到 0～16383 的號碼 →</li>
+    <li>🏪 照號碼<strong>直接走對的那家分店(shard)</strong>，不用問每一家 →</li>
+    <li>✅ 架上<strong>有（命中）</strong>→ 拿了就走，超快；❌ <strong>沒有（未命中）</strong>→ 跑去<strong>資料庫</strong>拿，順手放一份回快取 →</li>
+    <li>🔁 每家分店都有<strong>備胎(replica)</strong>跟著抄，主店倒了備胎立刻頂上。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>快取 (Cache)</td><td>大門口「拿了就走」的小書架，放熱門資料省得跑大書庫</td></tr>
+    <tr><td>命中 / 未命中</td><td>架上「剛好有」(命中) / 「沒有，要跑大書庫」(未命中)</td></tr>
+    <tr><td>命中率</td><td>架上「剛好有」的比例，越高越好</td></tr>
+    <tr><td>資料庫 (DB)</td><td>又慢又遠的大書庫，快取就是來幫它擋人的</td></tr>
+    <tr><td>分片 (Shard)</td><td>連鎖店的「分店」：一家放不下就分很多家</td></tr>
+    <tr><td>slot（槽位）</td><td>商品的「號碼牌」(0～16383)，照號碼決定放哪家分店</td></tr>
+    <tr><td>重分片 (Resharding)</td><td>開/關分店時「只搬被分走的那些號碼」，其餘不動</td></tr>
+    <tr><td>主 / 從 (master/replica)</td><td>主店營業 / 備胎店抄一份，主店倒了頂上</td></tr>
+    <tr><td>故障轉移 (Failover)</td><td>主店倒了，備胎店自動升級頂上繼續營業</td></tr>
+    <tr><td>LRU / LFU</td><td>架子滿了，丟「最久沒人碰」/「最少人借」的</td></tr>
+    <tr><td>TTL</td><td>資料的「保鮮期」，到期自動清掉</td></tr>
+    <tr><td>穿透 / 擊穿 / 雪崩</td><td>三種「沒擋住、大家湧去打垮資料庫」的災難</td></tr>
+    <tr><td>cache-aside（旁路）</td><td>「先問架上、沒有才跑大書庫並放回架上」這套規矩</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：開店前先估生意量</span>
+    開連鎖店前，你會先估「<strong>要放多少貨</strong>、<strong>一天多少客人</strong>」，才決定<strong>開幾家店、每家多大</strong>。
+    系統設計也一樣：先估數字，才知道<strong>要不要分片、要分幾片</strong>。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>要放多少貨（資料量）</td><td>5 億筆，每筆約 400 bytes ≈ <strong>200 GB</strong></td><td>一台機器（約 64 GB）<strong>裝不下</strong> → 要分片</td></tr>
+    <tr><td>一台店面多大</td><td>單機可用 ~64 GB</td><td>200 GB ÷ 64 GB → 至少要 <strong>4 家分店</strong></td></tr>
+    <tr><td>多少客人（讀 QPS）</td><td>尖峰每秒 100 萬次讀</td><td>單店約 10 萬 → 要 <strong>~10 家分店</strong>分流</td></tr>
+    <tr><td>命中率要多高</td><td>目標 &gt; 95%</td><td>命中率每掉 1%，跑去資料庫的人就暴增</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🚪 關鍵洞察：命中率是「水壩」的高度</span>
+    快取就像擋在資料庫前的<strong>水壩</strong>。命中率 95% 表示<strong>只放 5% 的水（請求）流到下游的資料庫</strong>。
+    一旦命中率<strong>崩掉</strong>（記憶體不夠、一直淘汰），水壩破洞，<strong>大水直接灌爆資料庫</strong>——這就是快取系統最致命的連鎖崩潰。所以「記憶體夠不夠裝熱資料」是生死問題。
+  </div>
+  <p class="pause">💭 停一下：為什麼決定「要分幾家分店」時，要同時看「<strong>裝得下</strong>」和「<strong>客人多少</strong>」兩條線？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為兩條線都可能成為瓶頸，要<strong>取較大者</strong>。可能資料量不大（2 家就裝得下），但客人爆多（需要 10 家分流）→ 那就得開 10 家。反過來資料超大但客人少，也要為了「裝得下」開很多家。<strong>容量與吞吐，誰需要的分店多就聽誰的。</strong></details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>快取最核心其實只有兩張「點餐單」，剩下是給管理員用的：</p>
+  <pre><code>① 放資料進架上（寫）
+   SET user:42 "資料內容" 保鮮期300秒
+   → 系統先算號碼(slot)，找到對的分店，放進去</code></pre>
+  <p class="codecaption">「保鮮期(TTL)」很重要：到期自動清掉，避免架上塞滿過時的舊貨。記得 Part 1 說的「雪崩」——一堆資料同保鮮期會一起過期，所以實務上會<strong>各加一點隨機</strong>錯開。</p>
+  <pre><code>② 拿資料（讀）
+   GET user:42
+   → 算號碼 → 走對的分店 → 有就回(命中)；
+     沒有(未命中) → 應用程式跑去資料庫拿，再 SET 放回架上</code></pre>
+  <p class="codecaption">這套「先問架上、沒有才跑資料庫並放回架上」的規矩，工程上叫 <strong>cache-aside（旁路快取）</strong>，是最常見的用法。</p>
+  <pre><code>③ 管理員專用（運維）
+   加一家分店 / 關一家分店  → 觸發「只搬受影響號碼」的重分片
+   讓備胎升主            → 主店倒了，備胎頂上(故障轉移)
+   查號碼對照表          → 看哪個號碼段在哪家分店</code></pre>
+  <p class="codecaption">有個聰明設計：<strong>算號碼這件事是「客人自己算」</strong>（smart client），算完直接走對的分店，<strong>中間不用設一個總櫃台</strong>幫大家轉。萬一走錯店，那家店會回一句「<strong>搬到 X 店了，去那邊</strong>」（MOVED），客人更新一下記憶就好。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：三張對照表</span>
+    要讓連鎖店運作，總部要記三件事：每件貨的「號碼怎麼算」、「號碼段歸哪家店」、「每家店有沒有備胎」。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🎫</span>號碼制度（key → slot）</h3>
+    <p>固定 <strong>16384 個號碼（slot 0～16383）</strong>。每筆資料用<strong>名字(key)</strong>丟進一個固定公式算出唯一號碼：<code>號碼 = 公式(key) % 16384</code>。
+    <strong>同一個名字永遠算出同一個號碼</strong>，所以永遠找得到它在哪家店。</p>
+    <div class="analogy"><span class="label">為什麼是 16384 這個怪數字？</span>
+      因為各分店之間要常常互報「我負責哪些號碼」，用 16384 個號碼剛好可以壓成<strong>很小的一張表（2KB）</strong>常常傳，又夠細到把貨分得很均勻。不大不小剛剛好。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏪</span>分店對照表（slot → shard）</h3>
+    <p>記「<strong>哪些號碼段歸哪家分店</strong>」，例如：<code>0～5460 → A 店、5461～10921 → B 店、10922～16383 → C 店</code>。
+    開新店或關店時，<strong>改的就是這張表</strong>（把某些號碼段改派給別家），並把對應的貨搬過去。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔁</span>主從表（每家店的備胎）</h3>
+    <p>記「<strong>每家分店 = 1 個主店 + 幾個備胎</strong>」。主店負責收客、備胎默默抄一份貨；主店一倒，備胎<strong>升級當主店</strong>繼續營業。
+    抄貨是<strong>「非同步」</strong>（主店先收下、之後再慢慢抄給備胎）——這樣主店才快，但代價是主店突然倒的瞬間，<strong>可能掉最後抄到一半的幾筆</strong>。快取容許這點小損失，換取「快」。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>一筆<strong>超熱門</strong>資料把它那家分店打爆（號碼不能再細分到別家）</td><td>在客人自己身邊也放一份（<strong>本地快取</strong>）、或把熱門資料<strong>拆成好幾份</strong>散到不同號碼</td></tr>
+    <tr><td>某筆資料<strong>體積超大</strong>（大清單），讀寫慢還卡住搬家</td><td><strong>拆小</strong>、分段慢慢處理，別一次整包搬</td></tr>
+    <tr><td>開/關分店<strong>搬貨期間</strong>會卡頓、延遲抖動</td><td>挑<strong>離峰時段</strong>搬、<strong>限速</strong>慢慢搬，客人走錯店時乖乖照「搬到 X 店」提示走</td></tr>
+    <tr><td><strong>命中率下滑</strong>，跑去資料庫的人暴增</td><td><strong>多開幾家分店</strong>擴容、調淘汰策略、縮短或分層保鮮期</td></tr>
+    <tr><td>讀<strong>備胎店</strong>可能讀到「還沒抄完」的舊貨</td><td>重要的讀走<strong>主店</strong>，或強制等備胎抄完再回</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心。這裡補幾個常被面試官追問的取捨：</p>
+  <div class="fear"><span class="label">⚖️ 快 vs 一定不掉資料</span>
+    備胎<strong>非同步抄</strong>（主店先收、之後再抄）→ 快，但主店突倒可能掉最後幾筆。要<strong>一筆都不掉</strong>就得「等備胎抄完才算成功」→ 變慢。快取幾乎都<strong>選快</strong>，容忍掉一點點。</div>
+  <div class="fear"><span class="label">⚖️ 本地小冰箱 vs 集中大書架</span>
+    資料放在<strong>各機器自己身邊</strong>（本地快取）最快、不用走網路，但<strong>各機一份、可能不一致、裝不多</strong>；放在<strong>集中的 Redis</strong> 大家共用、一致、裝得多，但要走一趟網路。實務常<strong>兩層都用</strong>：本地擋最熱的，Redis 擋其餘，資料庫兜底。</div>
+  <div class="fear"><span class="label">⚖️ 號碼牌制 vs 一致性雜湊</span>
+    Redis 用「<strong>固定 16384 號碼</strong>」分店，對照表清楚、搬哪些號碼一目了然；另一派（Cassandra/DynamoDB）用「<strong>環形</strong>」分配，更去中心。兩者其實在解同一件事：<strong>別讓「加減一台機器」就要把全部資料重洗一遍</strong>。</div>
+  <details class="qa"><summary>💭 追問：寫資料時，要「更新快取」還是「刪掉快取」？</summary>
+    多半<strong>刪掉</strong>而不是更新。因為更新有競態（兩個人同時改，可能把舊值寫回去）；直接刪掉，下次誰來讀<strong>自然會去資料庫拿最新的再放回架上</strong>，簡單又不易出錯。</details>
+  <details class="qa"><summary>💭 追問：走錯分店時的「MOVED」和「ASK」差在哪？</summary>
+    <strong>MOVED</strong>＝這個號碼<strong>已經永久搬</strong>到別家了，客人要把記憶更新成「以後直接去新店」。<strong>ASK</strong>＝這個號碼<strong>正在搬家途中</strong>的臨時情況，「這次先去新店問問」，但別更新記憶（還沒搬完）。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「號碼牌分店 + 淘汰 + 三大問題」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8034 -t public
+# 然後瀏覽器打開 http://localhost:8034</code></pre>
+  <ol>
+    <li>先 <strong>set user-42</strong> → 看它算出哪個<strong>號碼(slot)</strong>、落在哪<strong>家分店(shard)</strong>。</li>
+    <li><strong>加一家 shardD</strong> → 看系統回報「<strong>哪些號碼被搬</strong>過去」（其餘不動）。</li>
+    <li>把 <strong>maxKeys 設小</strong>、切 LRU/LFU，連續塞資料 → 看架滿時<strong>淘汰了誰</strong>。</li>
+    <li>點 <strong>穿透 / 擊穿 / 雪崩</strong> → 比較<strong>開緩解前後</strong>「跑去資料庫幾次」差多少。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>觸發「擊穿」時，<strong>不開</strong>緩解 → 看資料庫被打幾次；<strong>開</strong>互斥鎖 → 是不是只剩 1 次（只放一人去補貨）？這就是 Part 1 那三個「怕」在你眼前活過來。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「圖書館書架」解釋，快取到底在幹嘛、為什麼快？</summary>
+    快取＝大門口「拿了就走」的小書架，放最熱門的書，讓客人不用每次都跑去裡面又慢又遠的大書庫（資料庫）。因為小書架在記憶體（像桌邊冰箱、秒級），大書庫在硬碟（像跑超市、幾十分鐘），差幾百到幾千倍。</details>
+  <details class="qa"><summary>Q2：「分片」在解決什麼問題？用連鎖店的比喻說說。</summary>
+    一家店（一台機器）<strong>放不下貨、也擠不下客人</strong>時，就開很多家分店（分片），把貨分散。用「號碼牌(slot)」決定每件貨去哪家店：算號碼 → 照號碼走對的店，不用問每一家。</details>
+  <details class="qa"><summary>Q3：用「丟書」比喻 LRU 和 LFU 的差別。</summary>
+    架子滿了要丟書：LRU 丟「<strong>最久沒人碰</strong>」的那本（看最近）；LFU 丟「<strong>整體最少人借</strong>」的那本（看總次數）。目的都是留熱門、丟冷門，保住命中率。</details>
+  <details class="qa"><summary>Q4：穿透、擊穿、雪崩三個「怕」，各用一句話＋一個解法。</summary>
+    穿透＝一直問根本不存在的東西（解：空值快取／布隆過濾器擋掉）。擊穿＝熱門品剛過期大家同時湧入後台（解：只放一人去補貨、其他人等）。雪崩＝一堆資料同時過期（解：到期時間加隨機錯開）。共通點：都會讓大家湧去打垮資料庫。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼用「固定 16384 號碼」分店，加減一台機器時不用全部重搬？</summary>
+    因為資料的位置綁在「<strong>號碼</strong>」而不是「現在有幾家店」。加/關店時只是把<strong>某些號碼段改派</strong>給別家，只搬這些號碼對應的貨，其餘原封不動。對比「用機器數量取模」那種，一改機器數幾乎全部要重洗。</details>
+  <details class="qa"><summary>Q6（工程）：備胎(replica)用「非同步抄」有什麼好處與風險？怎麼選？</summary>
+    好處：主店先收下、之後再慢慢抄，所以主店<strong>很快</strong>、低延遲。風險：主店突然倒的瞬間，<strong>可能掉最後抄到一半的幾筆</strong>。快取容忍這點小損失換取速度；真要一筆不掉，就「等備胎抄完才算成功」，但會變慢。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼說「命中率」是快取系統的命脈？命中率崩了會怎樣？</summary>
+    命中率＝架上「剛好有」的比例，命中就不用打資料庫。它像擋水的水壩高度：命中率 95% 表示只放 5% 流量到資料庫。一旦記憶體不足、一直淘汰 → 命中率崩 → 水壩破洞 → 海量請求灌爆資料庫，引發連鎖崩潰。所以「記憶體夠不夠裝熱資料」是生死問題。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>分散式快取 = 大門口的連鎖小書架：把熱門資料放近處，省去每次問慢資料庫。</strong></p>
+    <p><strong>4 個關卡：</strong>① 把熱資料<strong>放近處</strong>（快取）→ ② 用<strong>號碼牌(slot)</strong>分到很多<strong>分店(分片)</strong> → ③ 加減店<strong>只搬被分走的號碼</strong>（重分片）→ ④ 架滿了<strong>丟最沒人要的</strong>（LRU/LFU）。</p>
+    <p><strong>3 個怕（都會湧去打垮資料庫）：</strong>穿透（問不存在的→空值快取/布隆擋）、擊穿（熱門剛過期大家湧入→只放一人補貨）、雪崩（一起過期→到期加隨機錯開）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估「裝得下＋客人多少」決定分幾片 → 用「點餐單(API)」SET/GET、走 cache-aside → 三張表（號碼/分店/主從）＋固定 16384 號碼 → 命中率是命脈，找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉞ 分散式快取 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

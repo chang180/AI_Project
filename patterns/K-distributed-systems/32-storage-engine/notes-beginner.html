@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉜ LSM-tree 儲存引擎 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉜ LSM-tree 儲存引擎 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這東西在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「亂改」會那麼慢？</a></li>
+      <li><a href="#steps">把儲存引擎拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">怎麼跟它對話？（API）</a></li>
+      <li><a href="#data">它把東西記在哪？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>資料庫底層有個小元件，專門負責「<strong>把資料真的存到硬碟、再找回來</strong>」——這就是<strong>儲存引擎</strong>。
+  你 <code>put</code> 一筆、<code>get</code> 一筆、<code>delete</code> 一筆，背後幫你跑腿的就是它。</p>
+  <p>同一件事有兩種做法，這題講的 <strong>LSM-tree</strong> 是其中一種，它特別擅長一件事：<strong>寫得超快</strong>。
+  它的秘訣，其實是一個你每天都在用的生活習慣——</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    LSM-tree = <strong>「先記便利貼，之後再整理歸檔」</strong>的存法。
+    來一筆就快速貼張便利貼（記憶體），貼滿了整批排好序歸成一本冊子（檔案）；之後背景慢慢把舊冊子併一併。
+    重點：把「翻到哪頁改哪頁」的<strong>隨機寫</strong>，換成「從頭一路寫下去」的<strong>順序寫</strong>，所以快。
+  </div>
+
+  <h2 id="why">2. 為什麼「亂改」會那麼慢？</h2>
+  <p>很多人第一個疑問是：「存資料就存啊，為什麼還要分兩種做法？」關鍵在一個你早就懂的生活經驗——</p>
+  <div class="analogy">
+    <span class="label">📖 翻書改字 vs 抽張便利貼</span>
+    想像你管一本<strong>已經排好序、裝訂好的厚字典</strong>。今天要新增一個詞，你得：翻到該插入的那一頁、
+    把後面的字往後擠、可能那頁塞不下還得拆頁重排——<strong>每改一筆都要翻書、翻到對的地方、就地動手術</strong>。這很慢。
+    反過來，如果你只是<strong>隨手抽張便利貼寫下「新增：XXX」往桌上一貼</strong>，是不是快得多？
+  </div>
+  <p>硬碟（尤其傳統硬碟）最怕的就是「翻到哪、改哪」這種<strong>跳來跳去的隨機寫</strong>——磁頭要一直移動定位，慢。
+  反之「從頭一路往後寫」的<strong>順序寫</strong>快非常多。</p>
+  <ul>
+    <li><strong>B-tree（翻書派）</strong>：資料一直保持排好序、裝訂好。<strong>讀很快</strong>（翻一次就到），但<strong>每次改都要就地翻書改頁</strong>＝隨機寫，寫較慢。</li>
+    <li><strong>LSM-tree（便利貼派）</strong>：來一筆就貼便利貼，從不就地改舊資料。<strong>寫超快</strong>（永遠只是往後加），代價是讀的時候可能要多翻幾本冊子。</li>
+  </ul>
+  <p>所以這題的靈魂只有一句：<strong>用「順序寫」取代「隨機寫」，把寫入變快</strong>。其他所有設計，都是為了讓「便利貼派」的讀取別太慢、別爆掉。</p>
+  <p class="pause">💭 停一下：如果你開一家店，客人一直來下訂單，你會選「每來一單就翻總帳本改一頁」，還是「先把單子串在釘子上、打烊後一次結算」？哪個讓你在尖峰時段更快？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    當然是「先串釘子、之後一次結算」。尖峰時你需要「收單動作越輕越好」，把整理的重活延後到不忙時做。
+    LSM-tree 就是這個思路：寫入當下只做最輕的事（貼便利貼），把整理（compaction）丟到背景。
+  </details>
+
+  <h2 id="steps">3. 把儲存引擎拆成 4 個關卡</h2>
+  <p>別被「儲存引擎」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>寫入：貼便利貼 + 先記流水帳</h3>
+    <p>來一筆 <code>put</code>，系統<strong>不</strong>急著動硬碟上排好序的資料。它只做兩件超輕的事：</p>
+    <ul>
+      <li>📝 <strong>貼便利貼</strong>：把這筆寫進記憶體裡一張暫存表（叫 <strong>memtable</strong>）。記憶體很快，瞬間完成。</li>
+      <li>🧾 <strong>先記一筆流水帳</strong>：同時在硬碟的一個「流水帳本」尾巴 append 一行（叫 <strong>WAL</strong>）。</li>
+    </ul>
+    <div class="analogy"><span class="label">🧾 比喻：為什麼要記流水帳？</span>
+      便利貼貼在桌上（記憶體），<strong>一陣風（當機/斷電）就吹光了</strong>。所以每貼一張，先在一本「絕不擦掉、只往後寫」的流水帳本上抄一行。
+      萬一當機，重開機時把流水帳<strong>從頭照念一遍</strong>，桌上的便利貼就全部復原了。這就是 WAL（Write-Ahead Log，先寫日誌）。</div>
+    <p>👉 重點：寫入只碰「記憶體 + 流水帳尾巴」，兩者都超快，所以 LSM 寫得飛快。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>歸檔：便利貼貼滿了，整批排序歸成一本冊子</h3>
+    <p>桌上的便利貼（memtable）越貼越多，總會滿（例如到 64MB）。這時系統把整桌便利貼<strong>一次排好序</strong>，
+    寫成硬碟上一本<strong>排好序、裝訂好、之後永不修改</strong>的冊子，叫 <strong>SSTable</strong>。</p>
+    <div class="analogy"><span class="label">📚 比喻：整理歸檔</span>
+      就像你桌上便利貼貼太多了，找一個下午<strong>把它們按字母排好、裝訂成一本冊子歸到書架上</strong>。
+      歸好的冊子<strong>從此不再改</strong>——要更新？貼新便利貼就好，舊冊子放著不動。</div>
+    <p>歸檔後便利貼清空、流水帳也可以截斷（因為資料已安穩躺在硬碟的冊子裡）。然後桌子清空，繼續貼新便利貼。</p>
+    <p>⚠️ 注意：「刪除」也不是真的去舊冊子裡擦掉，而是<strong>貼一張便利貼寫「這個 key 已刪」</strong>（叫 <strong>tombstone 墓碑</strong>），讀的時候看到墓碑就當作沒有。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查詢：先看目錄判斷「這本一定沒有」就跳過</h3>
+    <p>問題來了：資料散在「桌上便利貼 + 書架上一堆冊子」裡。要 <code>get</code> 一個 key，難道每本冊子都翻一遍？太慢。</p>
+    <div class="analogy">
+      <span class="label">🔎 比喻：先看冊子封面的目錄</span>
+      每本冊子封面都貼一張<strong>「本冊收錄了哪些詞」的快速目錄</strong>（叫 <strong>bloom filter</strong>）。
+      要找某個詞時，先瞄一眼目錄：<strong>目錄說「沒有」＝這本一定沒有，直接跳過不用翻</strong>（省下翻書＝省一次磁碟讀）；
+      目錄說「可能有」＝才真的翻開這本找。
+    </div>
+    <p>查詢順序是：先看桌上便利貼（最新）→ 再從<strong>最新的冊子往舊翻</strong>，每本先問 bloom 目錄，「一定沒有」就跳過。第一個找到的版本就是答案。</p>
+    <p>⚠️ 小細節：bloom 目錄可能「誤報有」（說可能有結果翻開沒有），但<strong>絕不會誤報沒有</strong>——所以跳過的都是真的安全，不會漏資料。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>整理：定期把舊冊子合併、丟掉過時資料（compaction）</h3>
+    <p>一直貼便利貼、一直歸檔，書架上冊子會越來越多——查詢要翻的冊子也越來越多（讀變慢），而且同一個 key 可能在好幾本冊子裡有舊版本，浪費空間。</p>
+    <div class="analogy">
+      <span class="label">🗂️ 比喻：合併幾本舊冊子成一本新的</span>
+      趁系統不忙時，把<strong>幾本舊冊子拿出來合併成一本新的</strong>：同一個 key 只留<strong>最新版本</strong>，
+      被刪掉的（墓碑）和被覆寫的舊值<strong>趁機丟掉</strong>，然後用新冊子換掉那幾本舊的。這叫 <strong>compaction（壓實/合併整理）</strong>。
+    </div>
+    <p>compaction 就是 LSM 的「家務」：冊子變少又變大 → 查詢要翻的本數變少（讀變快）、過時資料被回收（省空間）。它默默在背景跑。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>寫</strong>＝貼便利貼+記流水帳 → ② <strong>歸檔</strong>＝貼滿了排序成冊子 → ③ <strong>查</strong>＝先看目錄跳過沒有的冊子 → ④ <strong>整理</strong>＝合併舊冊子丟過時資料。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。
+  而且這三件事像翹翹板，<strong>不可能同時都滿分</strong>，調設計就是在它們之間選位置。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「當機丟資料」</span>
+    便利貼在記憶體，一斷電就沒了。所以每貼一張<strong>先記一筆流水帳（WAL）</strong>，當機後照念復原。
+    （細節取捨：流水帳要不要每筆都「確實壓進硬碟」(fsync)？要 → 更安全但每筆更慢；不要 → 更快但當機可能丟最後幾筆。）
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「讀太慢」（讀放大）</span>
+    便利貼派的代價：資料散在好多本冊子，<strong>查一個 key 最壞要翻很多本</strong>。
+    靠兩招壓住：<strong>bloom 目錄</strong>跳過「一定沒有」的冊子、<strong>compaction</strong> 把冊子數量壓低。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「同一筆被重寫太多次」（寫放大）+ 占空間</span>
+    每次 compaction 都把資料「搬一次家」，同一筆資料一輩子可能被搬好幾次（叫<strong>寫放大</strong>），很吃硬碟。
+    整理得太勤 → 寫放大大、吃資源；整理得太懶 → 冊子一堆讀變慢、舊版本占空間（<strong>空間放大</strong>）。要拿捏「多久整理一次」。
+  </div>
+  <div class="box"><span class="label">⚖️ 一句話總結三角</span>
+    <strong>寫放大、讀放大、空間放大</strong>三者不可能同時最佳——這就是 LSM 的核心取捨，所有調校都繞著這個三角轉。</div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分成寫、讀、背景三條路：</p>
+  <ul>
+    <li>✍️ <strong>寫路徑</strong>：<code>put</code> 來 → 先 ① 在<strong>流水帳(WAL)</strong>抄一行 → 再 ② 貼進<strong>便利貼(memtable)</strong> → 貼滿了 ③ 排序<strong>歸檔成冊子(SSTable)</strong>。</li>
+    <li>🔍 <strong>讀路徑</strong>：<code>get</code> 來 → 先看桌上<strong>便利貼</strong> → 沒有就<strong>從新到舊翻冊子</strong>，每本先問 <strong>bloom 目錄</strong>，「一定沒有」就跳過、不碰硬碟。</li>
+    <li>🧹 <strong>背景</strong>：<strong>compaction</strong> 默默把多本舊冊子合併、丟掉過時資料，讓冊子又少又乾淨。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>儲存引擎</td><td>資料庫底層「真的把資料存硬碟、再找回來」的小元件</td></tr>
+    <tr><td>memtable</td><td>桌上的便利貼：記憶體裡的暫存表，最新的寫都在這</td></tr>
+    <tr><td>WAL（先寫日誌）</td><td>流水帳本：只往後抄、絕不擦掉，當機時照念復原</td></tr>
+    <tr><td>SSTable</td><td>排好序、裝訂好、永不修改的冊子（落盤的檔案）</td></tr>
+    <tr><td>flush（落盤）</td><td>便利貼貼滿了，整批排序歸檔成一本冊子</td></tr>
+    <tr><td>bloom filter</td><td>冊子封面的快速目錄：說「沒有」就一定沒有，可跳過</td></tr>
+    <tr><td>compaction（壓實）</td><td>定期把多本舊冊子合併成一本、丟掉過時資料</td></tr>
+    <tr><td>tombstone（墓碑）</td><td>「這個 key 已刪」的便利貼，不是真的擦掉舊資料</td></tr>
+    <tr><td>順序寫 / 隨機寫</td><td>從頭一路寫（快）／翻到哪改哪、跳來跳去（慢）</td></tr>
+    <tr><td>寫放大</td><td>同一筆資料被 compaction 搬家重寫了好幾次</td></tr>
+    <tr><td>讀放大</td><td>查一個 key 平均要翻幾本冊子</td></tr>
+    <tr><td>空間放大</td><td>舊版本/墓碑還沒回收，實際占的硬碟比有效資料多</td></tr>
+    <tr><td>B-tree</td><td>另一種存法（翻書派）：讀快、就地改頁所以寫較慢</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」、瓶頸大概在哪。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？（白話）</th></tr>
+    <tr><td>寫入有多快</td><td>每筆 200 bytes、每秒 5 萬筆 ≈ 10 MB/秒</td><td>因為是「順序寫」，連傳統硬碟都扛得住</td></tr>
+    <tr><td>多久歸檔一本冊子</td><td>便利貼貼滿 64MB 就歸檔 → 約每 6 秒一本</td><td>冊子會持續一本一本長出來，所以才需要定期合併</td></tr>
+    <tr><td>同一筆被重寫幾次（寫放大）</td><td>約 10～30 倍</td><td>compaction 一直搬家，很吃硬碟頻寬——這是寫快的代價</td></tr>
+    <tr><td>查一個 key 要翻幾本（讀放大）</td><td>最壞＝全部冊子；有 bloom 多半降到約 1 次磁碟讀</td><td>bloom 目錄是讀取的救命稻草</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：成本被「延後」了</span>
+    LSM 並沒有讓總工作量變少，它只是把成本<strong>從「寫入當下」延後到「背景的整理」</strong>。
+    就像「先串釘子、打烊後再結算」——尖峰當下變輕鬆，但帳總是要算的，只是換個時間算。
+  </div>
+  <p class="pause">💭 停一下：如果你的應用「寫超多、讀很少」（例如日誌、感測器數據），LSM 和 B-tree 你選哪個？為什麼？</p>
+  <details class="qa"><summary>看答案</summary>
+    選 <strong>LSM</strong>。寫多時，「每筆寫都輕（順序寫）」的好處被放大；讀少時，「讀可能要翻多本」的缺點影響很小。
+    反過來如果是讀多寫少、又要單筆穩定低延遲（例如交易型），就選 B-tree。
+  </details>
+
+  <h2 id="api">8. 怎麼跟它對話？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是你跟儲存引擎之間講好的「<strong>點餐單格式</strong>」：你要它做什麼、它回你什麼。
+    儲存引擎的點餐單超簡單，就是「存 / 取 / 刪」三件事（這叫 KV 介面，key-value，鑰匙對應值）。
+  </div>
+  <pre><code>① 存一筆（新增或覆寫都用它）
+   put(key, value)
+   做的事：先在流水帳(WAL)抄一行 → 再貼進便利貼(memtable)
+
+② 刪一筆（注意：不是真的擦掉）
+   delete(key)
+   做的事：貼一張「這個 key 已刪」的墓碑(tombstone)便利貼
+
+③ 取一筆
+   get(key) → 值 或「查無此 key」
+   做的事：先看便利貼 → 再從新到舊翻冊子(bloom 先過濾)，
+           第一個命中就回；若命中的是墓碑 → 回「查無此 key」</code></pre>
+  <p class="codecaption">為什麼 <code>delete</code> 不真的擦掉？因為冊子<strong>排好序又裝訂好、不可修改</strong>，回去擦舊冊子＝又變成慢吞吞的隨機寫。所以「刪除」也用「貼一張新便利貼」表達，真正的清除留給背景的 compaction 做。</p>
+  <pre><code>④ 進階：範圍查詢（因為 key 是排好序的，才做得到）
+   scan(起點, 終點) → 依序吐出這段範圍內每個 key 的最新版本
+
+⑤ 維運：手動催它做家務
+   flush()   → 手動把便利貼歸檔成冊子
+   compact() → 手動觸發合併整理</code></pre>
+  <p class="codecaption">能做 <code>scan</code>（範圍查詢）是因為每本冊子內部都按 key 排好序——把幾本冊子「邊讀邊歸併」就能依序吐出結果，每個 key 取最新版本。</p>
+
+  <h2 id="data">9. 它把東西記在哪？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：一桌便利貼 + 一本流水帳 + 一櫃冊子</span>
+    LSM 的資料就放在這幾個地方，名字聽起來嚇人，其實你都認得：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧾</span>WAL 流水帳本（防當機）</h3>
+    <p>硬碟上一個只往後 append 的檔，每行記一筆：<code>{ 動作:存/刪, key, value }</code>。
+    便利貼會被風吹走，<strong>流水帳不會</strong>——當機重開機時照念一遍就把便利貼全復原。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>memtable 桌上便利貼（記憶體、可改、最新）</h3>
+    <p>記憶體裡一張<strong>自動保持排序</strong>的暫存表（常用跳表 SkipList 實作），<code>key → 值 或 墓碑</code>。
+    最新的寫都在這，所以查詢一律先看它。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📚</span>SSTable 冊子（硬碟、排好序、永不改）</h3>
+    <p>每本冊子（檔案）裡有三樣東西：</p>
+    <ul>
+      <li><strong>資料本體</strong>：按 key 排好序的 (key, value)。</li>
+      <li><strong>稀疏索引</strong>：「<strong>每隔幾個 key 記一個位置</strong>」的小目錄。不用每個 key 都記，找的時候先跳到附近、再往下掃一小段就好——省記憶體。</li>
+      <li><strong>bloom 目錄</strong>：「本冊大概收了哪些 key」的快速判斷器，常駐記憶體，讓你不用翻就知道「一定沒有」。</li>
+    </ul>
+    <div class="analogy"><span class="label">為什麼冊子要「不可修改」？</span>
+      永不就地改 → 就<strong>沒有慢吞吞的隨機寫</strong>，而且可以放心快取、多人同時讀也不打架，連 compaction 都只是「讀舊冊子、寫新冊子、再換掉」這麼單純。
+      代價就是「更新/刪除」都得靠<strong>寫新便利貼</strong>表達，舊版本留給 compaction 慢慢回收。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>白話症狀</th><th>怎麼拓寬</th></tr>
+    <tr><td>compaction 搶硬碟</td><td>背景一直搬家，跟前台寫入搶硬碟，寫入忽然卡住（write stall）</td><td>幫 compaction 限速、分到不同執行緒、換更快的硬碟、調整觸發門檻</td></tr>
+    <tr><td>冊子太多（讀放大）</td><td>一次 get 要翻好多本</td><td>更積極地 compaction、用 leveled 策略、調 bloom 參數</td></tr>
+    <tr><td>bloom 目錄調不好</td><td>太鬆 → 常常「白翻一本」；太準 → 吃記憶體</td><td>調「每個 key 用幾個位元」平衡誤報率與記憶體（典型約 10 bits/key、1% 誤報）</td></tr>
+    <tr><td>value 很大</td><td>大 value 讓 compaction 搬家成本爆高</td><td>把 value 另外存（KV 分離，如 WiscKey），冊子裡只放 key + 指標</td></tr>
+    <tr><td>資料超過一台機器</td><td>單機塞不下</td><td>上層按 key 範圍或雜湊<strong>分片</strong>，每片各自一棵 LSM（如 Cassandra/HBase）</td></tr>
+  </table>
+  <div class="analogy"><span class="label">🧹 compaction 兩種掃地法（順帶認識）</span>
+    <strong>size-tiered（堆相近大小一起併）</strong>：搬家次數少（寫放大低），但冊子重疊多、讀較累、占空間（Cassandra 預設）。
+    <strong>leveled（分層、每層 key 不重疊）</strong>：讀很順、省空間，但搬家更勤（寫放大高）（LevelDB/RocksDB）。又是三角取捨。</div>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心。這裡用最常被面試官追問的 <strong>LSM vs B-tree</strong> 收束一次：</p>
+  <div class="fear"><span class="label">⚖️ 寫快 vs 讀快</span>
+    LSM（便利貼派）<strong>寫快</strong>，但讀可能翻多本冊子；B-tree（翻書派）<strong>讀快又穩</strong>（翻一次就到），但每改一筆都要就地翻書改頁＝隨機寫，寫較慢。</div>
+  <div class="fear"><span class="label">⚖️ 整理得勤 vs 懶</span>
+    勤整理（leveled）→ 讀順、省空間，但同一筆一直搬家＝寫放大高、吃資源；懶整理（size-tiered）→ 寫放大低，但冊子一堆、讀慢又占空間。</div>
+  <div class="fear"><span class="label">⚖️ 流水帳要不要每筆都壓進硬碟（fsync）</span>
+    每筆都壓 → 最安全（當機保證不丟），但每筆變慢；批次壓 → 快，但當機可能丟最後極少數幾筆。看你多怕丟資料。</div>
+  <details class="qa"><summary>💭 追問：墓碑(tombstone)什麼時候才能真的丟掉？</summary>
+    要等 compaction 把「含這個 key 的所有冊子」都合併在一起、<strong>確定沒有更舊的副本還藏在別本</strong>時，才能把 key 和墓碑一起丟。
+    太早丟墓碑，會讓某本舊冊子裡「已刪的舊值」復活——所以要小心。</details>
+  <details class="qa"><summary>💭 追問：誰在用 LSM、誰在用 B-tree？</summary>
+    LSM：RocksDB、LevelDB、Cassandra、HBase、InfluxDB 等（寫密集、時序、計數、訊息）。
+    B-tree：MySQL InnoDB、PostgreSQL 等傳統關聯式資料庫的索引（讀密集、交易型、要穩定點查）。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到便利貼、冊子、bloom 跳過、compaction：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8032 -t public
+# 然後瀏覽器打開 http://localhost:8032</code></pre>
+  <ol>
+    <li>連續 <strong>put 很多筆</strong>，看便利貼（memtable）貼滿後自動<strong>歸檔成一本冊子（SSTable）</strong>。</li>
+    <li><strong>delete</strong> 一個 key，注意它不是消失，而是多了一張<strong>墓碑</strong>。</li>
+    <li><strong>get 一個不存在的 key</strong>，看 bloom 目錄怎麼幫你<strong>跳過冊子、不碰硬碟</strong>（看命中/跳過統計）。</li>
+    <li>按 <strong>compact</strong> 合併冊子，再 get 一次，感受冊子變少、過時資料被回收。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>
+    同一個 key <strong>put 兩次不同的值</strong>，在 compaction 前是不是「兩本冊子都有它」？compaction 後是不是只剩最新那筆？這就是<strong>讀放大</strong>與<strong>空間放大</strong>被回收的過程。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「翻書 vs 便利貼」解釋，為什麼 LSM 寫得比 B-tree 快？</summary>
+    B-tree 要就地翻到對的頁去改＝跳來跳去的隨機寫，慢。LSM 不改舊資料，只往記憶體貼便利貼 + 在流水帳尾巴 append＝順序寫，快。核心就是「把隨機寫變順序寫」。</details>
+  <details class="qa"><summary>Q2：bloom filter 是什麼？用「冊子目錄」說說看，它為什麼安全？</summary>
+    bloom 是每本冊子封面的快速目錄。查 key 時先問它：說「沒有」就一定沒有，可直接跳過不翻（省磁碟讀）。它只會「誤報有」、絕不會「誤報沒有」，所以跳過的都是真的安全、不會漏資料。</details>
+  <details class="qa"><summary>Q3：刪除一筆資料，LSM 實際上做了什麼？</summary>
+    不是去舊冊子裡擦掉（那會變慢的隨機寫），而是貼一張「這個 key 已刪」的墓碑(tombstone)便利貼。讀到墓碑就當作查無此 key，真正的清除留給背景 compaction。</details>
+  <details class="qa"><summary>Q4：compaction 在做什麼？不做會怎樣？</summary>
+    把多本舊冊子合併成新的一本，同一 key 只留最新版本、丟掉墓碑與被覆寫的舊值。不做的話冊子越堆越多 → 查詢要翻很多本（讀變慢）、舊版本占空間（空間放大）。</details>
+  <details class="qa"><summary>Q5（工程）：WAL（流水帳）的用途是什麼？為什麼「先寫日誌」？</summary>
+    memtable 在記憶體，當機會丟。所以每筆寫先 append 到硬碟上的 WAL，當機重開時照念 WAL 把 memtable 復原。flush 成冊子後該批已安穩落盤，WAL 就能截斷。</details>
+  <details class="qa"><summary>Q6（工程）：寫放大、讀放大、空間放大是什麼？它們的關係？</summary>
+    寫放大＝同一筆被 compaction 重寫的倍數；讀放大＝一次 get 要翻幾本冊子；空間放大＝實際占用/有效資料。三者是翹翹板，不可能同時最佳——compaction 策略就是在這三角上選位置。</details>
+  <details class="qa"><summary>Q7（工程）：什麼情況該選 LSM、什麼情況該選 B-tree？</summary>
+    寫密集（日誌、時序、計數、訊息）→ LSM（順序寫、寫放大低）。讀密集、交易型、要單筆穩定低延遲 → B-tree（一次樹查找、讀快又穩）。面試開場先問「寫多還讀多」定調。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>LSM-tree = 「先記便利貼、之後再整理歸檔」的存法，靠把隨機寫變順序寫來換取極快的寫入。</strong></p>
+    <p><strong>4 個關卡：</strong>① 寫＝貼便利貼(memtable)+記流水帳(WAL) → ② 滿了排序歸檔成不可改的冊子(SSTable) → ③ 查＝先看 bloom 目錄跳過「一定沒有」的冊子 → ④ 背景 compaction 合併舊冊子、丟過時資料。</p>
+    <p><strong>3 個怕：</strong>怕當機丟資料（WAL 復原）、怕讀太慢（bloom + compaction）、怕重寫太多次/占空間（拿捏整理頻率）。</p>
+    <p style="margin-bottom:0"><strong>對比：</strong>B-tree 是「翻書派」——讀快又穩，但就地改頁＝隨機寫所以寫較慢。寫多選 LSM，讀多／交易型選 B-tree。三角取捨：寫放大、讀放大、空間放大不可能同時最佳。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉜ LSM-tree 儲存引擎 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

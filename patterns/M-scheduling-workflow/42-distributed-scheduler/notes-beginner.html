@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊷ 分散式排程器 / Cron · 初學者友善版</title>
+<link rel="stylesheet" href="../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../index.html">← 回總覽</a>
+  <a href="../README.md">🅼 排程/工作流</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊷ 分散式排程器 / Cron · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">M 排程/工作流</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「多台一起跑」反而麻煩？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你手機上有<strong>鬧鐘</strong>對吧？「每天早上 7:00 響」「每 5 分鐘提醒喝水」。
+  電腦世界也需要這種鬧鐘——叫它<strong>「定時任務」</strong>：每天半夜 2 點寄報表、每小時備份一次、每週一發帳單。</p>
+  <p>一台電腦自己管鬧鐘很簡單（Linux 上叫 <code>cron</code>）。但當你有<strong>上億個鬧鐘</strong>、一台電腦扛不住，
+  就得<strong>很多台電腦一起管</strong>。麻煩來了：同一個鬧鈴響時，<strong>到底誰去執行？萬一兩台都去做，任務就跑了兩次</strong>（帳單寄兩封、錢扣兩次）。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    分散式排程器 = <strong>一大群電腦共用的鬧鐘系統</strong>：在對的時間，把對的任務，<strong>剛剛好觸發一次</strong>（不重複、不漏掉），而且機器再多也撐得住。
+  </div>
+
+  <h2 id="why">2. 為什麼「多台一起跑」反而麻煩？</h2>
+  <p>很多人想：「不就是設鬧鐘嗎？有什麼難的？」難就難在——<strong>很多台機器，每台都看到了同一個鬧鐘</strong>。</p>
+  <div class="analogy">
+    <span class="label">🛏️ 宿舍裡的鬧鐘</span>
+    想像一間宿舍住了 4 個人，<strong>每個人手機都設了同一個 7:00 的鬧鐘</strong>（怕睡過頭）。
+    7:00 一到，4 支手機<strong>同時</strong>響——但「去關掉鬧鐘、去煮早餐」這件事，<strong>只該有一個人去做</strong>，
+    不然 4 個人都跑去廚房，煮了 4 鍋粥。
+  </div>
+  <p>定時任務也一樣：很多台機器都「看到鬧鈴響了」，但這個任務<strong>只能讓一台去執行</strong>。
+  於是核心問題變成：<strong>「大家都想做，怎麼讓只有一個人做？」</strong></p>
+  <p>解法就是現實中的老招——<strong>搶</strong>。誰先搶到「我來做」這個資格，誰就做；其他人看到「已經有人搶走了」就乖乖退下。
+  這個「搶資格」的動作，工程上叫 <strong>claim（認領）/ 搶鎖</strong>。</p>
+  <p class="pause">💭 停一下：宿舍 4 個人怎麼確保「只有一個人去煮早餐」，又不會吵架？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    在廚房門口貼一張紙，<strong>第一個到的人把名字寫上去</strong>。後面來的人看到「已經有名字了」就回房間。
+    關鍵是「寫名字」這個動作要夠快、夠原子（不能兩個人同時都覺得自己是第一個）。系統裡這張紙就是資料庫的一筆紀錄，「寫名字」就是一個<strong>原子操作</strong>：只有第一個寫成功的人算數。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「分散式」嚇到。整件事就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>登記鬧鐘：「我要每天 2 點做這件事」</h3>
+    <p>使用者先告訴系統：<strong>什麼時候響、響了要做什麼</strong>。時間可以是「每 5 分鐘」這種固定間隔，
+    也可以是 <strong>cron 表達式</strong>（一種寫法，例如 <code>*/5 * * * *</code> 代表「每 5 分鐘」、<code>0 2 * * *</code> 代表「每天 2 點」）。</p>
+    <div class="analogy"><span class="label">⏰ 比喻</span>就像在手機鬧鐘 App 裡新增一個鬧鐘：選時間、設「重複」、寫上備註（響了要幹嘛）。系統把這些記在一本「鬧鐘簿」裡。</div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>看時間：「現在有哪些鬧鐘該響了？」</h3>
+    <p>系統要不斷地問：<strong>「現在幾點？有哪些鬧鐘的時間 ≤ 現在？」</strong>到點的就把它撈出來。</p>
+    <div class="analogy">
+      <span class="label">📋 比喻：看待辦清單，挑出「到期」的</span>
+      你不會把<strong>整本</strong>行事曆從頭翻到尾找今天該做的事（太慢）。你會直接看「<strong>排在最前面、時間最早</strong>」的那幾筆，到期了就拿出來做。
+    </div>
+    <p>系統也一樣：鬧鐘簿按「下次響的時間」排好序，每次只看<strong>最前面、已經到點</strong>的那幾個，不必每次都掃過上億筆。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>搶著做：「這個鬧鈴歸我！」（防重複的核心）</h3>
+    <p>到點的鬧鐘被很多台機器同時看到。這時就靠<strong>關卡 2 開頭講的「搶」</strong>：誰先把「我來做」寫上去，誰就做，其他人退下。</p>
+    <div class="analogy">
+      <span class="label">🧹 比喻：值日生輪班表</span>
+      教室的值日生表上，<strong>每天只有一個名字</strong>。輪到的那個人去掃地，其他人不用動。
+      如果兩個人同時跑去掃，不只浪費力氣，還可能把剛掃好的弄亂——所以「<strong>同一個工作只能一個人認領</strong>」很重要。
+    </div>
+    <p>這就是整題<strong>最重要的一句話</strong>：很多台機器都有鬧鐘，但同一個鬧鈴<strong>只能一台去執行</strong>。
+    這個機制叫 <strong>claim（認領）/ 搶鎖</strong>，目的是<strong>防止同一個任務跑很多次</strong>（不然帳單寄好幾封、錢扣好幾次就出大事了）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>有人睡過頭：補做還是算了？（misfire 補跑）</h3>
+    <p>萬一<strong>負責的那台機器當掉了、睡過頭了</strong>，這個鬧鐘就被錯過了。系統發現後要決定：<strong>要不要補做？</strong></p>
+    <div class="analogy">
+      <span class="label">😴 比喻：值日生請假了</span>
+      值日生今天感冒沒來，地沒掃。你有三種選擇：<br>
+      ① <strong>補掃一次就好</strong>（不管欠幾天，補一次乾淨即可）<br>
+      ② <strong>算了，跳過</strong>（反正明天還要掃，今天就不計較）<br>
+      ③ <strong>欠幾天補幾天</strong>（每一天都不能少，例如每天的帳一定要結）
+    </div>
+    <p>系統把這三種叫 <strong>misfire 策略</strong>（misfire = 錯過了該觸發的時刻）：<strong>fire-once（補一次）、skip（跳過）、fire-all（全補）</strong>。
+    選哪個要看任務性質——「寄日報」補一次就好；「每分鐘清快取」跳過就行；「每小時結算」一筆都不能少。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>登記</strong>鬧鐘 → ② 看時間<strong>挑出到點</strong>的 → ③ 多台機器<strong>搶著做、只一台中</strong>（claim 防重複）→ ④ 有人睡過頭就<strong>依策略補跑</strong>（misfire）。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「做兩次」</span>
+    同一個任務跑兩次 = 帳單寄兩封、錢扣兩次、報表寄重複。所以<strong>「只做一次」是頭號目標</strong>：
+    靠「搶鎖（claim）」讓多台機器中只有一台能做。實務上做不到 100% 精確一次，所以再加一招——<strong>讓任務本身重複做也沒差</strong>（這叫「冪等」）。<em>寧可重複也要擋住，擋不住就讓重複無害。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「漏掉沒做」</span>
+    機器當掉、重啟，不能就把該做的事吞掉。所以鬧鐘要<strong>寫進硬碟（持久化）</strong>，機器復活後能發現「啊我錯過了」，
+    再依 <strong>misfire 策略</strong>決定補不補。<em>機器可以掛，任務不能消失。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「殭屍復活搶著做」</span>
+    最陰險的情況：一台機器搶到了任務，做到一半<strong>卡住了</strong>（網路斷、當機），系統以為它死了，叫別人接手。
+    結果它<strong>突然又活過來</strong>，繼續做它的——變成兩台同時在做！解法是發一個<strong>號碼牌（fencing token）</strong>，
+    號碼只會越來越大；下游只認「最新的號碼牌」，舊的殭屍拿著過期號碼牌想做事，會被擋下來。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由上到下一路看：</p>
+  <ul>
+    <li>📒 <strong>鬧鐘簿（Job Store / DB）</strong>記著所有鬧鐘和「下次幾點響」 →</li>
+    <li>👀 <strong>掃描員（Scheduler）</strong>一直看時間，挑出「該響了」的鬧鐘，產生一筆「觸發單」 →</li>
+    <li>🏃 一群<strong>工人（Worker）搶</strong>這張觸發單，<strong>只有一個搶到</strong>（claim），拿到號碼牌後去執行 →</li>
+    <li>💥 萬一搶到的工人<strong>當掉、租約到期</strong>，另一個工人會接手重做（換更大的號碼牌，擋住殭屍）。</li>
+  </ul>
+  <div class="analogy"><span class="label">🪧 為什麼要先選一個「掃描員」？</span>
+    如果每台機器都去掃整本鬧鐘簿，會重複產生一堆觸發單（雖然搶鎖會擋掉重複，但很浪費）。
+    所以大家<strong>先選一個「值班掃描員」（leader 選舉）</strong>負責看時間，其他人專心當工人就好。掃描員掛了，再選一個補上。</div>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>cron / 定時任務 (job)</td><td>電腦的「鬧鐘」：到時間自動做某件事</td></tr>
+    <tr><td>cron 表達式</td><td>寫鬧鐘時間的格式，例如 <code>0 2 * * *</code> = 每天 2 點</td></tr>
+    <tr><td>next_run（下次觸發）</td><td>這個鬧鐘「下一次該響」的時間</td></tr>
+    <tr><td>fire（觸發 / 觸發單）</td><td>某個鬧鐘「這一次到點」產生的一張工作單</td></tr>
+    <tr><td>claim（認領 / 搶鎖）</td><td>「這個我來做」——搶資格，只有一台搶得到</td></tr>
+    <tr><td>冪等 (idempotent)</td><td>同一件事做幾次，結果都一樣（重複做也無害）</td></tr>
+    <tr><td>misfire（補跑）</td><td>睡過頭錯過了：要補一次 / 全補 / 還是跳過</td></tr>
+    <tr><td>fencing token</td><td>越發越大的「號碼牌」，用來擋住復活的殭屍機器</td></tr>
+    <tr><td>租約 (lease)</td><td>「我借用這任務到幾點」，到期沒完成就讓別人接手</td></tr>
+    <tr><td>分片 (shard)</td><td>把很多鬧鐘分給好幾組機器，各管一份、分擔負載</td></tr>
+    <tr><td>leader 選舉</td><td>大家先推一個「值班掃描員」，避免每台都重複掃</td></tr>
+    <tr><td>at-least-once</td><td>「至少觸發一次」：寧可重觸發也不漏，再靠去重收尾</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>總共有幾個鬧鐘</td><td>1 億個 job</td><td>不能每次都把整本簿子翻一遍，要靠索引</td></tr>
+    <tr><td>每秒要響幾次</td><td>≈ 2.8 萬次/秒（尖峰再 ×3）</td><td>一台機器響不完，要很多台分擔</td></tr>
+    <tr><td>要幾個工人</td><td>一個工人每秒做 ~500 次 → 約 56 個工人</td><td>尖峰時要能加到上百個</td></tr>
+    <tr><td>執行紀錄要留多久</td><td>每次都記一筆，留 30 天 → 幾百億筆</td><td>太多了，要定期清掉舊的、用專門的「流水帳資料庫」</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🕛 關鍵洞察：整點大家一起響</span>
+    很多人都愛把鬧鐘設在「整點」「半夜 12:00」「凌晨 2:00」。結果<strong>同一秒幾百萬個鬧鐘一起響</strong>，瞬間把系統壓垮——
+    這叫<strong>「驚群（thundering herd）」</strong>，像演唱會散場大家擠同一個出口。
+    解法：給每個鬧鐘<strong>加一點隨機抖動</strong>（你 2:00:03 響、我 2:00:07 響），把尖峰攤平。
+  </div>
+  <p class="pause">💭 停一下：為什麼瓶頸不在「執行任務」，而在「找出該響的鬧鐘」和「搶鎖」這兩件事？</p>
+  <details class="qa"><summary>看答案</summary>
+    執行任務（寄信、呼叫網址）可以無限加機器分擔，不難。難的是：① <strong>從 1 億個鬧鐘裡每秒找出到點的那些</strong>——掃太慢就會延遲；② <strong>同一個鬧鈴一堆機器搶</strong>——搶得不好就會重複執行或卡死。所以設計的重心放在「高效掃描 + 可靠搶鎖」這兩點。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 新增一個鬧鐘
+   POST /api/v1/jobs
+   給我：{ 名稱, 排程("*/5 * * * *"=每5分鐘), 響了要做什麼(打哪個網址), 補跑策略 }
+   我回：201「建好了！下次 02:05 響」</code></pre>
+  <p class="codecaption">「補跑策略」就是 Part 1 關卡 4 講的：睡過頭要補一次、全補、還是跳過。建鬧鐘時就先講好。</p>
+  <pre><code>② 改 / 暫停 / 刪鬧鐘
+   PATCH  /api/v1/jobs/{id}   → { "paused": true }（先暫停不響）
+   DELETE /api/v1/jobs/{id}   → 刪掉這個鬧鐘</code></pre>
+  <pre><code>③ 查下次幾點響、查歷史
+   GET /api/v1/jobs/{id}         → { 下次響, 上次響, 狀態 }
+   GET /api/v1/jobs/{id}/runs    → 歷次執行紀錄（哪個工人做的、結果）</code></pre>
+  <pre><code>④（內部用）工人認領一張觸發單 ← 防重複的核心
+   POST /internal/claim   給我：{ 觸發單編號, 工人編號 }
+   我回：200 { ok:true, 號碼牌:4711, 租到幾點 }   ← 搶到了！
+   我回：409 { ok:false, 原因:"已被別人搶走" }    ← 沒搶到，退下</code></pre>
+  <p class="codecaption">這張 ④ 就是整題的靈魂：<strong>多台工人搶同一張單，只有一台收到 200，其他都收到 409</strong>。回 200 的同時發一張「號碼牌」（fencing token），這就是擋殭屍用的。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：三本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題只要三本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">⏰</span>鬧鐘簿 jobs（有哪些鬧鐘）</h3>
+    <p>每個鬧鐘一列：<code>編號、排程寫法、<strong>下次響的時間(next_run)</strong>、補跑策略、是否暫停、分到哪一組(shard)</code>。</p>
+    <div class="analogy"><span class="label">為什麼 next_run 要建索引？</span>
+      因為每秒都要問「哪些鬧鐘的下次響時間 ≤ 現在」。對這一欄<strong>建索引</strong>，就像幫整本簿子按時間排好序、加上書籤，一翻就找到最前面到點的那幾筆，不用每次掃 1 億列。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🎫</span>觸發單簿 fires（每次到點產生一張，搶鎖的對象）</h3>
+    <p>每次某鬧鐘到點，就生一張單：<code>觸發單編號、屬於哪個鬧鐘、邏輯上該響的時刻、被誰認領了(NULL=還沒人)、號碼牌(fence_token)、租到幾點、狀態</code>。</p>
+    <div class="analogy"><span class="label">為什麼要這本？這是去重的根</span>
+      搶鎖必須有「一個明確的搶奪對象」。把 <code>(鬧鐘編號 + 該響的時刻)</code> 設成<strong>不可重複</strong>，
+      多台工人都想搶同一張時，資料庫的「不可重複」規則 + 條件更新，<strong>自然只讓一台成功</strong>——這就是「只做一次」的根。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>執行紀錄簿 runs（做了沒、結果如何）</h3>
+    <p>每執行一次記一筆：<code>哪張觸發單、哪個工人做的、幾點做的、結果、當時的號碼牌</code>。
+    這本寫得超頻繁（每次觸發都寫），所以要<strong>定期清掉舊的</strong>，或用專門記流水帳的資料庫（時序庫）。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>1 億個鬧鐘，每秒找「該響的」太慢</td><td>對「下次響時間」<strong>建索引</strong>，每次只撈最前面 N 筆；再<strong>分片</strong>給好幾組分頭找</td></tr>
+    <tr><td>整點幾百萬個鬧鐘<strong>同時響</strong>（驚群）</td><td>每個鬧鐘<strong>加隨機抖動</strong>錯開幾秒、限流，把尖峰攤平</td></tr>
+    <tr><td>某個任務跑很久，租約到期被別人接手 → 重複跑</td><td>長任務<strong>拆小</strong>、做到一半<strong>主動續租</strong>（像續借圖書）、任務做成冪等</td></tr>
+    <tr><td>同一批觸發單，一大群工人擠著搶（搶鎖熱點）</td><td><strong>分片</strong>讓各組只搶自己那份，降低競爭；一次搶一批</td></tr>
+    <tr><td>執行紀錄寫到爆</td><td>批次寫、用時序庫、定期清掉過期紀錄</td></tr>
+    <tr><td>掃描員一台不夠 / 掛了</td><td><strong>分片 + leader 選舉</strong>：每片一個值班掃描員，掛了自動補位</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 精確一次 vs 至少一次</span>
+    「保證剛好做一次」在分散式裡幾乎做不到（網路、當機隨時發生，成本超高）。務實答案是：<strong>至少觸發一次（at-least-once）＋ 任務本身冪等／用號碼牌去重</strong>。面試講出這句就穩了。</div>
+  <div class="fear"><span class="label">⚖️ 絕對準時 vs 一定會做</span>
+    要分秒不差很貴；務實是<strong>允許延遲幾秒，但保證最終一定會觸發（不漏）</strong>。準時和不漏，先保不漏。</div>
+  <div class="fear"><span class="label">⚖️ 一個掃描員 vs 分片多個</span>
+    只用一個值班掃描員：簡單，但量大會撐不住。分成好幾片、每片一個掃描員：能擴展，但機器增減時要<strong>重新分配（rebalance）</strong>，交界處可能短暫重複——沒關係，靠搶鎖去重兜底。</div>
+  <details class="qa"><summary>💭 追問：工人做到一半當掉，任務怎麼辦？</summary>
+    它的「租約」會到期。系統發現租約過期沒人續，就判定它掛了，<strong>讓別的工人重新認領</strong>（拿一張更大的號碼牌）。萬一原工人是假死、後來又活過來，它拿的是舊號碼牌，下游只認最新的，所以擋得住——這就是 fencing token 的作用。</details>
+  <details class="qa"><summary>💭 追問：整點一堆任務同時到點（驚群）怎麼解？</summary>
+    給每個任務的觸發時間<strong>加一點隨機抖動（jitter）</strong>，例如本來都 2:00:00，改成散在 2:00:00～2:00:30，把尖峰攤平；再加上限流（令牌桶）控制每秒最多觸發幾個。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「到點觸發 + 搶鎖 + 補跑」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8042 -t public
+# 然後瀏覽器打開 http://localhost:8042</code></pre>
+  <ol>
+    <li>先「<strong>加一個 job</strong>」（等於設一個鬧鐘，例如每 2 個 tick 響一次）。</li>
+    <li>讓幾個 <strong>worker 上線</strong>（多幾個搶鎖才看得出效果）。</li>
+    <li><strong>tick 推進</strong>（手動讓時間往前走），看哪些 job 到點、產生觸發單。</li>
+    <li>觀察：同一張觸發單，<strong>只有一個 worker 認領成功</strong>，其他都被擋掉（這就是 claim 去重）。</li>
+    <li>把<strong>認領中的 worker 下線</strong>，再 tick 過租約時間，看任務怎麼<strong>被接管、補跑（misfire）</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">誠實小提醒</span>
+    因為 PHP 沒有跨請求的常駐計時器，這個 demo 用「<strong>手動 tick 推進</strong>」來模擬時間走動。但其中最關鍵的<strong>搶鎖去重（claim + 號碼牌 + 租約到期）、misfire 補跑、分片指派</strong>都是<strong>真的可執行邏輯</strong>，不是假動畫——這些正是這題的考點。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「宿舍鬧鐘」解釋，為什麼多台機器一起跑會有麻煩？</summary>
+    宿舍 4 個人都設了同一個 7:00 鬧鐘，同時響；但「去煮早餐」只該一個人做，不然煮了 4 鍋粥。多台機器都看到同一個鬧鈴響了，但任務只能讓一台執行——這就是核心難題。</details>
+  <details class="qa"><summary>Q2：什麼是 claim（搶鎖）？為什麼非有不可？</summary>
+    claim = 「這個我來做」的搶資格動作，只有第一個搶到的機器能執行，其他看到「已被搶走」就退下。沒有它，同一個任務會被多台同時執行——帳單寄好幾封、錢扣好幾次。</details>
+  <details class="qa"><summary>Q3：misfire 是什麼？三種補跑策略各舉一例。</summary>
+    misfire = 負責的機器當掉/睡過頭，錯過了該觸發的時刻。三種策略：fire-once 補一次（寄日報漏了補一次即可）、skip 跳過（每分鐘清快取，補了沒意義）、fire-all 全補（每小時結算，每筆都不能少）。</details>
+  <details class="qa"><summary>Q4：「分片」在做什麼？用值日生比喻說說看。</summary>
+    分片 = 把很多鬧鐘分給好幾組機器，各管一份。像把全班分成幾組，每組負責自己的值日表，分擔工作，也減少大家擠著搶同一張表的情況。</details>
+  <details class="qa"><summary>Q5（工程）：多台 worker 搶同一張觸發單，系統怎麼保證只有一個成功？</summary>
+    把 (鬧鐘編號 + 該響的時刻) 設成資料庫裡「不可重複」的鍵，用原子的條件更新（只在「還沒人認領」時把自己名字寫上去）。資料庫保證只有第一個寫成功、影響到 1 列的 worker 算認領成功，其他都失敗（回 409）。</details>
+  <details class="qa"><summary>Q6（工程）：什麼是 fencing token（號碼牌）？它擋掉什麼災難？</summary>
+    fencing token 是認領時發的、只會越來越大的號碼。它擋的是「殭屍 worker」：一台 worker 卡住被判死、任務被別人接手後，它突然復活還想繼續做——但它拿的是舊號碼牌，下游只認最新（最大）的，舊的被拒絕，於是不會變成兩台同時做。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼要先「選一個 leader 掃描員」，而不是每台都掃？</summary>
+    如果每台 scheduler 都掃整本鬧鐘簿，會重複產生一堆觸發單，雖然搶鎖會去重但很浪費。用 leader 選舉讓同一片只有一個在掃描；leader 掛了，租約過期後其他人自動補位。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>分散式排程器 = 一大群電腦共用的鬧鐘系統，在對的時間把對的任務剛好做一次。</strong></p>
+    <p><strong>4 個關卡：</strong>① 登記鬧鐘 → ② 看時間挑出到點的 → ③ 多台搶、只一台中（claim 防重複）→ ④ 睡過頭依策略補跑（misfire）。</p>
+    <p><strong>3 個怕：</strong>怕做兩次（搶鎖 + 冪等）、怕漏掉（持久化 + misfire 補跑）、怕殭屍復活搶著做（fencing 號碼牌）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估「整點驚群」般的尖峰 → 用「點餐單(API)」溝通、內部 claim 單回 200/409 → 三本筆記本（鬧鐘/觸發單/紀錄）＋ next_run 建索引 → 找出塞車環節（掃描、搶鎖熱點、驚群）各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊷ 分散式排程器 / Cron · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

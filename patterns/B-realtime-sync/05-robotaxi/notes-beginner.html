@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑤ RoboTaxi 叫車 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅱️ 即時連線/同步</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑤ RoboTaxi 叫車 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">B 即時連線/同步</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#hard">難的不是叫車，是這三件事</a></li>
+      <li><a href="#steps">把系統拆成 3 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你打開 App 按「叫車」，<strong>幾秒後</strong>螢幕上就出現「ABC-001 號車，2 分鐘後到」，還能看到那台車<strong>在地圖上一格一格往你這邊開過來</strong>。
+  RoboTaxi（自駕計程車）做的就是這件事。</p>
+  <p>聽起來不就是「按一下 → 配一台車」嗎？很簡單啊。<strong>記下一筆叫車單</strong>確實很簡單。難的是藏在背後的三件事，我們下一節就拆給你看。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    RoboTaxi 媒合 = <strong>在一張塞滿幾百萬台移動車子的活地圖上，瞬間幫你抓一台最近的空車，而且保證這台車不會同時被別人搶走</strong>。
+  </div>
+
+  <h2 id="hard">2. 難的不是叫車，是這三件事</h2>
+  <p>「按一下配一台車」之所以難，是因為這張地圖<strong>又大、又一直在動、還有別人在搶</strong>：</p>
+  <div class="analogy">
+    <span class="label">🗺️ 難點一：地圖超大，怎麼瞬間找到「附近」的車？</span>
+    全世界可能同時有 <strong>100 萬台車</strong>在路上。你叫車時，系統不可能把 100 萬台車<strong>一台一台</strong>量「離你多遠」，那要算到天荒地老。
+  </div>
+  <div class="analogy">
+    <span class="label">🔄 難點二：每台車都在動，位置一直變</span>
+    車子在開，位置<strong>每幾秒就變一次</strong>。100 萬台車同時回報「我現在在這」，這是海量的更新——系統要一邊吃進這些更新，一邊還要能馬上查。
+  </div>
+  <div class="analogy">
+    <span class="label">🎫 難點三：同一台車，不能同時配給兩個人</span>
+    你跟隔壁路口的人<strong>幾乎同一秒</strong>都叫車，附近最近的空車剛好是同一台。如果系統不小心，兩個人都收到「配到這台車」——那就糗了，一台車不可能載兩攤。
+  </div>
+  <p>記住這三個難點，後面的設計全部都是在解這三件事。</p>
+
+  <h2 id="steps">3. 把系統拆成 3 個關卡</h2>
+  <p>別被「系統」嚇到。一次叫車，其實就是闖 3 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>找附近：先用「郵遞區號」縮小範圍</h3>
+    <p>你叫車，系統要先撈出「你附近的空車」。前面說了，<strong>不能</strong>把 100 萬台車一台台量距離。怎麼辦？</p>
+    <div class="analogy">
+      <span class="label">📮 比喻：找附近的人，先看郵遞區號</span>
+      你要找「住我家附近的店」，<strong>不會</strong>把全國店家從頭翻一遍量距離。
+      你會先看<strong>郵遞區號 / 地址前幾個字</strong>，先框出「同一區」的店，再從這一小撮裡細看。
+    </div>
+    <p>系統用的工具叫 <strong>geohash</strong>：把地球切成一格一格的小網格，每格一個短代碼，<strong>位置相近的代碼開頭一樣</strong>。
+    於是找附近變兩步：</p>
+    <ul>
+      <li><strong>粗篩</strong>：用「你所在那幾格」的代碼前綴，<em>秒撈</em>出候選的車（可能 20 台，而不是 100 萬台）。</li>
+      <li><strong>細篩</strong>：再對這一小撮候選，精算「實際離你幾公里」，挑出最近的幾台。</li>
+    </ul>
+    <p>⚠️ 小細節：你可能站在格子的<strong>邊緣</strong>，最近的車說不定在隔壁格。所以要連<strong>旁邊 8 格</strong>一起撈，免得漏掉就在你身後那台。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>搶車：原子媒合，只能一個人成功</h3>
+    <p>找到候選車了，現在要<strong>指派一台</strong>給你。難點三來了：隔壁的人可能跟你搶同一台。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：搶演唱會最後一張票</span>
+      演唱會剩<strong>最後一張票</strong>，兩個人同時點「結帳」。售票系統不能讓兩個人都成功——它會在<strong>最後一刻檢查</strong>：「這張票還在嗎？在 → 給你、鎖定；已被搶 → 跟你說『手慢了，換下一場吧』。」<strong>只能有一個人結帳成功。</strong>
+    </div>
+    <p>系統用的招式叫 <strong>CAS（條件更新）</strong>，白話就是「<strong>搶之前先確認還沒被搶</strong>」：</p>
+    <ul>
+      <li>指派時不是直接寫「這台車配給你」，而是「<strong>如果這台車還是『空車』，才把它改成『已配』</strong>」。</li>
+      <li>這個「確認＋改」是<strong>一個不可被打斷的動作</strong>（這就是「原子」的意思）。兩個請求同時來，<strong>只有一個會成功</strong>，另一個會發現「咦，已經不是空車了」。</li>
+      <li>沒搶到的那位<strong>不會收到錯誤</strong>，系統直接幫他<strong>換候選清單裡的下一台</strong>（反正也是附近的近車）。</li>
+    </ul>
+    <p>👉 這就是整題<strong>最關鍵的考點</strong>：怎麼保證「同一台車不會被配給兩個人」。答案就是「搶最後一張票」的那一招。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>追蹤：看著車在地圖上開過來</h3>
+    <p>配到車了，你會想<strong>盯著它開過來</strong>，司機也想看到你在哪。這要靠「即時位置串流」。</p>
+    <div class="analogy">
+      <span class="label">🛵 比喻：外送 App 上的那台小機車</span>
+      你點外送後，地圖上那台小機車會<strong>一格一格往你家移動</strong>，不用你一直按「重新整理」。
+      系統幫你跟司機<strong>開了一條「專線」</strong>，車子每動一下就把新位置<strong>主動推</strong>到你螢幕上。
+    </div>
+    <p>這條專線叫 <strong>WebSocket（長連線）</strong>——像一通<strong>不掛斷的電話</strong>，雙方隨時能講話，不用每次都重撥（重撥＝一直輪詢，又慢又耗電）。
+    車子每幾秒回報的新位置，一邊<strong>更新地圖索引</strong>，一邊<strong>推給正在看的你</strong>。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① 用郵遞區號式網格<strong>找附近的車</strong> → ② 用「搶最後一張票」的方式<strong>原子指派一台</strong> → ③ 開一條不掛斷的專線<strong>即時追蹤</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「一台車被搶兩次」</span>
+    這是最嚴重的錯。一台車同時配給兩個乘客，一定有人撲空。所以「指派狀態」必須<strong>絕對精準（強一致）</strong>——
+    用「搶最後一張票」的原子動作（CAS），<strong>只能一個人成功</strong>。<em>這條是硬規定，不能妥協。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「找車太慢」</span>
+    你按了叫車，等超過 1～2 秒沒反應就會煩躁。但附近有 100 萬台車的資料，<strong>一台台量距離一定慢</strong>。
+    所以用「郵遞區號網格」先粗篩，把要算的車從 100 萬縮到 20 台。<em>先縮範圍，再精算。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「位置更新淹沒系統」</span>
+    100 萬台車每幾秒回報一次位置，這是系統<strong>最大量的寫入</strong>。如果每筆都很慎重地存進正式資料庫，會被<strong>活活壓垮</strong>。
+    所以「車現在在哪」只放<strong>記憶體</strong>裡<strong>直接覆寫</strong>（只要最新的）；「車走過的歷史軌跡」才慢慢另存別處。<em>當前位置求快，歷史軌跡求穩，兩者分開。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀：</p>
+  <ul>
+    <li>🛵 <strong>司機 App</strong>每幾秒回報 GPS →</li>
+    <li>📡 經過一條<strong>不掛斷的專線</strong>（WebSocket 閘道）進來 →</li>
+    <li>🗺️ 更新<strong>地圖索引</strong>（GeoIndex，記著「哪台車在哪一格」）→</li>
+    <li>📱 你按<strong>叫車</strong>，請求進到<strong>媒合引擎</strong> →</li>
+    <li>🔍 媒合引擎先<strong>查地圖索引</strong>撈出附近候選，再用「<strong>搶票術</strong>」原子指派一台 →</li>
+    <li>📝 把結果寫進<strong>行程簿</strong>，再透過<strong>廣播（Pub/Sub）</strong>同時通知你跟司機，並把雙方位置持續推到彼此螢幕上。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>geohash</td><td>位置的「郵遞區號」：把地圖切成網格，每格一個代碼，附近的代碼開頭一樣</td></tr>
+    <tr><td>地理空間索引</td><td>一張「哪台車在哪一格」的活地圖，能秒查「附近有哪些車」</td></tr>
+    <tr><td>haversine</td><td>算地球上兩點實際距離的公式（細篩、排序用）</td></tr>
+    <tr><td>CAS / 原子指派</td><td>「搶最後一張票」：先確認還沒被搶，才搶；只能一個人成功</td></tr>
+    <tr><td>強一致 / 最終一致</td><td>強＝必須精準（指派狀態）；最終＝晚一點對上也行（位置追蹤）</td></tr>
+    <tr><td>WebSocket（長連線）</td><td>一通「不掛斷的電話」，雙方隨時能即時講話</td></tr>
+    <tr><td>推 (push) / 拉 (poll)</td><td>推＝有變動就主動丟給你；拉＝你自己一直問「好了沒」</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>Pub/Sub（發布/訂閱）</td><td>像群組廣播：一則消息發出去，所有「訂閱」的人都收到</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>ETA</td><td>預計到達時間（車多久到你這）</td></tr>
+    <tr><td>surge（動態加價）</td><td>某區叫車的人遠多於車時，價格往上調，吸引更多車過去</td></tr>
+    <tr><td>水平擴展</td><td>不夠快就「多找幾台機器一起做」</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>同時在線的車</td><td>全球 ~100 萬台</td><td>要同時維持 100 萬條「不掛斷的電話」</td></tr>
+    <tr><td>位置上報（寫）</td><td>每車每 4 秒一次</td><td>100萬÷4 ≈ <strong>每秒 25 萬筆寫入</strong>，超大量</td></tr>
+    <tr><td>叫車請求</td><td>尖峰每分鐘 1 萬筆</td><td>每筆都要「查附近 + 搶票指派」</td></tr>
+    <tr><td>一筆當前位置多大</td><td>車號+經緯度+時間 ≈ 50 bytes</td><td>100萬筆才 ~50 MB，<strong>整張地圖塞得進記憶體</strong></td></tr>
+    <tr><td>歷史軌跡</td><td>每車每天約 2 萬點</td><td>每天 ~1TB，是「冷資料」，不能擠進查附近的熱路徑</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🧊 關鍵洞察：熱資料 vs 冷資料分開放</span>
+    「車<strong>現在</strong>在哪」每秒被蓋掉、只要最新的 → 放<strong>記憶體</strong>（快、直接覆寫，像白板擦了重寫）。
+    「車<strong>走過的軌跡</strong>」只進不出、堆成山 → 慢慢另存到<strong>倉庫</strong>（時序資料庫）。
+    把這兩種資料分開，是這題能撐住的關鍵。
+  </div>
+  <p class="pause">💭 停一下：為什麼「車現在的位置」不存進正式資料庫，只放記憶體？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為它<strong>每幾秒就變一次、而且只要最新的那一筆</strong>。記憶體覆寫又快又省（像白板擦掉重寫）；如果每筆都慎重寫進硬碟資料庫，每秒 25 萬筆會直接把資料庫壓垮。而且舊位置根本不需要留在熱路徑——歷史另外存就好。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題記住四張「點餐單」：</p>
+  <pre><code>① 司機回報位置（最高頻，走「不掛斷的電話」）
+   WS → { 司機:"d1", 緯度:25.0418, 經度:121.565, 時間:... }
+   不用每次回，只要默默更新地圖索引</code></pre>
+  <p class="codecaption">為什麼走 WebSocket 不走一般網頁請求？因為每幾秒就要傳一次，用「不掛斷的電話」最省；每次重撥（一般 HTTP）又慢又費。</p>
+  <pre><code>② 乘客叫車（最關鍵的一張單）
+   POST /api/v1/rides
+   給我：{ 乘客, 上車點經緯度, 下車點 }
+   我回：{ 行程編號, 司機:車牌, 距離, ETA幾分鐘, 加價倍率 }</code></pre>
+  <p class="codecaption">系統收到這張單後，內部就跑「找附近 → 搶票指派」。回給你的是<strong>已經搶到的那台車</strong>的資訊。</p>
+  <pre><code>③ 查附近有幾台車（給「附近 5 台車」這種畫面用）
+   GET /api/v1/drivers/nearby?lat=..&lng=..&radius_km=3&k=5</code></pre>
+  <p class="codecaption">這張單只「看」不「搶」，所以可以用「拉」的（你自己定時問），不一定要長連線。</p>
+  <pre><code>④ 行程結束 → 把車放回「空車」
+   POST /api/v1/rides/{編號}/complete</code></pre>
+  <p class="codecaption">很重要：行程結束一定要<strong>把車的狀態改回「空車」</strong>，它才能再被別人搶到。忘了放回去，這台車就「卡死」不再接客了。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：三本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題只要三本，<strong>而且故意放在不同地方</strong>：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🚗</span>車況簿（誰、在哪、是不是空車）— 放記憶體</h3>
+    <p>每台車一列：<code>車號、最新經緯度、<strong>geohash</strong>、狀態(空車/已配/載客中/離線)、更新時間</code>。</p>
+    <div class="analogy"><span class="label">為什麼多存一欄 geohash？</span>
+      把每台車的「郵遞區號」<strong>一算出來就寫進去</strong>，叫車時才能用前綴<strong>秒查</strong>附近的車。
+      這本是「<strong>熱資料</strong>」，每秒被覆寫無數次，所以放<strong>記憶體</strong>裡（像 Redis），不放硬碟資料庫。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧾</span>行程簿（哪次媒合）— 放正式資料庫</h3>
+    <p>每筆行程一列：<code>行程編號、乘客、司機、上車點、下車點、狀態(已配/載客中/已完成/取消)、ETA、加價</code>。
+    這本要<strong>精準、可靠</strong>（牽涉錢跟責任），所以放正式資料庫。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🛤️</span>軌跡簿（車走過哪些點）— 串流另存倉庫</h3>
+    <p>記「哪台車、什麼時間、在哪個點」。這本<strong>只進不出、量超大</strong>，不能擠進「查附近」的熱路徑——
+    用串流（像輸送帶）慢慢搬到<strong>時序資料庫 / 倉庫</strong>，事後分析用。</p>
+  </div>
+  <div class="box"><span class="label">為什麼故意分三個地方？</span>三本筆記本的「<strong>讀寫個性</strong>」完全不同：車況要<strong>快又一直覆寫</strong>、行程要<strong>準</strong>、軌跡<strong>只堆不查</strong>。硬塞在一起會互相拖垮，所以分開放，各用最適合的工具。</div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚦 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>找附近：100 萬台車一台台量距離</td><td>用網格索引（郵遞區號法）先粗篩，再對少數細算距離</td></tr>
+    <tr><td>位置寫爆：每秒 25 萬筆打資料庫</td><td>當前位置只在<strong>記憶體覆寫</strong>，歷史軌跡走輸送帶另存</td></tr>
+    <tr><td>搶車競爭：同一台車被狂搶、鎖卡住</td><td>用 CAS「搶票術」+ 搶不到就<strong>換下一台候選</strong>，鎖只鎖<strong>單一台車</strong>不鎖全部</td></tr>
+    <tr><td>地理熱點：市中心一格塞太多車</td><td>網格<strong>自動細分</strong>（密的地方切更細，像 QuadTree）</td></tr>
+    <tr><td>百萬條「不掛斷電話」一台機器撐不住</td><td><strong>多開幾台閘道機器</strong>分攤連線，連線狀態外放（水平擴展）</td></tr>
+    <tr><td>跨城市查詢沒意義又拖慢</td><td>以<strong>城市為單位分區</strong>，台北的車不會跑去跟東京的比</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 強一致 vs 最終一致（要多精準？）</span>
+    車的<strong>指派狀態</strong>必須<strong>強一致</strong>（絕不能被搶兩次，用搶票術）；但<strong>位置追蹤</strong>可以<strong>最終一致</strong>——晚 1 秒看到車的位置，沒人會在意。<em>該嚴的地方嚴，能放鬆的地方放鬆。</em></div>
+  <div class="fear"><span class="label">⚖️ 即時媒合 vs 批次撮合</span>
+    本題是<strong>即時型</strong>（你一叫，馬上找一台給你）：快、直觀。另一種是<strong>批次型</strong>（每隔幾秒集中一批一起配，像拼車），能做<strong>全局最佳</strong>（整體等最短），但你會多等一下、實作也複雜。</div>
+  <div class="fear"><span class="label">⚖️ 推 vs 拉</span>
+    行程中的位置一定用<strong>推</strong>（不掛斷的電話）才即時又省電；「附近有幾台車」這種畫面可以用<strong>拉</strong>（自己定時問一下就好）。</div>
+  <details class="qa"><summary>💭 追問：司機手機突然斷線（進隧道、沒電）怎麼辦？</summary>
+    用「心跳 + 過期時間（TTL）」：車要定時報平安，太久沒報就<strong>標記離線、從地圖索引移走</strong>，免得有人被配到一台早就連不上的車。</details>
+  <details class="qa"><summary>💭 追問：怎麼避免「鬼車」（位置卡住不動的殭屍車）？</summary>
+    同樣靠過期時間：超過一段時間沒更新位置的車，自動從索引淘汰。沒在動、沒在報的，就當它不在線上。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「找附近 + 搶票指派」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8005 -t public
+# 然後瀏覽器打開 http://localhost:8005</code></pre>
+  <ol>
+    <li>先<strong>註冊幾台司機</strong>（等於在地圖上放幾台車）。</li>
+    <li>在某個點<strong>叫車</strong> → 看媒合到哪一台、<strong>距離多遠、ETA 幾分鐘</strong>。</li>
+    <li><strong>再叫一次</strong>，驗證「不會重複指派同一台」；<strong>更新司機位置</strong>，看附近結果跟著變。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>連續叫車，看同一台車會不會被配給兩個人——這就是<strong>關卡 2 的搶票術（CAS）</strong>在運作。把司機移到比較遠的地方再叫車，看它是不是<strong>不再被挑到</strong>——這就是<strong>關卡 1 的地理篩選</strong>。
+    <br><strong>誠實提醒：</strong>這個 demo 的 ETA 是用「直線距離 ÷ 平均車速」估的（不是真實路況導航），地理索引也是單機版 geohash。但「找附近、最近 K 台、搶票防重複指派、車輛狀態機」這些<strong>系統核心邏輯是真的能跑的</strong>。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「郵遞區號」解釋，為什麼不用一台台量距離找附近的車？</summary>
+    100 萬台車一台台量太慢。改用 geohash（位置郵遞區號）：把地圖切網格，附近的格子代碼開頭一樣。先用前綴<strong>粗篩</strong>出同區那一小撮車，再對這幾台<strong>細算</strong>實際距離。記得連旁邊 8 格一起撈，避免漏掉就在你身後、卻在隔壁格的車。</details>
+  <details class="qa"><summary>Q2：用「搶最後一張票」解釋，怎麼保證一台車不會配給兩個人？</summary>
+    兩個人同時想要同一台車。系統不直接寫「配給你」，而是「<strong>如果這台還是空車，才改成已配</strong>」，而且這個「確認＋改」是一個<strong>不可被打斷的原子動作</strong>。所以只有一個人會成功，另一個會發現「已經不是空車了」，被自動換到下一台候選——就像售票系統只讓一個人結帳成功。</details>
+  <details class="qa"><summary>Q3：「即時追蹤車子」靠什麼？用外送 App 的比喻說說看。</summary>
+    靠 WebSocket（不掛斷的電話）：系統跟你開一條長連線，車子每動一下就把新位置<strong>主動推</strong>到你螢幕，不用你一直按重新整理——就像外送 App 上那台小機車自己一格一格往你家移動。</details>
+  <details class="qa"><summary>Q4：這系統「最怕」哪三件事？</summary>
+    怕一台車被搶兩次（指派要強一致，用搶票術）、怕找車太慢（用網格先縮範圍再精算）、怕位置更新淹沒系統（當前位置只在記憶體覆寫，歷史另存）。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼「車現在的位置」放記憶體、不放正式資料庫？</summary>
+    因為它每幾秒變一次、只要最新那筆。記憶體覆寫又快又省（像白板擦了重寫）；每秒 25 萬筆若都慎重寫進硬碟資料庫會被壓垮。舊位置不需要留在熱路徑，歷史軌跡另外用串流存到倉庫即可。</details>
+  <details class="qa"><summary>Q6（工程）：搶車失敗（車剛被別人搶走）時，系統該怎麼做？</summary>
+    <strong>不該</strong>直接回報錯誤給乘客。因為候選清單本來就按距離排好，搶不到就<strong>自動換下一台候選</strong>（也是附近的近車）再試一次。乘客通常不會察覺，只是配到第二近的車而已。</details>
+  <details class="qa"><summary>Q7（工程）：行程中「位置」可以晚 1 秒，但「車的指派狀態」不能錯一次，這是什麼取捨？</summary>
+    強一致 vs 最終一致。指派狀態牽涉「車有沒有被搶走」，錯了會有人撲空，必須<strong>強一致</strong>（用原子操作）。位置追蹤晚 1 秒看到車在哪沒人在意，可以<strong>最終一致</strong>——把嚴格的成本只花在真正需要的地方。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>RoboTaxi 叫車 = 在一張塞滿百萬台移動車的活地圖上，瞬間抓一台最近的空車，且保證不被搶兩次。</strong></p>
+    <p><strong>3 個關卡：</strong>① 用網格（geohash）<strong>找附近的車</strong> → ② 用「搶最後一張票」的原子指派（CAS）<strong>搶一台</strong> → ③ 開一條不掛斷的電話（WebSocket）<strong>即時追蹤</strong>。</p>
+    <p><strong>3 個怕：</strong>怕一台車被搶兩次（強一致、搶票術）、怕找車太慢（先縮範圍再精算）、怕位置更新淹沒系統（當前位置記憶體覆寫、歷史另存）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估「百萬連線、每秒 25 萬筆位置寫入」的形狀 → 用「點餐單(API)」溝通、位置走長連線 → 三本筆記本（車況放記憶體/行程放資料庫/軌跡另存倉庫）＋預存 geohash → 找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑤ RoboTaxi 叫車 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

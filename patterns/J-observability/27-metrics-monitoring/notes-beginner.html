@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉗ 指標監控系統 Prometheus · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅹 可觀測性</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉗ 指標監控系統 Prometheus · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">J 可觀測性</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#what">「指標」到底是什麼？跟日誌差在哪？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你是一間<strong>大醫院的加護病房護理長</strong>。病房裡躺著<strong>幾千台機器</strong>（每台都是一台伺服器）。
+  你最怕的就是某台突然「不行了」卻沒人發現。怎麼辦？</p>
+  <p>你會在每張病床旁裝一台<strong>生理監測儀</strong>：它<strong>每隔幾秒就自動量一次</strong>心跳、血壓、血氧，
+  畫成一條一條<strong>會走動的曲線</strong>。數值正常就安靜；一旦某條曲線<strong>連續好幾分鐘超過警戒線</strong>，
+  監測儀就<strong>嗶嗶叫</strong>，把護士叫過來。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    指標監控系統（Prometheus）= <strong>幫成千上萬台機器裝生理監測儀</strong>：定時去每台「量數據」、把數值記成會走動的曲線、
+    一旦曲線異常持續一段時間就「嗶嗶叫」通知工程師。
+  </div>
+  <p>這就是 <strong>Prometheus</strong> 在做的事。它的難，不難在「記數字」（誰都會），難在三件事：
+  要照顧的機器<strong>超多</strong>、曲線<strong>暴增會把自己撐爆</strong>、還有<strong>不能一抖動就誤報</strong>害大家半夜被吵醒。</p>
+
+  <h2 id="what">2. 「指標」到底是什麼？跟日誌差在哪？</h2>
+  <p>很多人一開始會搞混三個詞：<strong>指標（metrics）</strong>、<strong>日誌（logs）</strong>、<strong>追蹤（traces）</strong>。
+  用一個你熟悉的經驗就懂了——<strong>看醫生</strong>：</p>
+  <div class="analogy">
+    <span class="label">🏥 體溫表 vs 病歷本 vs 轉診單</span>
+    <ul style="margin:.4em 0">
+      <li><strong>指標 = 床邊的體溫表</strong>：只記「數字＋時間」，例如 37.5°C、38.0°C…… 很省空間、適合畫成曲線看趨勢、適合設警戒線。</li>
+      <li><strong>日誌 = 詳細的病歷文字</strong>：「下午三點病人咳嗽、開了什麼藥」——資訊豐富但又多又雜，存起來貴。</li>
+      <li><strong>追蹤 = 一張轉診單</strong>：記「這位病人從掛號→看診→抽血→拿藥」一路經過哪些科。</li>
+    </ul>
+  </div>
+  <p>這一題只做<strong>指標</strong>（體溫表那種）：純數字、能畫曲線、能聚合、最適合「嗶嗶叫的告警」。
+  日誌跟追蹤是另外兩套系統，這裡先不管。</p>
+  <p class="pause">💭 停一下：如果你想知道「過去一小時這台伺服器的記憶體是不是一直在漲」，你該看「體溫表」還是「病歷本」？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    看「體溫表」（指標）。因為你要的是<strong>一條隨時間走動的數字曲線</strong>，指標天生就是這個形狀，畫出來一眼就看到「往上爬」。
+    病歷本（日誌）是一堆文字，要看趨勢得自己慢慢數，又慢又貴。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「監控系統」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>量數據：護士主動去「巡房」（scrape 拉取）</h3>
+    <p>怎麼拿到每台機器的數據？有兩種做法：<strong>機器主動回報</strong>，或<strong>監控系統主動去問</strong>。Prometheus 選後者。</p>
+    <div class="analogy">
+      <span class="label">🚶 比喻：護士定時巡房量體溫</span>
+      不是叫病人「想到就自己回報體溫」（會忘、會亂報），而是<strong>護士每隔 15 秒固定去每張病床量一次</strong>。
+      這個「主動去量」的動作就叫 <strong>scrape（拉取）</strong>。
+    </div>
+    <p>每台機器只要在門口貼一張<strong>「現在數值看板」</strong>（一個叫 <code>/metrics</code> 的網址），上面列著目前的數字。
+    Prometheus 定時來「抄這張看板」就好。</p>
+    <p>👉 這招有個隱藏好處：<strong>護士走到床邊發現「人不見了／看板打不開」，就知道這台機器掛了</strong>——連「死亡偵測」都免費附送，不用另外做。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>記曲線：每個數字都要「貼標籤」分得清</h3>
+    <p>抄回來的數字要存成<strong>一條一條會走動的曲線</strong>（這個倉庫叫<strong>時序資料庫 TSDB</strong>，「時序」就是「按時間排好的數字」）。
+    問題是：同樣是「請求數」，GET 的、POST 的、成功的、失敗的……怎麼分得清是哪一條？</p>
+    <div class="analogy">
+      <span class="label">🏷️ 比喻：行李吊牌</span>
+      機場每件行李都掛一張<strong>吊牌</strong>，上面寫「航班 + 艙等 + 目的地」。就算外觀一樣的兩個黑箱子，吊牌不同就是不同件行李。
+      Prometheus 也一樣：每條曲線 = <strong>一個名稱 + 一組標籤（label）</strong>。
+    </div>
+    <pre><code>http_requests_total{method="GET",  code="200"}   ← 一條曲線
+http_requests_total{method="POST", code="200"}   ← 另一條（標籤不同）
+http_requests_total{method="GET",  code="500"}   ← 又一條（這條在數失敗）</code></pre>
+    <p>名稱相同、只要<strong>任何一個標籤不一樣，就是另一條獨立曲線</strong>。之後查詢時，你就能說「把所有 <code>code=500</code> 的曲線加起來」，秒看錯誤總量。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>看趨勢：兩種數字、一個關鍵動作 rate()</h3>
+    <p>曲線分兩種個性，先分清楚，後面才不會算錯：</p>
+    <div class="analogy">
+      <span class="label">🚗 比喻：里程表 vs 油量表</span>
+      <ul style="margin:.4em 0">
+        <li><strong>counter（計數器）= 汽車里程表</strong>：<strong>只會往上加</strong>，永遠不會倒退。例：網站開站以來「總共處理過幾筆請求」。</li>
+        <li><strong>gauge（量表）= 油量表 / 室溫</strong>：<strong>會上上下下</strong>。例：目前用了多少記憶體、佇列裡還有幾個待辦。</li>
+      </ul>
+    </div>
+    <p>這裡有個超關鍵的觀念：<strong>里程表上的「總公里數」本身沒什麼用，你真正想知道的是「現在開多快」</strong>。</p>
+    <div class="analogy">
+      <span class="label">⏱️ rate() = 算「現在跑多快」</span>
+      里程表從 10000 變成 10060，<strong>過了 60 秒</strong> → 你就知道「每秒跑 1 公里」。
+      <code>rate()</code> 做的就是這件事：拿一條只增的 counter 曲線，算出它<strong>「每秒增加多少」</strong>。
+      「每秒新增幾筆請求」「每秒新增幾個錯誤」——這些才是你真正想盯的。
+    </div>
+    <p class="pause">💭 停一下：為什麼「總請求數 = 8,000,000」這個數字，對「現在系統忙不忙」幾乎沒幫助？</p>
+    <details class="qa"><summary>看答案</summary>
+      因為那是<strong>累積一整年的總和</strong>，看不出「此刻」的狀況。就像里程表顯示 20 萬公里，沒告訴你現在是停著還是飆 120。
+      你要的是<strong>變化速度</strong>——用 <code>rate()</code> 把「總數曲線」轉成「每秒增加多少」，才看得出當下忙不忙。
+    </details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>告警：異常「持續一段時間」才嗶嗶叫</h3>
+    <p>最後一關：什麼時候該把工程師叫起來？很簡單——<strong>某條曲線超過警戒線</strong>就告警。但這裡藏著一個大坑。</p>
+    <div class="analogy">
+      <span class="label">🌡️ 比喻：量到一次高溫先別急</span>
+      你剛運動完量體溫，瞬間 37.8°C，難道馬上送急診？當然不會——<strong>你會等幾分鐘再量一次</strong>，
+      如果<strong>連續好幾次都偏高</strong>才當真。一瞬間的高點很可能只是剛好抖一下。
+    </div>
+    <p>告警也一樣：規則不是「超過閾值馬上響」，而是「<strong>超過閾值並且<em>持續</em>一段時間（例如 5 分鐘）</strong>」才真的響。
+    這段等待叫 <code>for</code>。它的狀態是這樣走的：</p>
+    <pre><code>沒事(inactive) → 剛超標、觀察中(pending) → 持續超標夠久、真的響了(firing) → 恢復正常(resolved)</code></pre>
+    <p>👉 這一步就是為了<strong>避免「一瞬間抖動就誤報」</strong>。少了它，半夜每個小尖刺都把工程師吵醒，沒幾天大家就把告警全關掉了。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 護士<strong>定時巡房量數據</strong>（scrape）→ ② 每個數字<strong>掛吊牌記成曲線</strong>（name+label）→
+    ③ 用 <strong>rate() 看變化速度</strong>（里程表→時速）→ ④ 異常<strong>持續夠久才嗶嗶叫</strong>（避免誤報）。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「曲線爆炸」（高基數）</span>
+    每多一種「吊牌組合」就多一條曲線、多吃一份記憶體。如果有人手賤把<strong>「使用者編號」或「完整網址」也當成標籤</strong>，
+    那幾千條曲線會瞬間暴增成<strong>幾百萬條</strong>，直接把監控系統自己撐爆。
+    所以鐵則：<strong>標籤只放「種類有限」的東西</strong>（方法、狀態碼、區域），不放「每個都不一樣」的東西。<em>這是頭號事故來源。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「監控自己先掛」</span>
+    監控系統是「看門狗」，如果它比被它看守的機器還容易掛，那就毫無意義。
+    所以原則是<strong>「可靠 &gt; 完整」</strong>：<em>漏抄一兩次數據可以接受，但這隻看門狗絕對不能倒。</em>
+    它刻意做得簡單、單機就能跑、不依賴一堆別的服務。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「狼來了（告警疲勞）」</span>
+    如果三天兩頭誤報、半夜沒事亂叫，工程師會直接<strong>把告警靜音</strong>——等真的出事時就沒人理了（這叫「<strong>告警疲勞</strong>」）。
+    所以才要用「<strong>持續一段時間才響</strong>」過濾抖動，再交給專門的整理員（Alertmanager）把同類告警<strong>合併、去重</strong>，別一次轟炸 100 則。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🖥️ 一堆<strong>機器（target）</strong>，每台在門口貼著「現在數值看板」（<code>/metrics</code>）→</li>
+    <li>📋 <strong>名單服務（service discovery）</strong>告訴 Prometheus「今天有哪些床要巡」（機器會自動加進來、移走）→</li>
+    <li>🩺 <strong>Prometheus 本體</strong>定時去每台<strong>巡房量數據（scrape）</strong>，存進自己的<strong>時序倉庫（TSDB）</strong>→</li>
+    <li>🔎 <strong>查詢引擎（PromQL）</strong>負責回答「把這些曲線 rate 一下、加總一下」→</li>
+    <li>🔔 <strong>告警整理員（Alertmanager）</strong>收到「嗶嗶叫」後做去重、分組，再通知到 Slack / 手機 →</li>
+    <li>📊 <strong>Grafana</strong> 是漂亮的儀表板，把曲線畫成圖給人看。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>指標 (metrics)</td><td>床邊「體溫表」：只記數字＋時間，適合畫曲線、設警戒線</td></tr>
+    <tr><td>scrape（拉取）</td><td>護士「定時巡房去量數據」（主動去問，不等對方回報）</td></tr>
+    <tr><td>/metrics</td><td>每台機器門口貼的「現在數值看板」</td></tr>
+    <tr><td>時序資料庫 (TSDB)</td><td>專門存「按時間排好的數字曲線」的倉庫</td></tr>
+    <tr><td>series（時間序列）</td><td>一條會走動的曲線，用「名稱＋標籤」當身分</td></tr>
+    <tr><td>label（標籤）</td><td>曲線的「行李吊牌」：方法、狀態碼、區域……</td></tr>
+    <tr><td>counter（計數器）</td><td>「里程表」：只會往上加（總請求數、總錯誤數）</td></tr>
+    <tr><td>gauge（量表）</td><td>「油量表 / 室溫」：會上上下下（記憶體、佇列長度）</td></tr>
+    <tr><td>rate()</td><td>把里程表算成「時速」：每秒增加多少</td></tr>
+    <tr><td>基數 (cardinality)</td><td>「曲線總共幾條」。標籤組合越多，曲線越多，越吃資源</td></tr>
+    <tr><td>for（持續時間）</td><td>「連續超標多久才當真」，用來過濾一瞬間的抖動</td></tr>
+    <tr><td>firing / pending</td><td>告警「真的響了」／「剛超標、觀察中」</td></tr>
+    <tr><td>Alertmanager</td><td>告警「整理員」：去重、分組、靜音、轉發通知</td></tr>
+    <tr><td>四黃金訊號</td><td>盯一個服務只要看四件事：慢不慢、忙不忙、錯多少、快撐爆沒</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>總共幾條曲線</td><td>1 萬台機器 × 每台 100 條 ≈ <strong>100 萬條</strong></td><td>曲線數（基數）才是成本主角，不是數字多寡</td></tr>
+    <tr><td>多久量一次</td><td>每 15 秒巡房一次</td><td>100 萬 ÷ 15 ≈ 每秒寫進 <strong>6.7 萬個數字</strong></td></tr>
+    <tr><td>一個數字佔多大</td><td>原本 16 位元組，壓縮後 ~2</td><td>相鄰時間/數值差很小，壓縮能省到 ~1/10</td></tr>
+    <tr><td>存 15 天要多大磁碟</td><td>≈ <strong>170 GB</strong></td><td>本機磁碟放得下，所以預設只留近期</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：怕的不是「量很多次」，是「曲線太多種」</span>
+    很多人以為「量越頻繁越花錢」。其實主要成本來自<strong>曲線的「種類數」（基數）</strong>。
+    像衣櫃：你不是怕「同一件衣服穿很多次」，而是怕<strong>「款式爆增到塞不下」</strong>——
+    一個高基數標籤就能把 100 萬條曲線變成上千萬條，記憶體直接爆。
+  </div>
+  <p class="pause">💭 停一下：A 同事把 <code>method</code>（GET/POST，就幾種）當標籤；B 同事把 <code>user_id</code>（幾百萬個都不同）當標籤。誰會把系統撐爆？</p>
+  <details class="qa"><summary>看答案</summary>
+    <strong>B 會撐爆。</strong> <code>method</code> 種類有限（就那幾個），曲線數可控；但 <code>user_id</code> 有幾百萬個值，
+    <strong>每個值都會生出一條新曲線</strong>，瞬間爆出幾百萬條，吃光記憶體與索引。
+    所以標籤只放「種類有限」的東西，user_id 這種應該丟去日誌系統，不要放進指標標籤。
+  </details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 機器門口的「現在數值看板」（被巡房抄的對象，最重要）
+   GET /metrics
+   我回（純文字，一行一個數字＋吊牌）：
+     # TYPE http_requests_total counter   ← 先宣告：這條是里程表型
+     http_requests_total{method="GET",code="200"} 1027
+     # TYPE process_resident_memory_bytes gauge  ← 這條是油量表型
+     process_resident_memory_bytes 5.1e7</code></pre>
+  <p class="codecaption">為什麼要先寫 <code># TYPE … counter</code>？因為查詢端要知道「這是里程表還是油量表」，才知道<strong>能不能對它用 rate()</strong>（只有里程表型才該算時速）。</p>
+  <pre><code>② 查詢曲線（用簡化版 PromQL）
+   GET /api/query?expr=instant 記憶體      ← 取「此刻最新值」（看油量表）
+   GET /api/query?expr=rate 總請求數[60]   ← 算「最近 60 秒每秒增加多少」（里程表→時速）
+   GET /api/query?expr=sum 總請求數 by(method)  ← 把同類曲線「依方法分組加總」</code></pre>
+  <p class="codecaption">三種最常用的問法：<strong>instant</strong>＝「現在多少」、<strong>rate</strong>＝「變多快」、<strong>sum by</strong>＝「分組加總看全貌」。</p>
+  <pre><code>③ 問現在有哪些告警在響
+   GET /api/alerts
+   → { "HighRequestRate": { "state":"firing", ... } }</code></pre>
+  <p class="codecaption"><code>state</code> 就是前面那台「監測儀」的燈號：沒事(inactive)／觀察中(pending)／響了(firing)。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：曲線的「身分證」與「成長紀錄」</span>
+    倉庫要存兩種東西：每條曲線「是誰」（身分），以及它「一路走來的每個數值」（紀錄）。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🆔</span>曲線身分 = 名稱 + 排序後的標籤</h3>
+    <p>一條曲線（series）的身分 = <code>名稱 + 一組標籤</code>。例：<code>http_requests_total{method="GET",code="200"}</code>。</p>
+    <div class="analogy"><span class="label">為什麼標籤要「先排序」再當鑰匙？</span>
+      <code>{a=1,b=2}</code> 跟 <code>{b=2,a=1}</code> 其實是<strong>同一條</strong>曲線，只是寫的順序不同。
+      所以系統會把標籤<strong>固定照字母排好</strong>再組成鑰匙，這樣兩種寫法都對到同一條，不會誤生兩條。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📈</span>每個樣本 = (時間, 數值)，一直往曲線尾巴貼</h3>
+    <p>每量一次就產生一個<strong>樣本（sample）</strong>＝ <code>(時間戳, 數值)</code>，append 接到對應曲線的尾端。</p>
+    <pre><code>曲線A：(10:00, 1000) (10:15, 1027) (10:30, 1100) …  ← 越接越長</code></pre>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔍</span>怎麼快速找到「所有 code=500 的曲線」？（倒排索引）</h3>
+    <p>查詢常常是「給我所有 <code>code=500</code> 的曲線」。如果一條條翻太慢，所以多存一本<strong>「標籤 → 哪些曲線」的對照表</strong>。</p>
+    <div class="analogy"><span class="label">就像書末的「索引頁」</span>
+      你不會為了找「Prometheus」這個詞，從第一頁一頁頁翻到最後。你翻<strong>書末索引</strong>：「Prometheus → 第 12、45、78 頁」。
+      系統存的就是「<code>code=500</code> → 第 3、9、20 條曲線」這種對照表，<strong>依標籤篩選秒查</strong>。這叫<strong>倒排索引</strong>。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>曲線太多種，吃光單機記憶體</td><td>嚴管標籤基數、<strong>把高基數曲線直接丟掉</strong>不收（relabel）</td></tr>
+    <tr><td>一台 Prometheus 巡不完那麼多床</td><td><strong>多請幾台</strong>，每台各巡一部分機器（水平分片）</td></tr>
+    <tr><td>想看「全公司跨機房的總覽」</td><td><strong>聯邦 (federation)</strong>：上層那台只去抄各下層「已加總過」的少量曲線</td></tr>
+    <tr><td>本機磁碟只留 15 天，想看歷史</td><td><strong>遠端儲存</strong>：把數據再寫一份到雲端大倉庫（Thanos/Mimir 等）長期保存</td></tr>
+    <tr><td>儀表板每次都算一大段，查很慢</td><td><strong>預先算好（recording rules）</strong>：常用的聚合先算成新曲線存著，查時直接取</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 主動去量(pull) vs 等人回報(push)</span>
+    Prometheus 選「<strong>護士主動巡房</strong>(pull)」：天然附送死亡偵測、好除錯（自己 curl 看板就行）、機器不必知道後端在哪。
+    代價是<strong>「閃一下就結束的短命任務」可能還沒被巡到就跑掉</strong>了 → 用 Pushgateway 讓它先把結果「寄存」一下再走。</div>
+  <div class="fear"><span class="label">⚖️ 存本機 vs 存雲端</span>
+    存本機：讀寫快、好維護，但只能留近期、看不到跨機房全貌。寄到雲端遠端倉庫：能長期＋全域查，代價是更複雜。</div>
+  <div class="fear"><span class="label">⚖️ 量很密 vs 省成本</span>
+    每 5 秒量一次比每 30 秒清楚，但儲存成本也跟著線性上升。多數服務 15~30 秒就夠，只有最關鍵的服務才縮短間隔。</div>
+  <details class="qa"><summary>💭 追問：機器重開機，里程表(counter)歸零了，rate() 會不會算出「負的時速」？</summary>
+    這正是最容易出錯的地方。counter 重啟會從一個大數字突然掉回 0，天真地相減會得到負值或嚴重低估。
+    所以 rate() 會<strong>偵測到「後面的值比前面小」就判定是重啟，把掉下去的那段補回來</strong>（當作從 0 重新累計），結果永遠不會是負的。</details>
+  <details class="qa"><summary>💭 追問：怎麼快速判斷「一台服務還活著嗎」？</summary>
+    Prometheus 每次巡房都會自動記一條 <code>up</code> 曲線：抄到看板就是 1、抄不到就是 0。
+    所以只要看 <code>up == 0</code> 就知道哪台死了——不用自己另外做心跳偵測。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「量數據 → rate → 告警」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8027 -t public
+# 然後瀏覽器打開 http://localhost:8027</code></pre>
+  <ol>
+    <li>連按幾次「<strong>Scrape</strong>」（等於護士去巡房，每次 counter 的值會調大一點）。</li>
+    <li>跑 <code>rate(...)</code>，看它把「總數曲線」算成<strong>「每秒增加多少」</strong>（里程表→時速）。</li>
+    <li>跑 <code>sum ... by(...)</code>，看同類曲線怎麼<strong>分組加總</strong>；再看告警從 pending 變 <strong>firing</strong>。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>
+    多按幾次 Scrape 後再算 rate，是不是「時速」就出來了？這就是<strong>關卡 3</strong>。
+    把 counter 的值故意調小（模擬機器重開、里程表歸零），看 rate 會不會變負——不會，因為它<strong>補償了重啟</strong>，這就是 Part 2 的那個追問。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「醫院監測儀」的比喻，一句話說 Prometheus 在幹嘛？</summary>
+    幫成千上萬台機器裝生理監測儀：定時去每台「量數據」、記成會走動的曲線、異常持續一段時間就「嗶嗶叫」通知工程師。</details>
+  <details class="qa"><summary>Q2：指標、日誌、追蹤差在哪？用看醫生的比喻說說看。</summary>
+    指標＝床邊體溫表（只記數字＋時間、適合畫曲線設警戒線）；日誌＝詳細病歷文字（豐富但又多又貴）；追蹤＝轉診單（記一個請求一路經過哪些服務）。這題只做指標。</details>
+  <details class="qa"><summary>Q3：counter 和 gauge 的差別？各舉一個例子。</summary>
+    counter＝里程表，只增不減（總請求數、總錯誤數）；gauge＝油量表/室溫，會上下（記憶體用量、佇列長度）。</details>
+  <details class="qa"><summary>Q4：為什麼「總請求數」要用 rate() 轉一下才有意義？</summary>
+    總數是累積值，看不出此刻忙不忙（像里程表 20 萬公里不代表現在飆車）。rate() 把它算成「每秒增加多少」＝當下的時速，才看得出當下負載。</details>
+  <details class="qa"><summary>Q5：告警為什麼要「持續一段時間（for）」才響？</summary>
+    避免一瞬間的抖動就誤報。像量到一次高溫先別急，等連續幾次都偏高才當真。少了它會狼來了、害大家把告警全關掉（告警疲勞）。</details>
+  <details class="qa"><summary>Q6（工程）：把 user_id 當標籤會發生什麼事？為什麼是頭號事故？</summary>
+    每個不同的 user_id 都會生出一條新曲線（高基數），幾百萬使用者＝幾百萬條曲線，吃光記憶體與索引把系統撐爆。標籤只能放「種類有限」的列舉值；user_id 這種該丟去日誌系統。</details>
+  <details class="qa"><summary>Q7（工程）：機器重開機、counter 歸零，rate() 為什麼不會算出負數？</summary>
+    rate() 偵測到「後值比前值小」就判定為重啟，把掉下去的那段補回（視為從 0 重新累計），所以結果永遠非負，不會因重啟而算出負速率或嚴重低估。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>指標監控（Prometheus）= 幫成千上萬台機器裝生理監測儀。</strong></p>
+    <p><strong>4 個關卡：</strong>① 護士定時<strong>巡房量數據</strong>（scrape）→ ② 每個數字<strong>掛吊牌記成曲線</strong>（name+label）→
+    ③ 用 <strong>rate() 把里程表算成時速</strong>（看變化速度）→ ④ 異常<strong>持續夠久才嗶嗶叫</strong>（避免一抖就誤報）。</p>
+    <p><strong>3 個怕：</strong>怕曲線爆炸（標籤別放高基數的 user_id）、怕看門狗自己先掛（可靠＞完整）、怕狼來了（持續才響＋整理員去重）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>成本由「曲線種類數」決定 → 用「點餐單(API)」溝通，看板先宣告型別才知能不能 rate → 曲線身分＝名稱＋排序標籤、配倒排索引秒查 → 找出塞車環節（基數/分片/聯邦/遠端/預算）各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉗ 指標監控系統 Prometheus · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

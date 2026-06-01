@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉛ 分散式鍵值儲存 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉛ 分散式鍵值儲存 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 30 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛、三個核心機制）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼一台資料庫不夠用？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 4 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#api">系統怎麼用？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你開了一家超大型的<strong>「寄物櫃中心」</strong>。客人拿一張<strong>號碼牌（key）</strong>來，你就把對應的<strong>包裹（value）</strong>還他；他也可以拿號碼牌來<strong>存新包裹</strong>。就這麼簡單——這就是「鍵值儲存」：給我一把鑰匙（key），我還你一個值（value）。</p>
+  <p>難的不是「存跟取」。難的是：<strong>包裹多到一個倉庫裝不下，而且這個中心絕對不能關門</strong>（哪怕半夜一個倉庫失火）。於是你被迫做兩件麻煩事：<strong>把包裹分散到很多個倉庫</strong>、而且<strong>每個包裹都多印幾份放不同倉庫</strong>。一旦這樣做，三個頭痛問題就冒出來了——這題就是在解這三個問題。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    分散式鍵值儲存 = <strong>「永不打烊、裝得下無限多包裹的連鎖寄物櫃」</strong>。三個核心機制：① 包裹放哪個倉庫（一致性雜湊環）② 每個包裹存幾份、要幾份點頭才算數（Quorum）③ 兩個人同時改同一個包裹怎麼辦（向量時鐘）。
+  </div>
+
+  <h2 id="why">2. 為什麼一台資料庫不夠用？</h2>
+  <p>很多人想：「不就是存資料嗎？買一台超強的資料庫不就好了？」問題有兩個，都是生活中你早就懂的道理——</p>
+  <div class="analogy">
+    <span class="label">📦 道理一：一個倉庫會「裝不下」</span>
+    包裹一直變多（10 億個號碼牌），總有一天一個倉庫塞爆。買更大的倉庫（更貴的機器）有極限，而且很貴。
+    比較聰明的做法是<strong>多開幾間小倉庫，把包裹分散放</strong>——要更多空間就再開一間，這叫<strong>水平擴展</strong>。
+  </div>
+  <div class="analogy">
+    <span class="label">🔥 道理二：一個倉庫會「失火（當機）」</span>
+    只有一間倉庫，它一失火，所有包裹都拿不到了，整個中心關門。
+    所以每個包裹都要<strong>影印好幾份，放在不同倉庫</strong>。就算一間燒了，別間還有——這叫<strong>副本</strong>，是「高可用（永不打烊）」的關鍵。
+  </div>
+  <p>所以這套系統的本質就是：<strong>把資料切碎分散（裝得下）＋ 每筆存好幾份（不怕掛）</strong>。聽起來簡單，但一這樣做，就會生出三個必須解決的難題，我們一關一關過。</p>
+  <p class="pause">💭 停一下：如果每個包裹都要影印 3 份放 3 間倉庫，那「存一個包裹」這件事，要等到幾間倉庫都收好才能跟客人說「存好了」？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    這正是關卡 3（Quorum）要回答的問題！如果堅持等 3 間全收好才算數，那只要有 1 間倉庫在維修，客人就存不了（不夠「永不打烊」）。如果只要 1 間收到就說存好，又怕那 1 間剛好失火、另外 2 份還沒印。答案是取中間：「<strong>至少 2 間點頭就算數</strong>」——這個「要幾間點頭」就是後面要講的旋鈕。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「分散式」嚇到。整件事就是闖 4 關，每一關解一個倉庫管理問題：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>包裹放哪間倉庫？（一致性雜湊環）</h3>
+    <p>第一個問題：客人拿號碼牌「12345」來，你怎麼<strong>快速、固定地</strong>決定它該放哪間倉庫？而且<strong>加開一間新倉庫時，不要把所有包裹大搬風</strong>。</p>
+    <div class="analogy">
+      <span class="label">🕐 比喻：把倉庫和包裹都排在一個「圓圈時鐘」上</span>
+      想像一個大時鐘的圓圈。先把每間<strong>倉庫</strong>釘在圈上某幾個鐘點位置。每個<strong>包裹</strong>也照它的號碼牌算出一個鐘點位置。
+      規則超簡單：包裹從自己的位置<strong>順時針走，遇到的第一間倉庫</strong>就是它的家。
+    </div>
+    <p>這招的神奇之處在「<strong>加新倉庫</strong>」時。假設你在 3 點鐘方向新開一間倉庫 D：</p>
+    <ul>
+      <li>只有「<strong>D 前面那一小段</strong>」（本來要順時針跑去更遠倉庫的包裹）需要搬進 D。</li>
+      <li>圈上<strong>其他所有包裹完全不用動</strong>。</li>
+    </ul>
+    <div class="fear">
+      <span class="label">😱 對比：笨方法「號碼 ÷ 倉庫數 取餘數」</span>
+      如果你用「號碼牌 % 倉庫數」來分（3 間就 %3），一旦從 3 間變 4 間，<strong>幾乎每個包裹的餘數都變了 → 全部要重搬</strong>，整個中心癱瘓。圓圈時鐘法只搬一小段，這就是它叫「<strong>一致性</strong>」雜湊的原因——加減倉庫時，分配「不會大變」。
+    </div>
+    <div class="analogy">
+      <span class="label">👯 虛擬節點：一間倉庫放很多「分身」在圈上</span>
+      如果每間倉庫只在圈上釘 1 個點，運氣不好會「有的倉庫管超大一段、塞爆，有的管一小段、很空」。
+      解法：讓每間倉庫在圈上<strong>放幾百個分身</strong>（叫虛擬節點 vnode），像把一間倉庫的名牌灑滿整個圈。這樣每間倉庫平均分到的量就很平均，不會有人累死有人閒死。大倉庫還能多放幾個分身，多扛一點。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>每個包裹存幾份？（副本 N）</h3>
+    <p>為了不怕失火，每個包裹要影印好幾份。慣例是 <strong>N = 3 份</strong>，放在圈上「順時針連續的 3 間不同倉庫」。</p>
+    <div class="analogy">
+      <span class="label">📄 比喻：重要文件影印 3 份放 3 個地點</span>
+      重要合約你不會只放一個抽屜。你會<strong>影印 3 份</strong>：家裡、公司、銀行保險箱各一份。任何一個地方出事，另外兩份還在。
+    </div>
+    <p>「從包裹位置順時針數的前 3 間不同倉庫」這份名單，工程上叫 <strong>preference list（偏好清單）</strong>——就是「這個包裹的 3 個指定存放點」。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>幾間點頭才算數？（Quorum：N / R / W）</h3>
+    <p>有 3 份副本後，新問題來了：<strong>存包裹時要等幾間收好？取包裹時要問幾間？</strong>這是整題最重要的旋鈕。</p>
+    <div class="analogy">
+      <span class="label">✋ 比喻：要幾個人點頭</span>
+      <strong>N=3</strong>：總共 3 份。<strong>W=2</strong>（Write）：存的時候，至少 <strong>2 間</strong>倉庫回報「我收好了」就跟客人說「存成功」。<strong>R=2</strong>（Read）：取的時候，至少<strong>問 2 間</strong>倉庫，拿它們的版本來比。
+    </div>
+    <p>為什麼要這樣設計？因為有一條神奇的數學保證：</p>
+    <div class="box tip"><span class="label">🎯 只要 W + R &gt; N，讀的時候一定碰得到「最新那份」</span>
+      W=2、R=2、N=3，2+2=4 &gt; 3。意思是：你寫進去的那 2 間，和你讀的時候問的那 2 間，<strong>至少會有 1 間是同一間</strong>（鴿籠原理：3 個位子塞 2+2=4 個人，必有重疊）。那間就握有最新版本，所以你<strong>絕不會只讀到舊資料</strong>。
+    </div>
+    <p>這組旋鈕就是在「<strong>快</strong>」和「<strong>不讀到舊資料</strong>」之間調：</p>
+    <ul>
+      <li><strong>W 調小（如 W=1）</strong>：存得飛快（1 間收到就好），但比較容易讀到舊的。</li>
+      <li><strong>R 調小（如 R=1）</strong>：取得飛快（問 1 間就好），適合「讀超多、寫很少」的場景。</li>
+      <li><strong>W=R=2</strong>：平衡，而且還能容忍「1 間倉庫在維修」照樣讀寫。</li>
+    </ul>
+    <p class="pause">💭 停一下：如果某間該存的倉庫剛好失火了，湊不到 W=2 怎麼辦？難道就不給客人存了嗎？（這就違反「永不打烊」了！）</p>
+    <details class="qa"><summary>看答案</summary>
+      不行讓客人撲空。解法叫 <strong>hinted handoff（暫存代收）</strong>：那份本來要給「失火倉庫 C」的包裹，先<strong>暫存到旁邊一間健康倉庫</strong>，並貼張紙條「這份是要還給 C 的」。等 C 修好復活，代收的倉庫再把包裹和紙條交還給 C。這樣存包裹永遠成功，副本數事後也補齊了。
+    </details>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>兩個人同時改同一個包裹？（向量時鐘）</h3>
+    <p>最燒腦的一關。因為資料有好幾份、又允許「分區時照寫」，就會發生：<strong>甲在 A 倉庫改了包裹，乙同時在 B 倉庫也改了同一個包裹</strong>。等網路恢復，兩邊版本不一樣，到底誰對？</p>
+    <div class="analogy">
+      <span class="label">🏷️ 比喻：每個包裹貼一張「版本便利貼」</span>
+      每次有人改包裹，就在便利貼上記一筆「<strong>誰改過幾次</strong>」，像這樣：<code>{A 改過 2 次, B 改過 1 次}</code>。
+      要判斷兩個版本誰新誰舊，就<strong>比這兩張便利貼</strong>。
+    </div>
+    <p>比對結果只有兩種：</p>
+    <ul>
+      <li><strong>一張完全「罩得住」另一張</strong>（每個欄位都 ≥，且至少一個 &gt;）：例如 <code>{A:2,B:1}</code> vs <code>{A:1,B:1}</code>，前者明顯是後者的「後續版本」→ <strong>直接用新的，丟掉舊的</strong>。沒有衝突。</li>
+      <li><strong>互不相讓</strong>：例如 <code>{A:2,B:0}</code> vs <code>{A:0,B:2}</code>，A 多改了、B 也多改了，誰也不包含誰 → 這就是<strong>「兩個人同時各改各的」＝衝突</strong>。系統<strong>兩個版本都先留著</strong>（叫 sibling 兄弟版本），交給上層（App）決定怎麼合併。</li>
+    </ul>
+    <div class="analogy">
+      <span class="label">🛒 為什麼留兩份、不自動挑一個？以購物車為例</span>
+      甲在手機加了「牛奶」，乙在平板同時加了「麵包」。如果硬挑一個版本贏，另一個就<strong>默默消失</strong>了（客人會氣炸：我加的東西不見了）。聰明做法是兩份都留，合併時取<strong>聯集</strong>＝「牛奶＋麵包」，誰的東西都不丟。
+    </div>
+    <div class="fear">
+      <span class="label">😱 對比：簡單粗暴的 LWW（看時間戳，誰晚誰贏）</span>
+      另一種做法叫 <strong>LWW（last-write-wins）</strong>：不貼便利貼，只看「哪筆時間比較晚」，晚的贏。<strong>超級簡單</strong>，但缺點是真正同時改的時候，<strong>會默默丟掉一筆</strong>（牛奶或麵包不見一個）。而且各倉庫的時鐘還可能對不準。所以：怕丟資料 → 用向量時鐘；要簡單、能容忍偶爾丟一筆 → 用 LWW。這是個取捨。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 用<strong>圓圈時鐘</strong>決定包裹放哪間倉庫（加倉庫只搬一小段）→ ② 每個包裹<strong>存 3 份</strong>（不怕失火）→ ③ <strong>存問 2 間、取問 2 間</strong>（W+R&gt;N 保證讀到新的）→ ④ 同時改用<strong>版本便利貼</strong>分辨衝突、留兩份不丟資料。</div>
+
+  <p>還有兩個小幫手機制，順手認識一下：</p>
+  <ul>
+    <li><strong>協調者任一台都能當</strong>：客人走進<strong>任何一間倉庫</strong>都能辦事，那間倉庫會自己算出包裹該去哪 3 間、幫你轉發。沒有「總店」這種單點，所以不怕總店倒。</li>
+    <li><strong>read repair（讀的時候順手修）</strong>：取包裹問了 2 間，發現其中一間的版本<strong>落後了</strong>，系統就<strong>順手把它更新成最新版</strong>——一邊讀一邊默默補洞。</li>
+  </ul>
+
+  <h2 id="fears">4. 設計時最怕的 4 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕四件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「關門」（停止服務）</span>
+    這類系統（Dynamo / Cassandra）最高原則是<strong>永遠能寫</strong>——亞馬遜購物車「加入」絕不能失敗。所以寧可<strong>暫時資料有點不一致</strong>，也要先讓客人存進去（事後再用便利貼和反熵慢慢喬一致）。<em>可用 &gt; 完美一致。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「加倉庫要大搬家」</span>
+    如果加一台機器就得把幾乎所有資料重搬一遍，系統根本沒辦法長大。所以用<strong>圓圈時鐘（一致性雜湊）只搬一小段</strong>，而不是「取餘數」那種全部重排的笨法。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「讀到舊資料」</span>
+    多份副本最怕你讀到還沒更新的那份。靠 <strong>W + R &gt; N</strong> 這條不等式保證讀寫副本集合一定重疊，讀的時候總會碰到最新那份。這是用「多問幾間」換「不讀到舊的」。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「默默丟掉一筆寫入」</span>
+    兩人同時改，如果隨便挑一個贏，另一個就無聲消失，使用者會抓狂。用<strong>向量時鐘認出「這是同時改的衝突」並保留兩份</strong>，把「要丟誰」的決定權交給最懂業務的上層，而不是系統亂猜。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="分散式鍵值儲存架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀：</p>
+  <ul>
+    <li>🙋 <strong>客人</strong>拿號碼牌(key)走進<strong>任何一間倉庫</strong>（這間就臨時當「協調者」）→</li>
+    <li>🕐 協調者用<strong>圓圈時鐘</strong>算出這包裹該放的 3 間倉庫（preference list = A、B、C）→</li>
+    <li>📦 <strong>存</strong>：往這 3 間送，收到 <strong>W=2</strong> 間說「收好」就回客人「成功」（送不到的那間，先 hinted handoff 暫存代收）→</li>
+    <li>📤 <strong>取</strong>：問 <strong>R=2</strong> 間，比它們的<strong>版本便利貼（向量時鐘）</strong>挑出最新；發現有落後的副本就順手 read repair 補上 →</li>
+    <li>🗣️ 倉庫之間靠 <strong>gossip（八卦傳話）</strong>互相通報「誰還活著、圈長怎樣」，沒有總店也能維持共識。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>key / value</td><td>號碼牌 / 包裹（給鑰匙還你值）</td></tr>
+    <tr><td>一致性雜湊環</td><td>把倉庫和包裹排在「圓圈時鐘」上，順時針找最近的倉庫</td></tr>
+    <tr><td>虛擬節點 (vnode)</td><td>一間倉庫在圈上的很多「分身」，讓負載更平均</td></tr>
+    <tr><td>副本 N</td><td>一個包裹影印幾份（典型 3 份）</td></tr>
+    <tr><td>Quorum / W / R</td><td>存要幾間點頭(W)、取要問幾間(R)</td></tr>
+    <tr><td>W + R &gt; N</td><td>保證讀寫一定有重疊 → 讀得到最新的</td></tr>
+    <tr><td>preference list</td><td>某包裹的「3 個指定存放倉庫」名單</td></tr>
+    <tr><td>向量時鐘</td><td>包裹上的「版本便利貼」：記誰改過幾次</td></tr>
+    <tr><td>sibling</td><td>同時改造成衝突時，被保留的「兩個並存版本」</td></tr>
+    <tr><td>LWW（誰晚誰贏）</td><td>只看時間戳挑新的，簡單但會默默丟一筆</td></tr>
+    <tr><td>協調者 (coordinator)</td><td>客人走進的那間倉庫，臨時當總機幫忙轉發</td></tr>
+    <tr><td>hinted handoff</td><td>目標倉庫掛了，先找鄰居暫存代收、貼紙條，之後交還</td></tr>
+    <tr><td>read repair</td><td>讀的時候發現某份落後了，順手補成最新</td></tr>
+    <tr><td>gossip</td><td>倉庫間「八卦傳話」：誰活著、叢集長怎樣</td></tr>
+    <tr><td>最終一致</td><td>當下可能短暫不同步，但過一陣子會喬一致</td></tr>
+    <tr><td>CAP</td><td>停電時要「繼續服務但可能短暫不一致」還是「寧可拒服務也要一致」的二選一</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="api">7. 系統怎麼用？（API）</h2>
+  <div class="analogy">
+    <span class="label">🎫 比喻：寄物櫃的存取單</span>
+    <strong>API</strong> 就是客人和寄物中心之間講好的「存取單格式」。這題只有三張單，超簡單：
+  </div>
+  <pre><code>① 存包裹
+   PUT /kv/{號碼牌}
+   給我：{ value(包裹內容), context(你上次拿到的版本便利貼) }
+   我回：新的版本便利貼，例如 { "A":2, "B":1 }</code></pre>
+  <p class="codecaption">為什麼存的時候要<strong>附上「上次的便利貼(context)」</strong>？因為這樣系統才知道「你這次改，是<strong>基於哪個版本</strong>改的」——是接著舊版往下寫（蓋掉），還是跟別人同時改（要留 sibling）。這就是購物車能正確合併的關鍵。</p>
+  <pre><code>② 取包裹
+   GET /kv/{號碼牌}
+   我回：正常時 → 一個版本
+        衝突時 → 好幾個 sibling（請你合併後再 PUT 回來）</code></pre>
+  <p class="codecaption">取的時候可能拿到<strong>兩份並存版本</strong>，這不是 bug，是系統老實告訴你「這兩份是同時改的，我不敢幫你亂選，你來決定」。</p>
+  <pre><code>③ 刪包裹
+   DELETE /kv/{號碼牌}   → 其實是放一張「墓碑」標記</code></pre>
+  <p class="codecaption">刪除為什麼不是真的擦掉、而是放一張<strong>「墓碑(tombstone)」</strong>？看下面取捨那段，這是個有趣的坑。</p>
+
+  <h2 id="data">8. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：要記的三樣東西</span>
+    系統腦袋裡要記三樣：包裹本身、圓圈時鐘的座位表、還有每間倉庫怎麼把包裹存到硬碟上。
+  </div>
+  <div class="step">
+    <h3><span class="badge">📦</span>包裹本體（key → 值 + 版本便利貼）</h3>
+    <p>每個號碼牌對應「<strong>一個或多個</strong>版本」：<code>key → [ { value, 版本便利貼 }, ... ]</code>。
+    平常只有一個版本；同時改造成衝突時，就會有好幾個 sibling 並存。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🕐</span>圓圈時鐘座位表（環 + preference list）</h3>
+    <p>記著「每間倉庫（含它的分身 vnode）釘在圈上哪些鐘點」。任一間倉庫只要查這張表，就能自己算出「某號碼牌該放的 3 間倉庫」，不必問總店。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">💾</span>單間倉庫怎麼把包裹放上架（LSM-tree）</h3>
+    <p>每間倉庫內部，因為<strong>存包裹的動作超級頻繁</strong>，用一種叫 <strong>LSM-tree</strong> 的方式：新包裹<strong>先丟記憶體 + 排隊一筆筆順序寫到硬碟末端</strong>（順序寫超快），背景再慢慢整理。</p>
+    <div class="analogy"><span class="label">為什麼順序寫比較快？</span>
+      就像你整理收件，與其每來一封就跑去檔案櫃正確位置插入（到處跑、慢），不如<strong>先全部疊在桌上一疊（按來的順序）</strong>，有空再一次整理歸檔。本題重點在「分散」這層，單間倉庫的存法知道個大概就好。</div>
+  </div>
+
+  <h2 id="bottleneck">9. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>加倉庫時搬資料，影響正在辦事的客人</td><td>圓圈時鐘<strong>只搬一小段(~1/N)</strong>；分身(vnode)讓搬遷來源分散；背景搬遷<strong>限速</strong>別擠到正常流量</td></tr>
+    <tr><td><strong>熱門包裹</strong>：某個號碼牌被狂存狂取，那 3 間累死</td><td>在 key 後面加<strong>隨機後綴</strong>把它打散成多份；前面加<strong>快取</strong>；或單獨給它更多副本</td></tr>
+    <tr><td>有倉庫在維修，湊不到 W 間點頭</td><td><strong>hinted handoff</strong>暫存代收，維持「永遠能存」，事後補回</td></tr>
+    <tr><td>衝突的 sibling 版本越堆越多</td><td>上層<strong>讀到就合併</strong>再寫回；便利貼太長就剪枝</td></tr>
+    <tr><td>墓碑(刪除標記)堆積，拖慢掃描</td><td>放一陣子(GC grace)後背景清掉——但不能太快，原因見下方取捨</td></tr>
+  </table>
+
+  <h2 id="tradeoff">10. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的四個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 強一致 vs 最終一致（CAP 怎麼選？）</span>
+    用白話想：<strong>停電（網路分區）時，你的寄物中心要選哪一種脾氣？</strong>
+    （A）「<strong>繼續營業</strong>，就算各倉庫資料可能短暫對不上，事後再喬」——這是本題走的 <strong>AP（最終一致）</strong>，Dynamo / Cassandra 這派，換來「永不打烊」。
+    （C）「<strong>寧可暫時拒絕服務</strong>，也不能讓你拿到可能不對的資料」——這是 <strong>CP（強一致）</strong>，像銀行轉帳那種，設計完全不同（用 Raft/Paxos）。面試一開場就要先問清楚要哪種！</div>
+  <div class="fear"><span class="label">⚖️ 向量時鐘 vs LWW（誰晚誰贏）</span>
+    向量時鐘<strong>不丟資料</strong>但複雜（要處理 sibling、便利貼會變長）；LWW <strong>超簡單</strong>但同時改會默默丟一筆。看你的業務「能不能容忍偶爾丟一筆寫入」來選。</div>
+  <div class="fear"><span class="label">⚖️ W / R 怎麼配？</span>
+    這就是一致性旋鈕。讀多寫少 → R 調小（讀快）；要寫最高可用 → W 調小（存快）；要平衡又容錯 → W=R=2、N=3。能說出「為什麼 W+R&gt;N」並依場景給組合，是這題的得分點。</div>
+  <details class="qa"><summary>💭 追問：刪除為什麼不直接擦掉、要放「墓碑」？</summary>
+    因為資料有好幾份副本，可能有一份正在維修、沒收到「刪除」。如果你<strong>真的擦掉</strong>其他份，等那份落後的副本醒來，背景同步(反熵)會看到「咦你怎麼少了這筆」，<strong>好心地把已刪的資料又補回來＝復活了</strong>！所以刪除要留一張「墓碑」明確說「這筆是被刪的」，讓落後副本同步到「它已死」，過一段安全期(GC grace)才真的清掉。</details>
+  <details class="qa"><summary>💭 追問：怎麼知道哪間倉庫死了？沒有總店誰來宣布？</summary>
+    靠 <strong>gossip（八卦傳話）+ 心跳</strong>：每間倉庫定期跟幾個隨機鄰居交換「我還活著、我知道誰活著」的消息，像八卦一傳十十傳百，整個叢集很快就都知道某間沒回應 = 大概掛了。去中心化，不需要總店宣布。</details>
+
+  <h2 id="play">11. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，用<strong>一支 PHP 程式模擬一整個多倉庫叢集</strong>，讓你親眼看到圓圈時鐘、Quorum、向量時鐘衝突：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8031 -t public
+# 然後瀏覽器打開 http://localhost:8031</code></pre>
+  <ol>
+    <li>先 <strong>put 幾筆</strong>資料，看看每筆被分到圈上的哪 3 間倉庫（preference list）。</li>
+    <li><strong>get</strong> 出來（走 R quorum），看它怎麼比版本挑最新。</li>
+    <li>把某間倉庫設成 <strong>down</strong>，再 put → 觀察 <strong>hinted handoff（暫存代收）</strong>怎麼幫你撐住「還是存得進去」。</li>
+    <li><strong>製造並發寫</strong>（兩邊各改），看系統怎麼留下 <strong>sibling 兩個版本</strong>而不是默默丟一筆。</li>
+    <li>加一間新倉庫 <strong>D</strong>，觀察是不是<strong>只有一小段資料</strong>被搬過去（而不是大搬家）。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把同一個 key 在「兩間互相看不到對方」的情況下各改一次，是不是就生出了 sibling？這就是 <strong>關卡 4 向量時鐘</strong>在運作。把一間倉庫關掉再 put，能不能成功？這就是 <strong>關卡 3 的 hinted handoff</strong> 在撐住「永不打烊」。</div>
+
+  <h2 id="quiz">12. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「圓圈時鐘」解釋，為什麼加一間新倉庫不會引起大搬家？</summary>
+    倉庫和包裹都排在一個圓圈上，包裹順時針找第一間倉庫當家。新加一間倉庫，只有「它前面那一小段」原本要跑去更遠倉庫的包裹要搬進來，其他包裹完全不動。對比「號碼 % 倉庫數」一改倉庫數就全部重算、要全搬。</details>
+  <details class="qa"><summary>Q2：虛擬節點(vnode)是要解決什麼問題？</summary>
+    如果每間倉庫只在圈上放 1 個點，分配容易不均（有的管超大段塞爆、有的很空）。讓每間倉庫放幾百個「分身」灑滿整圈，平均分到的量就很平均；大倉庫還能多放幾個分身多扛點。</details>
+  <details class="qa"><summary>Q3：N=3、W=2、R=2，為什麼能保證「讀不到舊資料」？</summary>
+    因為 W+R=4 &gt; N=3。寫進去的 2 間和讀的時候問的 2 間，3 個位子塞 4 個人必有重疊 → 至少 1 間同時是「被寫的」和「被讀的」，那間握有最新版本，所以讀一定碰得到最新的。</details>
+  <details class="qa"><summary>Q4：兩個人同時改同一筆，向量時鐘怎麼處理？為什麼不直接挑一個？</summary>
+    比兩張「版本便利貼」：若一張罩得住另一張就用新的；若互不相讓＝同時改的衝突，兩份都先留著(sibling)交給上層合併。不自動挑是因為硬挑會默默丟掉另一筆（購物車有人加的東西會不見），讓最懂業務的上層合併（如取聯集）才不丟資料。</details>
+  <details class="qa"><summary>Q5（工程）：put 的時候為什麼要附上「上次讀到的版本便利貼(context)」？</summary>
+    讓系統知道「你這次改是基於哪個版本」。據此判斷：是接著那版往下寫（蓋掉舊的），還是跟別人同時改（要保留成 sibling）。這是「讀-改-寫」因果鏈的關鍵，購物車正確合併就靠它。</details>
+  <details class="qa"><summary>Q6（工程）：刪除為什麼要放「墓碑」而不是直接擦掉？</summary>
+    因為有多份副本，可能某份正維修沒收到刪除指令。若真的擦掉，背景同步(反熵)看到那份落後副本「還有這筆」會好心把它復活。放墓碑明確標「已刪」，讓所有副本都同步到它已死，過安全期才真清。</details>
+  <details class="qa"><summary>Q7（工程）：CAP 在這題怎麼用一句白話帶出來？</summary>
+    停電（網路分區）時你的系統選哪種脾氣：AP=「繼續營業、資料短暫可能不一致、事後喬」（本題、Dynamo/Cassandra，換永不打烊）；CP=「寧可拒絕服務也要保證資料正確」（像銀行，用 Raft/Paxos）。一開場先確認要哪種。</details>
+
+  <h2 id="recap">13. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>分散式鍵值儲存 = 永不打烊、裝得下無限多包裹的連鎖寄物櫃。</strong></p>
+    <p><strong>4 個關卡：</strong>① 圓圈時鐘決定包裹放哪間倉庫（加倉庫只搬一小段、分身讓負載平均）→ ② 每筆存 3 份(N) → ③ 存問 2 間、取問 2 間（W+R&gt;N 保證讀到新的）→ ④ 同時改用「版本便利貼」分辨衝突、留兩份(sibling)不丟資料。</p>
+    <p><strong>4 個怕：</strong>怕關門（可用優先，AP）、怕加倉庫大搬家（一致性雜湊）、怕讀到舊的（W+R&gt;N）、怕默默丟一筆（向量時鐘留 sibling）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>三張存取單(put/get/delete)＋附 context 做讀-改-寫 → 記三樣（包裹/座位表/單間 LSM 存法）→ 找塞車環節各自拓寬（限速搬遷、打散熱 key、hinted handoff、合併 sibling、墓碑別太早清）→ CAP 一開場先選 AP 還 CP。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉛ 分散式鍵值儲存 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

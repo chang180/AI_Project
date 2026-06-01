@@ -64,9 +64,15 @@ h3 { font-size: 1.1rem; margin: 1.4em 0 .4em; color: var(--accent-2); }
   border-radius: var(--radius); padding: 18px 20px; transition: .15s;
 }
 .card:hover { border-color: var(--accent); transform: translateY(-2px); }
-.card h3 { margin: 0 0 .3em; color: var(--text); }
+.card h3 { margin: 0 0 .3em; color: var(--text); padding-right: 64px; }
 .card p { color: var(--text-dim); font-size: .9rem; margin: .4em 0 0; }
 .card .num { color: var(--accent); font-weight: 700; margin-right: 6px; }
+.card.has-beginner { position: relative; }
+.card.has-beginner::after {
+  content: "🌱 初學版"; position: absolute; top: 12px; right: 12px;
+  font-size: .68rem; color: var(--accent); background: var(--bg-soft);
+  border: 1px solid var(--border); padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+}
 
 /* ---- 組別區塊 ---- */
 .group-block { margin: 28px 0; }

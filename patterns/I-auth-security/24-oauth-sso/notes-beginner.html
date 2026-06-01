@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉔ OAuth 2.0 / SSO · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅸 認證/安全</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉔ OAuth 2.0 / SSO · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">I 認證/安全</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 30 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼不能直接把密碼給網站？</a></li>
+      <li><a href="#steps">把登入拆成 4 個關卡</a></li>
+      <li><a href="#jwt">JWT＝蓋了鋼印的識別證</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你一定看過這個畫面：到一個新網站（例如某個訂房 App），它不要你註冊，而是出現一顆
+  「<strong>用 Google 帳號登入</strong>」或「用 臉書 登入」的按鈕。你按下去、Google 問你「<strong>要把你的基本資料給這個 App 嗎？</strong>」，
+  你按「同意」，咻一下就登入成功了——<strong>而且你從頭到尾沒把 Google 的密碼交給那個 App</strong>。</p>
+  <p>OAuth 2.0 / SSO 就是在做這件事。它的厲害之處在於：<strong>讓你「授權」一個 App 代表你，卻不用把密碼交出去</strong>。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    OAuth＝<strong>「不交鑰匙，只發臨時通行證」的代客登入</strong>：你向 Google 證明一次自己是誰，Google 發一張「有期限的識別證」給那個 App，App 拿著它去存取你的資料，全程碰不到你的密碼。
+  </div>
+
+  <h2 id="why">2. 為什麼不能直接把密碼給網站？</h2>
+  <p>很多人第一個疑問是：「要登入，把帳號密碼給它不就好了？幹嘛搞這麼複雜？」想一個生活情境就懂了——</p>
+  <div class="analogy">
+    <span class="label">🚗 把車鑰匙交給代客泊車</span>
+    你的車有一把<strong>主鑰匙</strong>，能開門、發動、還能打開後車廂跟手套箱（放著你的證件）。
+    代客泊車只需要「<strong>把車停好</strong>」這一件事，你會把<strong>能打開全部東西的主鑰匙</strong>交給他嗎？
+    比較安全的做法，是給他一把<strong>「只能發動、開不了後車廂」的泊車鑰匙</strong>。
+  </div>
+  <p>密碼就是那把「主鑰匙」。如果你把 Google 密碼交給某個訂房 App：</p>
+  <ul>
+    <li>它就能<strong>看你全部的信、改你的密碼、用你的身分到處跑</strong>——權限大到誇張，而它只需要「知道你 email」而已。</li>
+    <li>它可能<strong>把你的密碼存起來</strong>（甚至外洩），你一個密碼全網通用，等於全部淪陷。</li>
+    <li>你想<strong>收回授權</strong>時，唯一辦法是改密碼，連帶把其它正常的服務也一起踢掉。</li>
+  </ul>
+  <p>所以 OAuth 的核心思想就是：<strong>把「證明你是誰」跟「允許 App 做某件事」拆開</strong>。
+  你只向「你信任的地方（Google）」證明身分，Google 再發一張<strong>權限有限、有期限的識別證</strong>給 App。
+  App 拿到的不是萬能主鑰匙，而是那把「只能發動的泊車鑰匙」。</p>
+  <p class="pause">💭 停一下：如果某個 App 把你的 Google「臨時識別證」弄丟了，會比把「密碼」弄丟好在哪？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    識別證是<strong>有期限</strong>的（例如 15 分鐘就過期），就算被偷也只能用一下下；它的<strong>權限也有限</strong>（只能讀你同意的那幾項，不能改密碼）；而且你可以<strong>單獨撤銷這一張</strong>，不影響你的密碼和其它服務。密碼則是萬能又長期有效，弄丟＝整個帳號淪陷。
+  </details>
+
+  <h2 id="steps">3. 把登入拆成 4 個關卡</h2>
+  <p>別被流程圖嚇到。整件事其實就是闖 4 關，用「<strong>去遊樂園玩</strong>」的比喻一關一關走：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>你同意：「好，讓它代表我」</h3>
+    <p>你在 App 按「用 Google 登入」，App 把你<strong>導去 Google 的頁面</strong>。Google 確認你已登入（或請你登入），
+    然後問你：「<strong>這個 App 想讀你的姓名和 email，同意嗎？</strong>」你按「同意」。</p>
+    <div class="analogy"><span class="label">🎡 比喻</span>就像到遊樂園售票口，你<strong>親自</strong>到櫃台（Google）出示身分、說「我要進去」。App 沒有代你站在櫃台前——是你本人去的，所以你的密碼只給了 Google，沒給 App。</div>
+    <p>👉 關鍵：登入這一步<strong>一定發生在 Google 的網域上</strong>，App 全程看不到你輸入的密碼。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>拿到「一次性通行證」（授權碼）</h3>
+    <p>你同意後，Google 不會馬上把正式識別證丟給瀏覽器，而是先發一張<strong>一次性的小紙條（授權碼）</strong>，
+    透過瀏覽器轉交給 App。這張紙條<strong>用過一次就作廢、而且只活幾十秒</strong>。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：售票口給的「換票券」</span>
+      售票口不會在大門口就把<strong>正式手環</strong>套你手上（怕在人擠人的門口被人順走）。
+      它先給你一張<strong>「換票券」</strong>，你拿著它到<strong>裡面的服務台</strong>，才換成真正的手環。
+      換票券就算掉了，撿到的人也只能換<strong>一次</strong>、而且馬上過期。
+    </div>
+    <p>👉 為什麼要多這一步？因為這張紙條會<strong>短暫出現在瀏覽器的網址列</strong>（看得到、會被記錄）。
+    讓它「只能用一次、馬上過期」，就算被偷瞄到也沒用。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>換成「有期限的識別證」（access token）</h3>
+    <p>App 的<strong>後端</strong>（不是瀏覽器）拿著那張一次性紙條，再附上只有自己知道的<strong>暗號（client_secret）</strong>，
+    偷偷去跟 Google 換一張<strong>正式識別證（access token）</strong>。這張識別證才是 App 真正用來存取你資料的東西。</p>
+    <div class="analogy">
+      <span class="label">🪪 比喻：到服務台換正式手環</span>
+      到了裡面的服務台，工作人員核對你的換票券，外加確認 App「是不是它本人」（暗號），才把<strong>正式手環</strong>給它。
+      這個換的動作發生在<strong>後台、不在大門口</strong>，正式手環<strong>不會經過瀏覽器網址列</strong>，外洩風險小很多。
+    </div>
+    <p>👉 重點：真正值錢的識別證，是在<strong>後端對後端</strong>悄悄換來的，不會在你看得到的網址裡晃。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>過期了，用「續命券」換新（refresh token）</h3>
+    <p>那張識別證<strong>故意設計成很短命</strong>（例如 15 分鐘就過期），這樣就算被偷也只能用一下。
+    過期後 App 不會叫你重登一次，而是拿一張<strong>「續命券」（refresh token）</strong>去跟 Google 換一張新的識別證，你完全無感。</p>
+    <div class="analogy">
+      <span class="label">🏨 比喻：飯店房卡會「自動失效」</span>
+      飯店房卡通常<strong>退房時間一到就刷不開門</strong>。但你還在住，怎麼辦？到櫃台「續住」一下，房卡就重新生效。
+      識別證短命、續命券去換新，就是這個道理——<strong>東西短命比較安全，但又不想一直煩你重登</strong>。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 你<strong>親自同意</strong>（密碼只給 Google）→ ② 拿到<strong>一次性通行證</strong>（授權碼）→ ③ 後端偷偷<strong>換成有期限識別證</strong>（access token）→ ④ 過期就用<strong>續命券</strong>（refresh token）換新。全程 App 碰不到你的密碼。</div>
+
+  <h2 id="jwt">4. JWT＝蓋了鋼印的識別證</h2>
+  <p>App 拿到識別證後，每次要存你的資料（例如讀你的姓名），都要把識別證亮給「<strong>資源伺服器</strong>」（管你資料的那台機器）看。
+  問題來了：資源伺服器怎麼確認這張識別證<strong>是真的、不是偽造的</strong>？</p>
+  <div class="analogy">
+    <span class="label">🛂 比喻：護照上的鋼印（鋼印章 / 浮水印）</span>
+    機場海關看你的護照，<strong>不會打電話回你的國家問「這人是真的嗎」</strong>——那太慢了。
+    他直接看護照上的<strong>鋼印、浮水印、防偽線</strong>，這些東西<strong>只有官方做得出來、別人偽造不了</strong>，
+    一看就知道真偽。<strong>JWT 就是這種「自帶鋼印的識別證」</strong>。
+  </div>
+  <p>JWT（讀作 "jot"）其實是一張紙條，上面寫著「你是誰、能做哪些事、什麼時候過期」，<strong>最後用 Google 的私章蓋了一個防偽簽章（鋼印）</strong>。
+  資源伺服器只要：</p>
+  <ul>
+    <li><strong>驗鋼印</strong>：用 Google 公開的「驗章工具」確認簽章是真的（一改內容鋼印就對不上）。</li>
+    <li><strong>看有效期</strong>：紙條上寫的過期時間還沒到。</li>
+  </ul>
+  <p>兩個都過就放行——<strong>完全不用打電話回 Google 問</strong>。這就是 JWT 最強的地方：<strong>驗證不必查資料庫、超快、能扛超大流量</strong>。</p>
+  <p class="pause">💭 停一下：既然 JWT 自帶鋼印、不用問 Google，那 Google 想「立刻收回」一張已經發出去的識別證，做得到嗎？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    <strong>很難立刻收回</strong>。因為資源伺服器根本不會打電話問 Google，它只看鋼印和有效期。鋼印是真的、又還沒過期，它就放行——Google 想喊停也喊不到它。這就是 JWT「方便」帶來的代價（後面「最怕的事」會講怎麼補救：把識別證設得很短命＋黑名單）。
+  </details>
+
+  <h2 id="fears">5. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「票被偷」</span>
+    通行證、識別證在傳遞時都可能被偷看。所以全套設計都在<strong>縮小被偷的傷害</strong>：
+    一次性通行證<strong>用過即廢、幾十秒就過期</strong>；正式識別證<strong>故意短命</strong>（被偷也只能用一下）；
+    最值錢的識別證<strong>只在後端對後端交換</strong>，不經過瀏覽器網址列。<em>每張票都「短命又限縮」。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「收不回」</span>
+    JWT 自帶鋼印、驗證不問 Google，好處是快，壞處是<strong>發出去就收不回</strong>，要等它自然過期。
+    萬一識別證被偷、或使用者按了「登出所有裝置」怎麼辦？
+    解法：<strong>識別證設得很短命</strong>（撤銷最多等 15 分鐘就自動失效）＋把<strong>續命券列入黑名單</strong>（之後就換不到新的識別證，整條鏈自然枯萎）。<em>短命＋黑名單，雙保險。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「給錯權限 / 被冒充」</span>
+    如果 App 能拿到「超過它需要」的權限，或壞人能<strong>假裝是你本人</strong>去按同意，就糟了。
+    所以：使用者同意時<strong>明列 App 能碰哪幾項（scope，最小權限）</strong>；
+    流程中夾帶一個<strong>對暗號（state）</strong>，確保「回來的人」就是「出發的人」，防止有人半路插隊冒充（這叫防 CSRF）。<em>只給剛好夠用的權限，並確認真的是你。</em>
+  </div>
+
+  <h2 id="pic">6. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，照著編號走一圈：</p>
+  <ul>
+    <li>🙋 <strong>你（在 App 裡）</strong>按「用 Google 登入」，被<strong>導去 Google</strong> →</li>
+    <li>🛂 <strong>授權伺服器（Google）</strong>讓你登入＋問你同意，發一張<strong>一次性通行證（授權碼）</strong>回 App →</li>
+    <li>🤝 App 的<strong>後端</strong>拿通行證＋暗號，去 Google <strong>換正式識別證（access token，JWT）＋續命券</strong> →</li>
+    <li>🪪 App 拿著識別證去找 <strong>資源伺服器</strong> 要你的資料 →</li>
+    <li>✅ 資源伺服器<strong>只看鋼印＋有效期</strong>就放行（不必回問 Google），不對就回 401 擋下。</li>
+  </ul>
+
+  <h2 id="words">7. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>OAuth 2.0</td><td>「不交密碼、只發臨時通行證」的代客授權協定</td></tr>
+    <tr><td>SSO（單一登入）</td><td>在一個地方（Google）登入一次，到處都能用，不用各自註冊</td></tr>
+    <tr><td>授權 vs 認證</td><td>授權＝「能不能做這件事」；認證＝「你到底是誰」</td></tr>
+    <tr><td>授權碼（auth code）</td><td>一次性通行證：用過即廢、活幾十秒的小紙條</td></tr>
+    <tr><td>access token</td><td>有期限的正式識別證，App 拿它去存取你的資料</td></tr>
+    <tr><td>refresh token</td><td>續命券：識別證過期時拿它去換一張新的</td></tr>
+    <tr><td>JWT</td><td>蓋了鋼印（防偽簽章）的識別證，看鋼印就知真偽</td></tr>
+    <tr><td>簽章 / 驗章</td><td>蓋鋼印 / 看鋼印，確認沒被竄改</td></tr>
+    <tr><td>client_secret</td><td>App 跟 Google 之間的暗號，證明「我是它本人」</td></tr>
+    <tr><td>scope（範圍）</td><td>這張識別證「能碰哪幾項」，最小權限原則</td></tr>
+    <tr><td>state</td><td>對暗號：確認回來的人就是出發的人（防冒充）</td></tr>
+    <tr><td>撤銷 / 黑名單</td><td>把某張票列入黑名單，之後就失效</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>無狀態 / 水平擴展</td><td>驗證不必查共用資料，所以能多加機器分攤</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">8. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>這題最關鍵的數字，是要分清楚兩種動作的<strong>頻率差很多</strong>：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>發識別證（登入）</td><td>1 億人，每天登 2 次 → 每秒約幾千筆</td><td>量不算太大，可以慢一點、查資料庫沒關係</td></tr>
+    <tr><td><strong>驗識別證（每次 API 都要驗）</strong></td><td>每人每天用 200 次 → <strong>每秒幾十萬筆</strong></td><td>量爆大，<strong>絕對不能每次都打電話問 Google</strong></td></tr>
+    <tr><td>一張識別證多大</td><td>JWT 約 700~900 位元組</td><td>每個請求都多揹一張，不能塞太多東西進去</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🛂 關鍵洞察：海關蓋章 vs 打電話回國查</span>
+    「驗票」比「發票」多了<strong>上百倍</strong>。如果每次驗都打電話回 Google 問（叫 introspection），Google 會被打爆。
+    所以才用 <strong>JWT（自帶鋼印）</strong>：資源伺服器<strong>當場看鋼印就放行，零查詢</strong>，像海關看護照鋼印而不是打電話回國。這就是 JWT 在大流量下無可取代的價值，也正是它「難以即時撤銷」這個取捨的來源。
+  </div>
+  <p class="pause">💭 停一下：為什麼把「能不能放行」的判斷放進識別證自己身上（鋼印＋過期時間），比每次問 Google 更能撐大流量？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為「每次問 Google」會讓所有流量擠到<strong>同一台中央機器</strong>，它就是瓶頸；而「當場看鋼印」每台資源伺服器各自就能判斷、<strong>互不打擾、沒有共用瓶頸</strong>，要扛更多就<strong>多加幾台機器</strong>即可（水平擴展）。把判斷分散出去，才擴得開。</details>
+
+  <h2 id="api">9. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」，剛好對應前面四關：</p>
+  <pre><code>① 去 Google 登入＋同意（走瀏覽器，關卡 1→2）
+   GET /authorize?要哪些權限(scope)&回哪裡(redirect_uri)&對暗號(state)
+   → 你登入並同意後，Google 把你導回 App，網址帶上「一次性通行證」(code)</code></pre>
+  <p class="codecaption">這段<strong>走瀏覽器</strong>，因為要你本人登入。回來時只夾帶那張「一次性通行證」，<strong>不夾帶值錢的識別證</strong>，把外洩風險降到最低。</p>
+  <pre><code>② 後端拿通行證去換識別證（後端對後端，關卡 3）
+   POST /token  grant_type=授權碼 &code=通行證 &client_secret=暗號
+   → { access_token: 識別證(JWT), refresh_token: 續命券, expires_in: 900(秒) }</code></pre>
+  <p class="codecaption">這段<strong>後端對後端</strong>，要附上只有 App 知道的「暗號」。換來的識別證<strong>永遠不出現在瀏覽器網址列</strong>。</p>
+  <pre><code>③ 識別證過期，用續命券換新（關卡 4）
+   POST /token  grant_type=續命券 &refresh_token=續命券
+   → 一張新的識別證（使用者完全無感）
+
+④ 撤銷（把續命券列入黑名單）
+   POST /revoke  token=續命券   → 一律回 200（不洩漏這張票存不存在）
+
+⑤ 拿識別證去存資料（每次都做，量最大）
+   GET /api/me   Authorization: Bearer 識別證
+   → 200 你的資料   或   401「這張票無效/過期」</code></pre>
+  <p class="codecaption">第 ⑤ 段就是「驗票」，每秒幾十萬次都走這裡——所以它<strong>只看鋼印＋有效期、不查資料庫</strong>。</p>
+
+  <h2 id="data">10. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：幾本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。<strong>注意一件神奇的事</strong>：正式識別證（access token）
+    <strong>根本不用記下來</strong>！因為它自帶鋼印、能自己證明自己，系統不必存一份去對照。要記的只有這幾本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏢</span>App 名冊（哪些 App 可以來要票）</h3>
+    <p>每個合作的 App 一列：<code>App編號、暗號(client_secret)、可導回的網址白名單、可申請的權限</code>。
+    換票時會<strong>嚴格比對導回網址</strong>，免得壞人把通行證騙到自己的網站。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🎫</span>通行證簿（一次性授權碼）</h3>
+    <p>每張一次性通行證一列：<code>通行證、屬於哪個 App、哪個使用者、過期時間、<strong>用過沒(used)</strong></code>。
+    「用過沒」這一欄是關鍵——<strong>用過就標記，再被拿來用就是攻擊訊號</strong>。這本天生短命，很適合放會自動過期的 Redis。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔄</span>續命券簿（refresh token）</h3>
+    <p>每張續命券一列：<code>續命券、哪個使用者、哪些權限、過期時間</code>。
+    這本比較長命，要好好存。撤銷時就是<strong>把某張續命券丟進黑名單</strong>，之後它就換不到新識別證了。</p>
+  </div>
+
+  <h2 id="bottleneck">11. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>驗票量爆（每秒幾十萬次）</td><td>用<strong>自帶鋼印的 JWT</strong>當場驗、零查詢，每台資源伺服器各自判斷，要多快就多加機器</td></tr>
+    <tr><td>續命券簿查詢／寫入太頻繁</td><td>把這本筆記<strong>切成好幾份分開放</strong>（依使用者切片）；通行證簿丟 Redis 自動過期</td></tr>
+    <tr><td>同一把「鋼印章」用太久怕外洩</td><td><strong>定期換鋼印章（金鑰輪替）</strong>，並公開一份「驗章工具清單(JWKS)」，識別證上註明「我用第幾號章蓋的」</td></tr>
+    <tr><td>全球使用者都打同一台 Google</td><td>授權伺服器<strong>多地點部署</strong>；驗章用的公開工具可<strong>全球快取</strong>（驗章不必回源）</td></tr>
+    <tr><td>撤銷黑名單跨區同步有延遲</td><td>把識別證<strong>設更短命</strong>縮小空窗；黑名單用近即時複寫到各地</td></tr>
+  </table>
+
+  <h2 id="tradeoff">12. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 自帶鋼印(JWT) vs 每次問 Google</span>
+    JWT 驗證零查詢、超能擴展，但<strong>難即時撤銷</strong>、票較大、內容能被讀（別塞祕密進去）；每次問 Google 能即時撤銷，但量一大就把中央打爆。<strong>讀超多 → 選 JWT＋短命</strong>；強撤銷需求 → 摻一點黑名單查詢折衷。</div>
+  <div class="fear"><span class="label">⚖️ 識別證壽命：長 vs 短</span>
+    壽命長 → 少換票、體驗順，但被偷／撤銷的<strong>空窗大</strong>；壽命短 → 撤銷快、安全，但要常常用續命券換新。常見折衷是 <strong>5~15 分鐘</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 鋼印章：大家共用一把 vs 私章＋公開驗章</span>
+    共用一把（HS256）簡單，但<strong>任一台機器被攻陷就能偽造票</strong>；改用「私章蓋、公開工具驗」（RS256），資源伺服器只拿得到驗章工具、<strong>偽造不了</strong>，還能輪替。<strong>對外開放／多服務 → 用私章公驗</strong>；內部信任圈才用共用章。</div>
+  <details class="qa"><summary>💭 追問：那個「對暗號(state)」到底防什麼？</summary>
+    防有人在登入流程半路<strong>插隊冒充</strong>（CSRF）。App 出發時帶一個只有自己知道的暗號，回來時核對一樣，才確定「回來的人就是出發的那位」，不是被別人塞了一張假回應進來。</details>
+  <details class="qa"><summary>💭 追問：手機 App / 純前端網站沒辦法藏「暗號」怎麼辦？</summary>
+    它們保管不了 client_secret。改用 <strong>PKCE</strong>：出發前自己產一個<strong>一次性的隨機祕密</strong>，先送出它的「指紋」，換票時再附上原本的祕密讓 Google 比對。等於把「固定暗號」換成「臨時暗號」，就算通行證被攔走，沒有那個臨時祕密也換不到票。</details>
+
+  <h2 id="play">13. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看完整流程＋三種攻防：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8024 -t public
+# 然後瀏覽器打開 http://localhost:8024</code></pre>
+  <ol>
+    <li>首頁會<strong>一步步跑完</strong>：去 /authorize 拿通行證 → 換識別證 → 拿識別證讀 /api/me。</li>
+    <li>看三種攻防：<strong>同一張通行證換第二次被擋</strong>、<strong>撤銷續命券後就換不到新識別證</strong>、<strong>偷改識別證內容 → 鋼印對不上、驗章失敗</strong>。</li>
+    <li>對照本頁的四個關卡，看每一步在程式裡長什麼樣。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把同一張授權碼丟去換兩次，看它怎麼被擋下——這就是<strong>「怕票被偷」的一次性設計</strong>。把識別證內容偷偷改一個字再驗，看鋼印怎麼對不上——這就是<strong>JWT 防偽簽章</strong>在運作。</div>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「代客泊車」解釋，為什麼登入別的網站不該把 Google 密碼給它？</summary>
+    密碼是能開全部東西的「主鑰匙」。代客泊車（App）只需要做一件小事，給它主鑰匙＝把信箱、改密碼的權限全交出去，太危險。OAuth 改發一把「權限有限、有期限」的泊車鑰匙（識別證），App 碰不到主鑰匙。</details>
+  <details class="qa"><summary>Q2：為什麼要先給「一次性通行證」，而不是直接給識別證？</summary>
+    因為這張票會短暫出現在瀏覽器網址列（看得到、會被記錄）。讓它「只能用一次、幾十秒就過期」，就算被偷瞄也沒用；真正值錢的識別證留到後端對後端時才換，不經過瀏覽器。</details>
+  <details class="qa"><summary>Q3：JWT 為什麼像「蓋了鋼印的護照」？這帶來什麼好處？</summary>
+    JWT 上面寫著你是誰、能做什麼、何時過期，最後蓋上只有官方做得出的防偽簽章（鋼印）。資源伺服器看鋼印就知真偽，不必打電話回 Google 問——驗證零查詢、超快、能扛超大流量。</details>
+  <details class="qa"><summary>Q4：識別證為什麼要「短命」？過期了使用者要重登嗎？</summary>
+    短命是為了「被偷也只能用一下」。過期不用重登：App 拿「續命券(refresh token)」去換一張新的，使用者無感，像飯店房卡到時間刷不開、櫃台續住一下就好。</details>
+  <details class="qa"><summary>Q5（工程）：驗證 QPS 比發 token QPS 大上百倍，這件事為什麼決定了要用 JWT？</summary>
+    驗證量爆大，如果每次都回問 Google（introspection）會把中央伺服器打爆。JWT 自帶鋼印，資源伺服器當場驗、零查詢、沒有共用瓶頸，要扛更多就多加機器（水平擴展）。所以大量讀必選 JWT。</details>
+  <details class="qa"><summary>Q6（工程）：access token 不存進資料庫，refresh token 卻要存，為什麼？</summary>
+    access token 是自帶鋼印的 JWT，能自己證明自己，系統不必存一份對照（要存反而拖累驗證速度）。refresh token 是「續命券」，撤銷時要能把它列入黑名單、之後換不到新票，所以必須持久化記下來。</details>
+  <details class="qa"><summary>Q7（工程）：JWT「難以即時撤銷」是怎麼來的？實務上怎麼補救？</summary>
+    因為資源伺服器只看鋼印＋有效期、不問 Google，發出去的票在自然過期前喊不停。補救：把 access 設得很短命（撤銷最多等十幾分鐘自動失效）＋撤銷時把 refresh 列黑名單（之後換不到新 access，整條鏈枯萎）；需要更即時就加一個小型黑名單快取折衷。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>OAuth／SSO ＝「不交密碼、只發臨時通行證」的代客授權。</strong></p>
+    <p><strong>4 個關卡：</strong>① 你親自同意（密碼只給 Google）→ ② 拿一次性通行證（授權碼）→ ③ 後端換成有期限識別證（access token）→ ④ 過期用續命券（refresh token）換新。</p>
+    <p><strong>JWT ＝ 蓋鋼印的識別證：</strong>看鋼印＋有效期就放行，不必回問 Google → 驗證零查詢、超能擴展。</p>
+    <p><strong>3 個怕：</strong>怕票被偷（每張票短命又限縮）、怕收不回（短命＋續命券黑名單）、怕給錯權限／被冒充（最小權限 scope ＋對暗號 state）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>驗票比發票多上百倍 → 用自帶鋼印的 JWT 當場驗 → access 不入庫、續命券要存還要能黑名單 → 找出塞車環節各自拓寬。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉔ OAuth 2.0 / SSO · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

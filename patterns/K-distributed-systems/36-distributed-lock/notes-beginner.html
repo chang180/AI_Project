@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊱ 分散式鎖 + 服務發現 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅺 分散式系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊱ 分散式鎖 + 服務發現 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">K 分散式系統</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這東西在解決什麼麻煩）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「上鎖」這件事，在很多台機器之間突然變超難？</a></li>
+      <li><a href="#steps">把它拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像一間辦公室只有<strong>一間廁所</strong>，門上只有<strong>一把鑰匙</strong>。規則很簡單：<strong>誰拿到鑰匙誰才能進去，一次只能一個人</strong>。
+  別人想進？只能等鑰匙還回來。</p>
+  <p>當你的系統從「一台電腦」長成「好幾百台電腦」，常常會遇到同樣的麻煩：<strong>很多台機器同時想動「同一份東西」</strong>
+  （同一筆訂單、同一個檔案、同一個排程任務）。如果大家亂搶著動，資料就會壞掉。所以需要一把<strong>大家都認的鑰匙</strong>，
+  保證「同一時刻只有一個人在動」。這把鑰匙，就叫<strong>分散式鎖</strong>。</p>
+  <p>而要讓這把鑰匙「大家都認」，背後得有一個<strong>超級可靠、不會說謊的管理員</strong>來保管鑰匙、記錄誰借走了。
+  這個管理員順便還做幾件相關的事（誰活著、設定放哪），合起來就是這題的主角：<strong>協調服務</strong>（像 etcd、ZooKeeper）。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    分散式鎖 = <strong>很多台機器共用的「廁所鑰匙」</strong>：一次只給一個人，保證大家不會撞在一起動同一份資料。
+    協調服務 = 保管這把鑰匙、而且「絕不發錯」的超可靠管理員。
+  </div>
+
+  <h2 id="why">2. 為什麼「上鎖」這件事，在很多台機器之間突然變超難？</h2>
+  <p>在<strong>同一台</strong>電腦裡，上鎖超簡單——程式裡寫一行 <code>synchronized</code> 就好，因為所有人都看著同一塊記憶體，誰拿了鎖一目了然。</p>
+  <p>但機器一多就麻煩了，原因是三個你生活裡也碰過的狀況：</p>
+  <div class="analogy">
+    <span class="label">😵 麻煩一：人會「突然失聯」</span>
+    借了鑰匙的人，可能<strong>突然當機、突然斷網</strong>，鑰匙沒還就人間蒸發。難道大家就永遠進不了廁所？（這叫「持有者掛掉，鎖卡死」。）
+  </div>
+  <div class="analogy">
+    <span class="label">😵 麻煩二：人會「以為自己還拿著」</span>
+    有人借了鑰匙，中途<strong>恍神放空了好幾秒</strong>（程式被卡住、被系統暫停），等他回神，鑰匙<strong>其實早就被收回、給別人了</strong>，
+    但他<strong>自己不知道</strong>，還以為廁所是他的——這是這題<strong>最關鍵</strong>的坑。
+  </div>
+  <div class="analogy">
+    <span class="label">😵 麻煩三：每台機器的「時鐘」不一樣準</span>
+    不同機器的時間會有誤差、會跳，所以你<strong>不能完全靠「時間」</strong>來判斷誰該拿鑰匙。
+  </div>
+  <p>所以這題真正考的，<strong>不是</strong>「怎麼上鎖」（太簡單），而是：<strong>當有人失聯、有人恍神、時鐘還不準的時候，這把鎖怎麼還能「絕對安全」？</strong></p>
+  <p class="pause">💭 停一下：如果鑰匙是「永久的」（借了不還就一直鎖著），上面哪個麻煩會直接讓系統卡死？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    麻煩一。借鑰匙的人一當機，鑰匙永遠收不回來，廁所就<strong>永遠鎖死</strong>，沒人能再進去。所以分散式鎖絕對不能用「永久鎖」——這就是下一節「借鑰匙要設時限」的由來。
+  </details>
+
+  <h2 id="steps">3. 把它拆成 4 個關卡</h2>
+  <p>別被「分散式鎖」嚇到。整件事就是闖 4 關，一關比一關關鍵：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>借鑰匙：一次只給一個人</h3>
+    <p>機器要動共用資源前，先跟管理員（協調服務）<strong>借鑰匙（acquire 鎖）</strong>。管理員確保<strong>同一時刻只發給一個人</strong>，
+    其他人只能等。事情做完，記得<strong>還鑰匙（release）</strong>，下一個才進得去。</p>
+    <div class="analogy"><span class="label">🚻 比喻</span>就是辦公室那把唯一的廁所鑰匙：拿到的人進去，其他人在門口排隊等。</div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>借鑰匙要設「時限」（租約 / lease）</h3>
+    <p>為了避免「麻煩一：人失聯、鑰匙卡死」，管理員<strong>不會把鑰匙永久借出</strong>，而是給一個<strong>時限</strong>（例如 10 秒）。
+    這叫<strong>租約（lease）</strong>。</p>
+    <ul>
+      <li>你還在用？就要<strong>定時回報「我還在用」</strong>（叫 <strong>續租 / 心跳</strong>），時限就會延長。</li>
+      <li>你<strong>沒回報了</strong>（當機、斷網）？時限一到，管理員<strong>自動把鑰匙收回</strong>，讓別人能用。</li>
+    </ul>
+    <div class="analogy"><span class="label">📚 比喻：圖書館借書</span>
+      書借了有<strong>還書期限</strong>。你想繼續看就去<strong>續借</strong>；你都不理它，到期系統就當你不要了，自動收回給別人。鑰匙也一樣，<strong>到期自動回收</strong>，不怕被人拿了卡住不還。</div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>⭐ 防護令牌（fencing token）：擋掉「以為自己還拿著鑰匙」的人</h3>
+    <p>這關是<strong>整題最重要的考點</strong>，請慢慢讀。它要解的，就是「<strong>麻煩二：人恍神，鑰匙早被收走他卻不知道</strong>」。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：每次借鑰匙都給一個「遞增號碼」</span>
+      管理員每次借出鑰匙，都<strong>附一張號碼牌</strong>，而且號碼<strong>只會越來越大</strong>：第一個人 33 號、下一個人 34 號……
+      這張號碼牌就是<strong>防護令牌（fencing token）</strong>。
+    </div>
+    <p>接著最妙的地方：<strong>廁所門口</strong>（也就是你真正要動的那份資源）會<strong>記住「我見過的最大號碼」</strong>。每次有人要進來動東西，都得亮出號碼牌：</p>
+    <ul>
+      <li>33 號的人恍神太久，鑰匙過期被收回，34 號的人已經進去動過了 → 門口記住的最大號碼變成 <strong>34</strong>。</li>
+      <li>33 號的人這時才回神，<strong>以為自己還握著鑰匙</strong>，拿著 33 號跑來要動東西。</li>
+      <li>門口一看：「<strong>你 33 號 &lt; 我見過的 34 號，你的太舊了</strong>」→ 直接<strong>擋掉</strong>，資料不會被他覆蓋弄壞。</li>
+    </ul>
+    <div class="box warn"><span class="label">為什麼這招這麼神</span>
+      因為門口<strong>不用相信時鐘、不用知道誰借了鑰匙、不用管別人有沒有恍神</strong>——它只要<strong>比大小</strong>就好：號碼比較舊的一律拒絕。
+      只要號碼是「只增不減」的，過期的人就<strong>永遠</strong>追不上，安全有保障。</div>
+    <p>👉 面試時這是分水嶺：如果這把鎖是要保證「<strong>正確性</strong>」（兩個人同時動會弄壞資料），<strong>光有鎖不夠，一定要講防護令牌</strong>，不然會被當場刷掉。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>順便附贈：服務發現（誰還活著的「線上通訊錄」）</h3>
+    <p>既然已經有一個「超可靠管理員」會記錄「誰借了鑰匙、誰還在回報心跳」，那它<strong>順手</strong>就能多做兩件事：</p>
+    <ul>
+      <li><strong>服務發現</strong>：每台機器上線就來<strong>登記「我活著，地址在這」</strong>，並定時回報心跳；不回報就自動下架。
+        別的機器要找人合作，就來查這份<strong>「線上通訊錄」</strong>，只會拿到<strong>還活著的</strong>名單。</li>
+      <li><strong>設定中心</strong>：把大家共用的<strong>開關和參數</strong>（例如限流數字）放這裡集中管，一改，所有機器馬上收到通知。</li>
+    </ul>
+    <div class="analogy"><span class="label">💬 比喻：公司的「線上通訊錄」</span>
+      就像通訊軟體上的<strong>線上狀態</strong>：誰在線（綠燈）、誰離線（灰掉）一目了然。
+      你要找人辦事，只會去敲<strong>還亮綠燈</strong>的人，不會打給已經離職的。</div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>借鑰匙</strong>（一次一人）→ ② 借鑰匙<strong>有時限</strong>（到期自動收回，不怕卡死）→ ③ 每次借都給<strong>遞增號碼</strong>，門口靠比大小擋掉過期的人（最重要）→ ④ 同個管理員順便維護<strong>誰還活著的通訊錄</strong>。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「兩個人同時以為自己拿到鑰匙」</span>
+    這是<strong>最致命</strong>的——一旦兩個人同時動同一份資料，資料就壞了。所以「<strong>安全（絕不發錯鑰匙）</strong>」是<strong>底線中的底線</strong>，
+    而最後一道保命符就是<strong>防護令牌</strong>（門口比號碼，舊的擋掉）。<em>寧可慢，不可發錯。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「鑰匙被卡死收不回」</span>
+    借鑰匙的人當機失聯，鑰匙若收不回，整個系統就卡住。所以鑰匙<strong>一律有時限（租約）</strong>，
+    到期就自動回收。代價是「人只是恍神一下也可能被收鑰匙」——但這正好由防護令牌補上，安全不破。<em>寧可早收回，不可卡死。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「管理員自己掛掉」</span>
+    這個管理員是全系統的「<strong>真相來源</strong>」，它一掛，大家都借不到鑰匙。所以管理員<strong>不會只有一個</strong>，
+    而是用<strong>奇數個（3 個或 5 個）一起當</strong>，凡事<strong>多數同意才算數</strong>（少數服從多數）。
+    掛掉 1 個還有另外 2 個能繼續服務。<em>真相只能有一個，但備援要夠多。</em>
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀：</p>
+  <ul>
+    <li>🏛️ 中間那一排（3 個節點）就是<strong>超可靠管理員（協調服務）</strong>。它們<strong>互相對答案</strong>，多數同意才算數，所以「不會說謊」。</li>
+    <li>🔑 <strong>機器 A</strong> 來借鑰匙，拿到鑰匙<strong>＋一張號碼牌（fencing token）</strong>。</li>
+    <li>🚪 機器 A 拿著號碼牌去動<strong>下游資源（廁所門口）</strong>；門口<strong>只認大號碼，小號碼一律擋</strong>。</li>
+    <li>👀 其他機器可以<strong>盯著（watch）</strong>鑰匙，一旦鑰匙被放掉，馬上收到通知去搶。</li>
+    <li>📒 旁邊的<strong>呼叫端</strong>來查「線上通訊錄」，拿到的都是<strong>還活著的機器</strong>名單。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>分散式鎖</td><td>很多台機器共用的「廁所鑰匙」，一次只給一人</td></tr>
+    <tr><td>協調服務 (etcd/ZooKeeper)</td><td>保管鑰匙、絕不發錯的「超可靠管理員」</td></tr>
+    <tr><td>租約 (lease)</td><td>借鑰匙的「時限」：到期沒續借就自動收回</td></tr>
+    <tr><td>續租 / 心跳 (renew)</td><td>定時喊「我還在用！」，鑰匙時限就延長</td></tr>
+    <tr><td>fencing token（防護令牌）</td><td>每次借鑰匙附的「遞增號碼牌」，門口靠比大小擋掉過期的人</td></tr>
+    <tr><td>選主 (leader election)</td><td>一群機器選一個「組長」做主，組長掛了自動換人</td></tr>
+    <tr><td>服務發現 (service discovery)</td><td>「誰還活著」的線上通訊錄</td></tr>
+    <tr><td>設定中心 (config)</td><td>共用開關/參數集中放一處，一改全體收到</td></tr>
+    <tr><td>watch（監看）</td><td>盯著某個東西，一變化就立刻被通知（不用一直問）</td></tr>
+    <tr><td>強一致 / CP</td><td>寧可暫停服務，也絕不發出互相矛盾的答案</td></tr>
+    <tr><td>多數決 (quorum)</td><td>奇數個管理員，「過半同意」才算數</td></tr>
+    <tr><td>安全性 vs 活性</td><td>「絕不發錯鑰匙」(安全) 比「隨時都借得到」(活性) 重要</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：先估規模才知道準備多少料</span>
+    這管理員要罩多少機器、每秒處理幾次借還鑰匙、要存多大？先把這幾個數字的「形狀」抓出來。
+  </div>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>要幾個管理員</td><td>3 個（容忍掛 1 個）；要更穩就 5 個（容忍掛 2 個）</td><td>一定是<strong>奇數</strong>，才好「過半投票」</td></tr>
+    <tr><td>每秒能處理幾次借/還鑰匙</td><td>約一萬～數萬次（受「要過半確認＋寫進硬碟」拖累）</td><td>它<strong>不是無限快</strong>，別把它當高速資料庫操</td></tr>
+    <tr><td>能放多大的資料</td><td>每筆建議 &lt; 1KB，整庫上限約幾 GB</td><td>它只放<strong>關鍵的小紙條</strong>，不是拿來存大檔案的</td></tr>
+    <tr><td>鑰匙時限 (TTL) 設多久</td><td>常見 5～30 秒</td><td>太短→風吹草動就誤判掉線；太長→真掛了要等很久才收回</td></tr>
+  </table>
+  <div class="box tip"><span class="label">🎯 關鍵洞察：它不是資料庫</span>
+    這管理員的價值在「<strong>少量、超關鍵、絕不出錯的小紙條</strong>」（誰拿了鑰匙、誰活著、哪個開關開著），<strong>不是</strong>拿來存大量資料的。
+    把它當資料庫塞，是最常見的災難。</div>
+  <p class="pause">💭 停一下：為什麼鑰匙時限（TTL）「越短越好」其實是錯的？</p>
+  <details class="qa"><summary>看答案</summary>
+    時限太短，網路只要稍微抖一下、心跳慢了一拍，管理員就誤以為你掛了、把鑰匙收走，造成<strong>頻繁誤判、一直換人</strong>，而且大家要更密集地回報心跳，壓力變大。所以要在「快點發現真的掛掉」和「不要動不動誤判」之間取平衡，常見抓 5～30 秒。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統講好的「<strong>點餐單格式</strong>」：你要點什麼、我回你什麼。講好格式就能合作，不用知道對方內部怎麼運作。
+  </div>
+  <p>這題的「點餐單」其實就對應前面四關：</p>
+  <pre><code>① 借/還/續 鑰匙（鎖）
+   借： lock   { 哪把鎖, 我是誰, 時限 }  → 回你：{ 號碼牌(token), 何時到期 }
+   還： unlock { 哪把鎖, 我是誰 }
+   續： renew  { 哪把鎖, 我是誰, 時限 }   ← 心跳，喊「我還在用」</code></pre>
+  <p class="codecaption">注意借鑰匙回給你的不只是「成功」，還附一張<strong>號碼牌（token）</strong>——這就是第 3 關的防護令牌，等下動資源要用。</p>
+  <pre><code>② 動下游資源時，一定要「亮出號碼牌」
+   寫資源/{id}   附上：號碼牌=42
+   （門口規則：只接受「比上次見過更大」的號碼，舊的擋掉）</code></pre>
+  <p class="codecaption">這一行是<strong>整題的靈魂</strong>：資源端靠「比號碼大小」自保，不用相信時鐘、不用知道鎖的存在。</p>
+  <pre><code>③ 選組長 / 看誰是組長
+   campaign { 哪場選舉, 候選人, 時限 } → { 你是不是組長, 現任組長 }
+
+④ 服務發現 + 設定中心
+   register { 服務名, 實例, 地址, 時限 }   ← 上線登記＋要續租
+   discover?service=付款服務            → 回：還活著的實例清單
+   設定： put { 開關名, 值 }  /  watch 開關名 ← 一改就被通知</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：管理員桌上的幾本小冊子</span>
+    管理員要把事情記在「小冊子」（資料表）裡。重點是這幾本：
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔑</span>鑰匙簿（誰借了哪把鎖、號碼幾號）</h3>
+    <p>每把鎖一列：<code>哪把鎖 → { 誰借的, 何時到期, <strong>號碼牌(token)</strong> }</code>。
+    這個號碼牌來自一個<strong>「只會往上加的計數器」</strong>，每成功借出一次就 +1——所以號碼<strong>永遠不重複、永遠遞增</strong>，才能拿來比大小。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🚪</span>門口簿（每份資源見過的最大號碼）</h3>
+    <p>每份下游資源各自記一筆：<code>這份資源 → 見過的最大號碼</code>。
+    有人來動，就拿他的號碼跟這個比：<strong>比這個小，一律拒絕</strong>。這就是防護令牌能保命的關鍵——擋掉所有「過期還來亂」的人。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📒</span>名冊簿（誰還活著）</h3>
+    <p>每個服務記：<code>服務名 → { 各實例的地址, 綁的租約 }</code>。
+    這些登記是<strong>「綁租約的」</strong>：實例不續租（心跳停）→ 租約一死，<strong>名單自動消失</strong>，查到的永遠是活著的。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>借/還鑰匙寫不夠快（每筆都要過半確認＋寫硬碟）</td><td>別把它當資料庫；只放關鍵小紙條；把它<strong>切成多個獨立叢集</strong>分擔</td></tr>
+    <tr><td><strong>盯太多人</strong>：一個熱門開關一改，要通知好幾萬個監看者</td><td>通知<strong>批次合併</strong>、加一層<strong>代理幫忙轉發</strong></td></tr>
+    <tr><td><strong>驚群</strong>：組長一掉線，所有人同時搶鑰匙、擠成一團</td><td>讓大家<strong>排隊</strong>：每人只盯「排在自己前一位」的人，前面的放手才換你（不用全體擠）</td></tr>
+    <tr><td>太多機器一直反覆查通訊錄/設定</td><td>讓副本提供<strong>唯讀查詢</strong>，加上<strong>機器自己快取</strong>＋一變化才更新</td></tr>
+    <tr><td>幾十萬實例各自一個短時限的心跳，太吵</td><td>多個實例<strong>共用一個租約</strong>、把時限拉長一點</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 這把鎖是為了「效率」還是「正確性」？（面試開場必問）</span>
+    為了<strong>效率</strong>（偶爾兩人重複做只是浪費時間）→ 普通鎖就夠；為了<strong>正確性</strong>（兩人同動會壞資料）→ <strong>非加防護令牌不可</strong>，少了它直接出局。</div>
+  <div class="fear"><span class="label">⚖️ 拿不到鎖時，要「一直猛問」還是「盯著等通知」？</span>
+    一直猛問（自旋輪詢）既浪費又會擠成一團。正解是<strong>盯著（watch）</strong>，等前一位放手時被<strong>自動叫醒</strong>，比較省力也不會驚群。</div>
+  <div class="fear"><span class="label">⚖️ 用普通 Redis 做鎖行不行？（必知爭議）</span>
+    純 Redis 那套（Redlock）在「人恍神＋時鐘亂跳」時<strong>仍可能讓兩人同時持鎖，而且它不發號碼牌</strong>。
+    要正確性，請用 etcd/ZooKeeper（強一致）＋防護令牌；Redis 鎖只適合「效率型」場景。</div>
+  <details class="qa"><summary>💭 追問：管理員自己全掛了怎麼辦？</summary>
+    用奇數個（3/5）多數決容錯，掛少數還能撐。萬一真的整組掛了，正確做法是「<strong>借不到鑰匙就停手</strong>」（fail-safe），<strong>不要</strong>沒鎖還硬幹——硬幹才會壞資料。</details>
+  <details class="qa"><summary>💭 追問：那不如直接用資料庫的「鎖定這筆資料」就好？</summary>
+    可以，但少了「<strong>到期自動收回</strong>」和「<strong>一變化就通知</strong>」這兩個好用功能，而且會把協調壓力全壓在主資料庫上。所以才有專門的協調服務。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，把六種協調能力都做成可點按的按鈕，<strong>尤其能親眼看到「舊號碼牌被擋掉」</strong>：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8036 -t public
+# 然後瀏覽器打開 http://localhost:8036</code></pre>
+  <ol>
+    <li>先<strong>借一把鎖</strong>，記下它給你的<strong>號碼牌</strong>（例如 1）。</li>
+    <li>用這個號碼牌<strong>去寫資源</strong> → 成功（門口記住最大號碼 = 1）。</li>
+    <li>再<strong>借一次同一把鎖</strong>，拿到新號碼牌（2），也寫一次資源（門口最大號碼變 2）。</li>
+    <li>現在<strong>故意拿舊的號碼牌 1</strong> 去寫資源 → 觀察它<strong>被拒絕</strong>。這就是 fencing 在保命！</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>那張「被拒絕」的畫面，正是真實世界裡<strong>恍神醒來的人想覆蓋別人寫入</strong>的瞬間——門口靠比號碼大小，幫你把資料守住了。</div>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    這個 demo 是<strong>單機模擬</strong>：用一個狀態檔＋檔案鎖，模擬「一個被複製、絕不說謊的管理員」，<strong>沒有</strong>真正的多台節點投票。
+    但租約、防護令牌、watch、選主、服務發現的<strong>邏輯都是真的、可實際執行</strong>，特別是「舊號碼牌被擋」這個最重要的考點。要變成真叢集，把底層換成 etcd/ZooKeeper 即可，上層玩法不變。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「廁所鑰匙」解釋什麼是分散式鎖。</summary>
+    辦公室只有一間廁所、一把鑰匙，誰拿到誰才能進、一次一人，別人排隊等。很多台機器要動同一份資料時也一樣，需要一把大家都認的「鑰匙」保證同時只有一個人在動，避免資料撞壞。</details>
+  <details class="qa"><summary>Q2：為什麼借鑰匙一定要設「時限」（租約）？</summary>
+    因為借鑰匙的人可能突然當機、斷網，鑰匙若是永久的就永遠收不回、廁所卡死。設時限後，沒續借就自動收回，別人能接手。像圖書館借書到期自動還。</details>
+  <details class="qa"><summary>Q3（最重要）：什麼是防護令牌？它解決什麼問題？用「號碼牌」說說看。</summary>
+    每次借鑰匙都附一張<strong>只增不減的號碼牌</strong>。它解決「有人恍神太久、鑰匙早被收走給別人、他卻以為自己還拿著」的危險：門口記住見過的最大號碼，那個恍神的人拿舊號碼來寫，門口一比「你的太舊」就擋掉，資料不會被覆蓋壞。靠比大小就安全，不用信時鐘。</details>
+  <details class="qa"><summary>Q4：服務發現像什麼？它怎麼知道誰「下線」了？</summary>
+    像通訊軟體的線上狀態（綠燈/灰掉）——一份「誰還活著」的通訊錄。每台機器上線登記並定時回報心跳；心跳一停，綁的租約死掉，名單自動移除，查到的永遠是活著的。</details>
+  <details class="qa"><summary>Q5：為什麼管理員要用「奇數個」？</summary>
+    因為要靠「過半同意」才算數（少數服從多數），奇數才不會出現剛好一半對一半、僵住分不出勝負的情況。3 個能容忍掛 1 個，5 個能容忍掛 2 個。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼說「不能把協調服務當資料庫用」？</summary>
+    因為它每筆寫都要「過半確認＋寫進硬碟」，速度有限（每秒一萬～數萬），整庫容量也小（幾 GB）。它的價值是「少量、超關鍵、絕不出錯的小紙條」，塞大量資料進去會把它拖垮。</details>
+  <details class="qa"><summary>Q7（工程）：拿不到鎖時，為什麼不要「一直猛問有沒有空」？該怎麼做？</summary>
+    一直猛問（自旋輪詢）浪費資源，而且大家同時搶會擠成一團（驚群）。正解是「盯著（watch）」前一位，等他放手時被自動叫醒；甚至排成一隊，每人只盯前一位，輪到才動。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>分散式鎖 = 很多台機器共用的「廁所鑰匙」，一次只給一個人；協調服務 = 那個絕不發錯的超可靠管理員。</strong></p>
+    <p><strong>4 個關卡：</strong>① 借鑰匙（一次一人）→ ② 借鑰匙有時限（到期自動收回，不怕卡死）→ ③ <strong>每次借附遞增號碼牌，門口比大小擋掉過期的人（最重要）</strong> → ④ 同個管理員順便維護「誰還活著」的通訊錄。</p>
+    <p><strong>3 個怕：</strong>怕兩人同時以為拿到鑰匙（靠防護令牌保命）、怕鑰匙卡死收不回（靠租約到期自動收）、怕管理員自己掛（靠奇數個多數決）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>它不是資料庫（只放關鍵小紙條）→ 借鑰匙會回一張號碼牌、動資源要亮號碼牌 → 幾本小冊子（鑰匙簿/門口簿/名冊簿）→ 找出塞車環節各自拓寬，正確性場景<strong>非加防護令牌不可</strong>。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊱ 分散式鎖 + 服務發現 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

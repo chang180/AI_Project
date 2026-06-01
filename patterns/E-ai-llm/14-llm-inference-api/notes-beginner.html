@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⑭ LLM 推論 API · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅴 AI/LLM 系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>⑭ LLM 推論 API · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">E AI/LLM</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼這題的重點是「GPU 別空轉」？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 4 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你開了一家店，店裡只有<strong>一張超級貴的桌子</strong>（一張 GPU，租一小時就燒掉好幾百塊）。
+  客人（請求）一個個上門，每個人都想坐這張桌子，叫 AI 幫他「寫一段文字」。</p>
+  <p>LLM 推論 API 就是這家店的<strong>帶位系統</strong>：怎麼安排客人坐這張貴桌子，<strong>讓它一秒都不要空著</strong>、又不會讓客人等太久。
+  ChatGPT、各種 AI 對話服務的後台，本質都在做這件事。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    LLM 推論 API = <strong>把超貴的 GPU 當共享桌子來排隊、併桌、上菜</strong>：核心目標是「<strong>讓 GPU 一刻都不空轉</strong>」，而不是讓某一個客人最快吃完。
+  </div>
+
+  <h2 id="why">2. 為什麼這題的重點是「GPU 別空轉」？</h2>
+  <p>很多人第一直覺是：「不就是呼叫一次 AI 模型、把答案傳回來嗎？有什麼難？」難就難在<strong>那張桌子實在太貴了</strong>。</p>
+  <div class="analogy">
+    <span class="label">💸 比喻：計程車的「空車跑」</span>
+    計程車最怕的不是塞車，而是<strong>空車到處跑</strong>——沒載人還在燒油。GPU 就像一台貴到爆的計程車：
+    只要它在「開機卻沒在算東西」，你就在<strong>白白燒錢</strong>。
+  </div>
+  <p>所以這題的一切設計，都是為了同一件事：<strong>讓這台貴車隨時都載滿客人</strong>。衡量做得好不好的標準，不是「單一客人多快到家」，
+  而是「<strong>每小時總共載了多少人</strong>」——工程上叫<strong>吞吐量（throughput）</strong>。</p>
+  <p>還有一個關鍵：AI 生成文字是<strong>一個字一個字慢慢吐</strong>的（不是一次想好整段）。它每吐一個字，都要回頭看一遍前面所有的字，再決定下一個字。
+  這個「一個字一個字、邊吐邊往前看」的特性，正是後面所有設計的根源。</p>
+  <p class="pause">💭 停一下：如果 GPU 這麼貴，為什麼不乾脆「一個客人一張桌子」，誰來就現開一張，省得排隊？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為一張 GPU 一次其實能同時招呼好幾個客人（像一張大桌能併桌坐多人）。如果一人一桌，那張桌子大半時間都坐不滿、在空轉，等於把貴桌子的錢丟水裡。重點是<strong>把這張桌子塞滿人</strong>，而不是讓每個人獨佔。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「推論服務」嚇到。一個請求從進門到吃飽離開，其實就闖 4 關：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>進門：門口先驗票、記帳（API Gateway）</h3>
+    <p>客人一進門，門口的服務生先做三件事：<strong>看你有沒有票</strong>（API key 鑑權）、<strong>看你今天是不是點太多</strong>（限流），
+    還有<strong>幫你記帳</strong>（用了多少字、之後好算錢）。</p>
+    <div class="analogy"><span class="label">🎫 比喻</span>就像遊樂園入口：先驗門票、看你買的是不是 VIP 快速通關、順手記下你進場——確認沒問題才放你進去排隊。</div>
+    <p>👉 這一關刻意做得<strong>很輕、很快</strong>，因為它不負責「算 AI」，只負責守門。守門的可以多請幾個（沒狀態，隨便複製）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>排隊：照優先級排好隊（請求佇列）</h3>
+    <p>進場後不是馬上有桌子，要<strong>排隊</strong>。但排隊有講究：<strong>付錢多的 VIP 排前面</strong>，「不急的批次任務」（例如半夜跑報表）排最後面墊底。</p>
+    <div class="analogy">
+      <span class="label">🏥 比喻：醫院的檢傷分類</span>
+      急診室不是「先到先看」，而是<strong>照嚴重程度排</strong>：快不行的先進去，小擦傷的等一下。
+      系統也一樣，給每個請求一個優先級，避免<strong>一個慢吞吞的大訂單，把後面一堆快可以好的小訂單卡死</strong>。
+    </div>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>併桌：把客人湊在一起算（這關是全題核心）</h3>
+    <p>輪到上桌了。重點來了：那張貴桌子<strong>一次可以坐好幾個人</strong>（GPU 一次能同時幫好幾個請求算）。
+    問題是——<strong>怎麼安排併桌，桌子才不會有空位？</strong>這就是本題的靈魂：<strong>動態批次（continuous batching）</strong>。</p>
+    <div class="analogy">
+      <span class="label">🚌 比喻：拼車 / 公車（最重要的一個比喻！）</span>
+      笨方法是「<strong>包車</strong>」：湊滿 4 個人才開車，而且<strong>要等車上最慢的那個人到站，全車才能下、才能載下一批</strong>。
+      結果：早到站的人乾等，座位空著也不讓新乘客上——車子半空地跑，浪費。<br><br>
+      聰明方法是「<strong>公車</strong>」：<strong>邊開邊上下客</strong>。<strong>哪個乘客到站了，立刻下車、空出座位，馬上讓站牌等候的新乘客補上來</strong>，不必等全車的人。
+      於是座位<strong>幾乎時時刻刻是滿的</strong>，同一台車一趟就能服務多很多人。
+    </div>
+    <p>這就是「動態批次」：AI 每吐一個字（一個 step），系統就檢查一輪——<strong>誰生完了就讓出座位，立刻從排隊區拉一個新請求補進來</strong>，不用等整批一起結束。
+    效果驚人：同一張 GPU，吞吐量常常變成笨方法的 <strong>2～4 倍</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>上菜：一個字一個字端出去（串流回吐）</h3>
+    <p>AI 算好的字，不會等整段寫完才一次給你，而是<strong>寫好一個字就馬上推給你一個字</strong>。這就是你在 ChatGPT 看到字「一個一個蹦出來」的原因。</p>
+    <div class="analogy">
+      <span class="label">🍣 比喻：迴轉壽司 vs 套餐全上</span>
+      與其讓你<strong>枯等 10 分鐘才端出一整桌</strong>（套餐全上），不如<strong>做好一盤先送一盤</strong>（迴轉壽司）。
+      你很快就「有東西吃」，體感上等待短很多——這個「第一個字多快出現」叫 <strong>首字延遲（TTFT）</strong>。
+    </div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 門口<strong>驗票記帳</strong> → ② 照優先級<strong>排隊</strong> → ③ 像公車一樣<strong>邊開邊上下客（動態批次）</strong>把桌子塞滿 → ④ 一個字一個字<strong>串流端出去</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 4 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕四件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「桌子空著」</span>
+    GPU 只要有一個 step 在空轉，就是在燒錢。所以<strong>動態批次</strong>存在的唯一理由就是：<strong>座位一空出來，立刻補人</strong>。
+    <em>寧可排程邏輯寫得複雜，也不要讓貴桌子閒著。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「記憶體爆掉」</span>
+    AI 為了「一個字一個字往前看」，會把前面算過的東西<strong>記在 GPU 的記憶體裡不重算</strong>（這份「筆記」叫 <strong>KV cache</strong>）。
+    但記憶體有限，客人越多、聊得越長，這份筆記就越肥——<strong>記憶體常常先被塞爆，導致桌子併不了那麼多人</strong>。
+    這通常才是真正的瓶頸，不是算得不夠快。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「大訂單餓死小訂單」</span>
+    如果單純「誰先到誰先做、做完才換」，一個要寫 2000 字的超長請求，會把後面一堆「只要寫 10 個字」的小請求<strong>卡到天荒地老</strong>。
+    所以要有<strong>優先級排隊</strong>，還要限制單一請求最多寫幾個字，讓大家都有機會。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「一個人吃垮全店」</span>
+    如果某個客戶（租戶）的程式抓狂、瘋狂送請求，可能<strong>把整張桌子佔滿，害其他所有客戶都用不了</strong>。
+    所以要<strong>每個客戶各自限流、各有配額</strong>，把彼此隔開，一個出事不會拖垮全部。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🙋 <strong>客戶端</strong>送來請求「幫我寫一段文字」→</li>
+    <li>🎫 <strong>門口（API Gateway）</strong>驗票、限流、記帳 →</li>
+    <li>🚦 進<strong>排隊區</strong>，VIP 排前面、批次任務墊底 →</li>
+    <li>🚌 <strong>批次排程器</strong>像公車調度員：每吐一個字就檢查一輪，<strong>空位立刻補人</strong>（動態批次）→</li>
+    <li>💎 <strong>GPU Worker</strong>（那張貴桌子）幫桌上每個人各算下一個字，旁邊放著大家的「筆記本」（KV cache）→</li>
+    <li>📤 算好的字<strong>一個一個串流</strong>回吐給你（你看到字一個個蹦出來）。</li>
+  </ul>
+  <p>右下角還有一句重點：<strong>同一組（排程器 + GPU）可以複製好幾組</strong>，忙的時候多開、閒的時候縮回——省錢。</p>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>推論（inference）</td><td>讓訓練好的 AI 模型「實際幹活、產出答案」</td></tr>
+    <tr><td>GPU</td><td>那張超貴、算 AI 用的桌子；空著就在燒錢</td></tr>
+    <tr><td>token</td><td>AI 處理文字的最小單位，約等於「一個字 / 一小段詞」</td></tr>
+    <tr><td>吞吐量 (throughput)</td><td>「每秒總共能產出多少字」＝這張桌子每小時載了多少人</td></tr>
+    <tr><td>延遲 (latency)</td><td>單一客人要等多久；TTFT＝第一個字多快出現</td></tr>
+    <tr><td>continuous batching（動態批次）</td><td>像公車邊開邊上下客：座位一空就立刻補新人，不等整批</td></tr>
+    <tr><td>靜態批次</td><td>像包車：湊滿才開、要等全車最慢的人才能換下一批</td></tr>
+    <tr><td>KV cache</td><td>AI 記住「前面算過的東西」的筆記本，省得重算；很吃記憶體</td></tr>
+    <tr><td>prefill / decode</td><td>先「讀完你的問題」（prefill）→ 再「一個字一個字寫答案」（decode）</td></tr>
+    <tr><td>SSE 串流</td><td>寫好一個字就推一個字給你（字一個個蹦出來）</td></tr>
+    <tr><td>租戶 (tenant)</td><td>用這服務的不同客戶／公司，各自分開算帳與限流</td></tr>
+    <tr><td>限流 / 配額</td><td>限制每個客戶用多少，免得一個人吃垮全店</td></tr>
+    <tr><td>水平擴展 / 自動擴縮</td><td>忙就多開幾組桌子、閒就收掉，按需求省錢</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：開店前先估客流</span>
+    開店前，你會先估「一天大概來幾個客人、每人坐多久」，才決定<strong>要擺幾張桌子、請幾個人</strong>。
+    系統設計也一樣：先估數字，才知道要租幾張貴 GPU。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>一天多少次生成</td><td>每日 1000 萬次 ≈ 平均每秒 115 次，尖峰約 350 次</td><td>要能撐住尖峰，不是平均</td></tr>
+    <tr><td>每次寫多長</td><td>平均一次寫 300 個字（token）</td><td>每秒總共要產出 ~3.5 萬個字</td></tr>
+    <tr><td>一張桌子多能產</td><td>用動態批次，一張 GPU 約每秒 2500 字</td><td>3.5 萬 ÷ 2500 ≈ <strong>要 14 張 GPU</strong>（留點餘裕抓 ~20 張）</td></tr>
+    <tr><td>記憶體（KV cache）</td><td>每個字、每一層都要記一點</td><td>聊得越長、桌上人越多 → <strong>記憶體先爆，限制了能併幾人</strong></td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">📌 關鍵洞察：瓶頸在「記憶體」和「桌子有沒有坐滿」</span>
+    這題的瓶頸<strong>不是網路、不是 CPU</strong>，而是兩件事：<strong>GPU 的記憶體被 KV cache 吃光</strong>（併不了更多人），
+    以及<strong>桌子有沒有一直坐滿</strong>（有沒有在空轉）。整個設計都繞著「<strong>別讓 GPU 任何一秒空著</strong>」打轉。
+  </div>
+  <p class="pause">💭 停一下：流量有尖峰也有離峰，為什麼不能「永遠只租 20 張 GPU 開著」？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為離峰時段（例如半夜）幾乎沒人用，20 張桌子大半空著還在燒錢。所以要<strong>自動擴縮</strong>：忙的時候多開幾組、閒的時候縮回最小數量。
+    但又不能縮到 0——因為模型權重載入要幾十秒（開店要時間），所以<strong>保留最少幾組常駐待命</strong>，避免客人一來卻要等開店。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」：</p>
+  <pre><code>① 一次寫完（普通版）
+   POST /v1/completions
+   給我：{ 要用哪個模型, 你的提示文字, 最多寫幾個字, 創意程度 }
+   我回：整段寫好的文字 + 用了多少字（好算錢）</code></pre>
+  <p class="codecaption">「最多寫幾個字（max_tokens）」很關鍵：它順便<strong>防止某個人寫到天荒地老把桌子佔死</strong>，是限制大訂單的小韁繩。</p>
+  <pre><code>② 一個字一個字回吐（串流版）← 線上服務主力
+   POST /v1/completions  (stream=true)
+   我回：寫好 "Hello" → 馬上推給你
+         寫好 " world" → 馬上推給你
+         ... → 最後推一個 [DONE] 表示寫完了</code></pre>
+  <p class="codecaption">為什麼線上服務都用這個？因為生成是<strong>一個字一個字</strong>的，等整段寫完才回你要乾等好幾秒；邊寫邊推，<strong>第一個字幾百毫秒就出現</strong>，體感天差地別（迴轉壽司）。</p>
+  <pre><code>③ 查用量 / 算錢
+   GET /v1/usage?tenant=某客戶&from=...
+   我回：{ 讀進去多少字, 寫出來多少字, 該收多少錢 }</code></pre>
+  <p class="codecaption">計費按「讀進去的字 + 寫出來的字」算。而且記帳<strong>不擋在主要流程上</strong>——先把字產出去最重要，帳後面慢慢加總就好（這叫「與關鍵路徑解耦」）。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題其實只要兩本：一本記「<strong>每個客人現在進行到哪</strong>」，一本記「<strong>每個客戶用了多少（算錢）</strong>」。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧾</span>請求進度簿（每個客人現在到哪一步）</h3>
+    <p>每個請求一列，記它走到哪個階段：<code>排隊中 → 讀題中(prefill) → 寫答案中(decode) → 寫完</code>，
+    還有<code>是哪個客戶、優先級多高、要寫幾個字、已經寫了幾個、進場是第幾步、完成是第幾步</code>。</p>
+    <div class="analogy"><span class="label">為什麼要記「進場第幾步、完成第幾步」？</span>
+      這樣才能算出<strong>每個人等了多久、花了多久</strong>，公車調度員（排程器）才知道誰該優先、哪裡塞車。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">💰</span>用量簿（每個客戶用了多少，算錢）</h3>
+    <p>每個客戶一列，<strong>累加</strong>：<code>讀進去多少字、寫出來多少字、總共幾次請求</code>。</p>
+    <div class="analogy"><span class="label">為什麼要分開記？</span>
+      因為計費跟「產出文字」是兩件事，混在一起會拖慢主要流程。真實系統會把用量<strong>當成一連串事件丟到旁邊慢慢加總</strong>，不擋住客人吃飯。</div>
+  </div>
+  <div class="box tip"><span class="label">補充：那個吃記憶體的「KV cache」算資料嗎？</span>
+    算，但它<strong>活在 GPU 的記憶體裡、隨請求結束就丟掉</strong>，不是存進資料庫的長期資料。你只要記得「它很肥、會限制桌子能併幾人」就夠了。</div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>一張桌子有空位在空轉</td><td><strong>動態批次</strong>：座位一空就立刻補人（公車法）</td></tr>
+    <tr><td>記憶體被 KV cache 吃光，併不了更多人</td><td>把筆記本<strong>分頁整齊管理</strong>（PagedAttention）＋<strong>壓縮</strong>（量化）省記憶體</td></tr>
+    <tr><td>一張桌子再怎麼塞也不夠用了</td><td>多開<strong>好幾組（排程器+GPU）</strong>並排服務（水平擴展）</td></tr>
+    <tr><td>尖峰排隊、離峰桌子空著燒錢</td><td><strong>自動擴縮</strong>：依排隊長度、桌子忙不忙，自動加減組數</td></tr>
+    <tr><td>大訂單拖慢小訂單</td><td><strong>優先級排隊</strong>＋限制單筆最多寫幾字；必要時把「讀題」和「寫答案」分開部署</td></tr>
+    <tr><td>單一客戶暴衝佔滿全店</td><td>給每個客戶<strong>各自的水龍頭（限流）＋配額</strong>，彼此隔開</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的四個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 吞吐 vs 延遲（最核心）</span>
+    一次併越多人，桌子越滿、總產量越高（吞吐高）；但每個人要等的隊伍也越長，第一個字更慢出現（延遲差）。
+    實務做法：<strong>在「最慢也不能超過某個秒數」的約束下，盡量把桌子塞滿</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 包車 vs 公車（靜態 vs 動態批次）</span>
+    包車（靜態批次）寫起來簡單，但桌子常空轉；公車（動態批次）寫起來複雜，但吞吐翻倍——<strong>線上服務幾乎都選公車</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 想多併人 vs 記憶體不夠</span>
+    想一次招呼更多客人，卻被 KV cache 把記憶體吃光 → 用<strong>壓縮（量化）和分頁管理</strong>把記憶體省出來，換更多座位。</div>
+  <details class="qa"><summary>💭 追問：「讀你的問題」和「寫答案」為什麼有人要分開做？</summary>
+    因為這兩件事個性完全不同：<strong>讀題（prefill）</strong>是一口氣讀完整段，很吃「算力」；<strong>寫答案（decode）</strong>是一個字一個字慢慢來，很吃「記憶體頻寬」。
+    混在同一張桌子會互相扯後腿，分開部署可以各自調到最省。</details>
+  <details class="qa"><summary>💭 追問：服務剛開、第一個客人來時為什麼特別慢？</summary>
+    因為要先把幾十 GB 的「模型權重」載進 GPU（開店、進貨要時間，可能幾十秒）。對策是<strong>預熱</strong>＋<strong>保留最少幾組常駐</strong>，不要讓客人撞上「正在開店」。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「公車怎麼邊開邊上下客」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8014 -t public
+# 然後瀏覽器打開 http://localhost:8014</code></pre>
+  <ol>
+    <li>先<strong>提交幾個長度不同的請求</strong>（等於幾個要坐不同久的客人上門）。</li>
+    <li>設定<strong>最大批次大小</strong>（例如 4，等於這張桌子最多併 4 人）。</li>
+    <li>按「<strong>一步步推進</strong>」（每按一下＝AI 吐一個字）→ 觀察：<strong>誰寫完空出座位、新請求怎麼立刻補進來</strong>。</li>
+    <li>對照畫面上「<strong>動態 vs 靜態</strong>」的利用率：看看公車法是不是真的讓桌子坐得更滿。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把批次大小調大，桌子是不是塞更多人、總產量更高，但有人要等更久？這就是<strong>吞吐 vs 延遲</strong>的取捨。
+  注意有人寫完馬上有新人補上、座位幾乎沒空著——這就是<strong>動態批次（公車）</strong>在運作。</div>
+  <div class="box warn"><span class="label">誠實聲明</span>
+    這個 Demo <strong>沒有真正的 GPU 或 AI 模型</strong>，吐出的「字」是用提示文字算出來的假資料（純示意）。
+    但<strong>「座位讓出、立刻補人」的調度邏輯、優先級排隊、利用率統計（公車 vs 包車對比）全都是真的、可執行的</strong>——這正是本題的核心考點。
+  </div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「公車 vs 包車」解釋什麼是動態批次（continuous batching）？</summary>
+    包車要湊滿才開、還得等全車最慢的人到站才能換下一批，座位常空著（靜態批次）。公車邊開邊上下客，誰到站就下、空位立刻補新乘客（動態批次），座位幾乎一直滿——同一張 GPU 吞吐常變 2～4 倍。</details>
+  <details class="qa"><summary>Q2：為什麼這題的目標是「GPU 別空轉」而不是「讓某個請求最快」？</summary>
+    因為 GPU 超貴，空轉就是燒錢。一張 GPU 一次能同時招呼好幾個請求，所以重點是把它塞滿、最大化「每秒總產出（吞吐量）」，而不是讓單一客人獨佔、最快吃完。</details>
+  <details class="qa"><summary>Q3：KV cache 是什麼？為什麼它常常是瓶頸？</summary>
+    AI 一個字一個字寫，每寫一個字都要回頭看前面所有字；KV cache 就是把「前面算過的東西」記在 GPU 記憶體裡省得重算的筆記本。它隨聊天變長、人變多而變肥，常常先把記憶體塞爆，限制了桌子能併幾個人。</details>
+  <details class="qa"><summary>Q4：為什麼線上服務要「一個字一個字串流回吐」？</summary>
+    生成是逐字進行的，等整段寫完才回要乾等好幾秒；邊寫邊推，第一個字幾百毫秒就出現（首字延遲 TTFT 短），體感像迴轉壽司——很快就有東西吃。</details>
+  <details class="qa"><summary>Q5（工程）：批次開越大越好嗎？要在什麼之間取捨？</summary>
+    不是。批次越大、桌子越滿、吞吐越高，但隊伍越長、單請求要等越久、首字越慢。實務是「在 P99 延遲（最慢也不能超過某秒數）約束下，盡量把批次塞滿」。</details>
+  <details class="qa"><summary>Q6（工程）：怎麼避免「大訂單餓死小訂單」？至少講兩招。</summary>
+    ① 優先級排隊（VIP/短請求排前、batch 任務墊底）；② 限制單一請求最多寫幾個字（max_tokens）；③ 必要時把「讀題(prefill)」和「寫答案(decode)」分開部署，互不拖累。</details>
+  <details class="qa"><summary>Q7（工程）：離峰沒人用，為什麼不能把 GPU 全關掉省到底？</summary>
+    因為模型權重載入要幾十秒（開店要時間）。全關掉的話，客人一來要乾等開店。對策是自動擴縮但<strong>保留最少幾組常駐＋預熱</strong>，平衡省錢與反應速度。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>LLM 推論 API = 把超貴的 GPU 當共享桌子，想辦法讓它一刻都不空轉。</strong></p>
+    <p><strong>4 個關卡：</strong>① 門口驗票記帳 → ② 照優先級排隊 → ③ 像公車一樣邊開邊上下客（動態批次）把桌子塞滿 → ④ 一個字一個字串流端出去。</p>
+    <p><strong>4 個怕：</strong>怕桌子空著（動態批次補位）、怕記憶體爆（KV cache 是頭號瓶頸）、怕大訂單餓死小訂單（優先級＋限字數）、怕一個人吃垮全店（各自限流隔離）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估要租幾張 GPU（瓶頸在記憶體與利用率）→ 用「點餐單(API)」溝通、串流回吐讓首字快 → 兩本筆記本（請求進度／用量）→ 找出塞車環節各自拓寬，閒時自動縮、忙時自動加。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>⑭ LLM 推論 API · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㉒ 廣告點擊聚合 / 計費 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅳 串流計算/儲存分發</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㉒ 廣告點擊聚合 / 計費 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">D 串流計算/儲存分發</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「數點擊次數」沒那麼簡單？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你開了一間<strong>停車場</strong>。每台車進來都要在閘口抽一張票，月底你照「進場次數」跟客戶<strong>收停車費</strong>。
+  廣告點擊聚合就是這件事的網路版：每支廣告被點一下，就像一台車進場；系統要<strong>算每支廣告被點了幾次</strong>，
+  然後照次數跟廣告主<strong>結帳收錢</strong>。</p>
+  <p>聽起來不就是「數數字」嗎？難就難在——<strong>這個數字直接等於錢</strong>。多算一下，廣告主被多扣錢、會翻臉；
+  少算一下，平台自己虧。而且每天有<strong>幾十億次</strong>點擊湧進來，還有人專門派機器人來亂點。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    廣告點擊聚合 = <strong>一台超精準、防作弊的點擊收費機</strong>：海量點擊湧進 → 去掉重複的、擋掉作弊的 → 每小時結算一次帳 → 拿去收錢，<strong>一塊錢都不能算錯</strong>。
+  </div>
+
+  <h2 id="why">2. 為什麼「數點擊次數」沒那麼簡單？</h2>
+  <p>很多人第一個反應是：「不就是 <code>COUNT(*)</code> 加一加？」這題真正的陷阱在一個你生活裡也遇過的問題——</p>
+  <div class="analogy">
+    <span class="label">📮 比喻：同一封信寄了兩三次</span>
+    你網購下單，系統怕你沒收到通知，<strong>同一封確認信寄了兩三次</strong>給你。你收到三封，但其實<strong>只下了一張單</strong>。
+    如果倉庫照「收到幾封信」出貨，就會出三次貨——這就慘了。
+  </div>
+  <p>網路傳訊息也一樣：為了「保證不漏掉」，系統寧可<strong>同一筆點擊送個兩三次</strong>（這叫「至少送一次」）。
+  問題是——<strong>同一次真實點擊，絕對不能算兩次錢</strong>。所以系統得有辦法認出「這封信我收過了」，重複的就丟掉。</p>
+  <p>再加上第二個麻煩：有人會派<strong>機器人狂點別人的廣告</strong>，把對手的廣告預算燒光。這種點擊雖然是「真的有人（機器）點了」，
+  但<strong>不能算錢</strong>。所以系統還要會「看點擊的行為，判斷哪些是作弊的」。</p>
+  <p class="pause">💭 停一下：「同一封信收兩次」跟「機器人狂點」，這兩個問題能用<strong>同一招</strong>解決嗎？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    不行，要分兩關處理。「同一封信收兩次」是<strong>內容一模一樣的重複</strong>——每筆點擊帶一個獨一無二的編號，看到重複的編號就丟掉即可。
+    但機器人狂點時，<strong>每一下都是「不同的」點擊（編號都不一樣）</strong>，騙得過去重那一關，所以要另外一關專門「看行為」：同一個人/IP 短時間點了幾百下，就判定作弊。所以是兩個獨立的關卡。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「串流系統」嚇到。整件事其實就是讓每一筆點擊闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>收下：先把點擊「接住」，別讓人等</h3>
+    <p>使用者點一下廣告，系統要<strong>馬上接住、立刻放行</strong>，不能讓使用者卡在那邊等「結算完成」。</p>
+    <div class="analogy"><span class="label">🅿️ 比喻</span>就像停車場閘口：車一來，<strong>「叭」一聲抬桿、丟一張票給你就放行</strong>，不會叫你停在閘口等收費員把帳算完。算帳是後面的事。</div>
+    <p>所以收點擊的服務只做一件事：把點擊<strong>丟進一條「待處理輸送帶」</strong>就回「收到」。這條輸送帶（叫 Kafka）能先把暴衝的車流囤著，後面慢慢處理。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>去重：同一筆點擊，只准算一次</h3>
+    <p>輸送帶上難免有<strong>重複的點擊</strong>（同一封信寄了兩三次）。這一關要把重複的挑掉。</p>
+    <div class="analogy">
+      <span class="label">🎫 比喻：演唱會驗票</span>
+      每張票有<strong>獨一無二的票號</strong>。驗票員手上有一本「<strong>已進場名單</strong>」，掃到沒看過的票號就放行並記下來；
+      掃到<strong>已經進過場的票號，就擋下來</strong>（同一張票不能讓兩個人進）。
+    </div>
+    <p>系統一樣：每筆點擊在<strong>發生的當下</strong>就帶一個獨一無二的編號（叫 <strong>click_id</strong>）。去重關有一本「看過的編號」名單，重複的就丟掉。
+    這樣不管同一筆點擊被送來幾次，<strong>都只算一次</strong>——這就是花大力氣要做到的「<strong>exactly-once（剛好一次）</strong>」。</p>
+    <p>⚠️ 小細節：那本「看過的編號」名單不能無限長（會撐爆記憶體），所以只記<strong>最近一段時間</strong>（例如最近幾小時），過期就清掉。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>防作弊：擋掉機器人灌的點擊</h3>
+    <p>剩下的點擊雖然都「不重複」了，但裡面藏著<strong>機器人狂點</strong>的假流量，不能拿去收錢。</p>
+    <div class="analogy">
+      <span class="label">🏪 比喻：店員看出來「這人不對勁」</span>
+      一個人<strong>一分鐘衝進你店裡 300 次</strong>，店員一看就知道不正常。系統也是：盯著「同一個 IP / 同一台裝置」，
+      如果<strong>短時間內點擊次數爆量</strong>，就判定是作弊，這些點擊<strong>不算錢</strong>。
+    </div>
+    <p>記住：<strong>去重 ≠ 防作弊</strong>。去重是擋「一模一樣的重複」；防作弊是擋「看起來很多筆、但行為很可疑」的點擊。兩件不同的事，所以是兩關。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>結算：把時間切成整段，分段算帳</h3>
+    <p>剩下的就是「乾淨、可收錢」的點擊了。最後一關：把它們<strong>按時間分段加總</strong>。</p>
+    <div class="analogy">
+      <span class="label">⏰ 比喻：每小時結算一次帳</span>
+      像便利商店<strong>每小時清點一次收銀機</strong>：8 點到 9 點一筆帳、9 點到 10 點一筆帳……每段時間<strong>不重疊、不漏接</strong>，
+      一筆點擊只會被算進它發生的那一段。這種「把時間切成整齊、不重疊的段」就叫 <strong>tumbling window（翻滾視窗）</strong>。
+    </div>
+    <p>於是系統就能回答：「廣告 A 在 14:00～15:00 這段被點了 1832 次」。這些分段數字加起來，就是要跟廣告主收的錢。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>收下</strong>點擊立刻放行 → ② <strong>去重</strong>（重複的票擋掉）→ ③ <strong>防作弊</strong>（機器人灌的不算）→ ④ <strong>分段結算</strong>（每小時一筆帳）。乾淨的數字拿去收錢。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「算錯錢」</span>
+    這是頭號大忌。<strong>多算</strong>→廣告主被多扣、告你、不再投廣告；<strong>少算</strong>→平台自己虧錢。
+    所以同一筆點擊<strong>絕不能算兩次</strong>（去重做到 exactly-once），這是<em>硬規定，沒得商量</em>。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「漏掉點擊」</span>
+    點擊一旦在網路上弄丟，那筆錢就收不回來了。所以傳輸時<strong>寧可重送也不漏送</strong>（叫 at-least-once）。
+    重送造成的重複怎麼辦？交給<strong>第 2 關去重</strong>處理。<em>寧可重複，不可遺失。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「被作弊洗錢」</span>
+    如果擋不住機器人灌點擊，廣告主的預算會被<strong>燒在假流量上</strong>，發現後對整個平台失去信任。
+    所以「<strong>把作弊點擊踢出帳單</strong>」跟「算對錢」一樣是底線。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，由左到右一路看：</p>
+  <ul>
+    <li>🖱️ <strong>有人點廣告</strong> →</li>
+    <li>📥 <strong>收集服務</strong>立刻接住、回「收到」，把點擊丟上輸送帶（Kafka 削峰，先囤著慢慢處理）→</li>
+    <li>🎫 <strong>去重關</strong>查「看過的編號」名單，重複的票擋掉 →</li>
+    <li>🚫 <strong>防作弊關</strong>看行為，把機器人灌的點擊踢掉 →</li>
+    <li>⏰ <strong>結算關</strong>把乾淨點擊按「每小時一段」加總（tumbling window）→</li>
+    <li>📊 算好的數字存進<strong>報表庫（OLAP）</strong>，廣告主即時看花了多少錢；日終再<strong>重算一次對帳</strong>把數字校到精確。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>click_id</td><td>每筆點擊的「票號」，獨一無二，用來認出重複</td></tr>
+    <tr><td>去重 / exactly-once</td><td>同一張票只准進場一次，同一筆點擊只算一次錢</td></tr>
+    <tr><td>at-least-once</td><td>「至少送一次」：傳輸寧可重送也不漏送</td></tr>
+    <tr><td>反欺詐 / 防作弊</td><td>看行為，把機器人灌的假點擊踢出帳單</td></tr>
+    <tr><td>tumbling window（翻滾視窗）</td><td>每小時結算一次帳：把時間切成不重疊的整段</td></tr>
+    <tr><td>sliding window（滑動視窗）</td><td>「近 5 分鐘平均」那種會重疊的段，適合做監控不適合算錢</td></tr>
+    <tr><td>event-time（事件時間）</td><td>按「點擊真正發生的時刻」算帳，不是按「伺服器收到的時刻」</td></tr>
+    <tr><td>watermark（水位線）</td><td>一個「這段時間的點擊應該都到齊了」的信號，到了才結算</td></tr>
+    <tr><td>Kafka（輸送帶）</td><td>暴衝的點擊先囤在這條輸送帶上，後面慢慢處理（削峰）</td></tr>
+    <tr><td>OLAP（報表庫）</td><td>專門存「算好的統計數字」、給報表快速查的資料庫</td></tr>
+    <tr><td>TTL</td><td>「保存期限」：名單只留最近一段時間，過期自動清掉</td></tr>
+    <tr><td>對帳 / Lambda 雙層</td><td>即時先給個近似數字，日終再重算一次校到精確</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>每天多少次點擊</td><td>50 億次／天 ≈ 每秒 5.8 萬筆（暴衝時 ×5）</td><td>不可能逐筆慢慢寫進傳統資料庫，要用輸送帶削峰</td></tr>
+    <tr><td>原始點擊資料多大</td><td>每筆約 200 bytes → 一天約 1 TB</td><td>原始事件存便宜的倉庫，只把「算好的數字」放報表庫</td></tr>
+    <tr><td>「看過的票號」名單多大</td><td>留 1 小時 ≈ 2 億筆 ≈ 3.2 GB</td><td>會一直長大 → <strong>一定要設保存期限（TTL）</strong>，過期清掉</td></tr>
+    <tr><td>結算結果多少</td><td>1000 萬支廣告 × 每分鐘一格 → 一天上百億列</td><td>要用「壓縮得很好的報表庫（OLAP）」存</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🌊 關鍵洞察：高速公路收費站</span>
+    點擊像<strong>高速公路車流</strong>：尖峰瞬間暴衝、平常普通。如果收費站要求「每台車當場算完月帳才放行」，整條路會塞死。
+    所以做法是<strong>先抬桿放行＋丟張票（收下就回 202）</strong>，把車流囤在輸送帶上，後面再慢慢結算。
+  </div>
+  <p class="pause">💭 停一下：那本「看過的票號」名單，為什麼<strong>不能永遠留著</strong>？只留最近幾小時會不會出錯？</p>
+  <details class="qa"><summary>看答案</summary>
+    永遠留著會把記憶體撐爆（一天就 2 億筆 ×24）。但保存期限也不能太短——要<strong>比「上游最晚可能重送的時間」還長</strong>，
+    否則一筆遲到的重複點擊送來時，名單裡已經把它清掉了，就會被當成新的、<strong>多算一次錢</strong>。所以這是「省記憶體 vs 算對錢」的取捨。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」：</p>
+  <pre><code>① 上報一筆點擊（最高頻）
+   POST /clicks
+   給我：{ 票號 click_id, 廣告 ad_id, 是誰 user_id, 從哪 ip, 點擊時間 ts }
+   我回：202「收到了！」← 立刻回，不讓你等結算</code></pre>
+  <p class="codecaption">為什麼「立刻回 202」？因為點擊的人不該卡著等我們去重、防作弊、結算。先收下、丟上輸送帶，後面<strong>慢慢處理</strong>。
+  注意<strong>票號(click_id)是「點擊發生的當下」就由前端產生</strong>——這樣同一筆點擊不管被重送幾次都帶同一個票號，去重才認得出來。</p>
+  <pre><code>② 查某支廣告分時段的點擊數（給報表用）
+   GET /ads/{ad_id}/clicks?from=...&to=...&granularity=1m
+   我回：{ 每分鐘一格的可計費點擊數, 總計 }</code></pre>
+  <p class="codecaption">這是「讀」的點餐單，直接從<strong>算好的報表庫</strong>撈，所以很快（不必當場去翻幾十億筆原始點擊）。</p>
+  <pre><code>③ 查廣告主的帳單（即時近似 vs 對帳後精確）
+   GET /advertisers/{id}/billing?date=2026-05-31
+   我回：{ 即時近似金額, 對帳後精確金額 }</code></pre>
+  <p class="codecaption">會給兩個數字：<strong>即時近似</strong>（馬上看得到，可能差一點點）和<strong>對帳後精確</strong>（日終重算過、可拿去真正收錢）。</p>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：幾本不同用途的本子</span>
+    系統處理的每一關，都各自記在自己的「本子」裡。為什麼要分開？因為<strong>每本本子的用途和壽命都不一樣</strong>——
+    驗票名單看完就丟、帳本要長期保存。混在一起，一本爆了會拖垮全部。
+  </div>
+  <div class="step">
+    <h3><span class="badge">🎫</span>看過的票號（去重用，短命）</h3>
+    <p>記「最近哪些 <code>click_id</code> 已經算過了」。鑰匙就是票號本身，看到重複的就丟。
+    這本<strong>只留最近幾小時</strong>（設 TTL），不然會無限長大。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🚫</span>各 IP 的點擊紀錄（防作弊用，短命）</h3>
+    <p>記「每個 IP / 裝置最近這陣子點了幾下」。用來抓「短時間爆量」的機器人。一樣只看<strong>近期一小段時間</strong>。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">⏰</span>各時段的結算數字（帳本，長存）</h3>
+    <p>記 <code>(廣告 ad_id, 哪個時段 window_start) → 這段算了幾次可計費點擊</code>。
+    這就是最後拿去收錢的帳本，要<strong>長期保存</strong>，放進壓縮得很好的報表庫（OLAP）。</p>
+    <div class="analogy"><span class="label">為什麼帳本要按「廣告＋時段」當鑰匙？</span>
+      因為收錢就是問「<strong>這支廣告、這段時間，被點幾次</strong>」。用這組當鑰匙，查帳和累加都直接對得上，不用再翻原始點擊。</div>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>點擊暴衝，一台機器收不下</td><td>收集服務不存任何狀態，<strong>多開幾台</strong>＋輸送帶(Kafka)先囤著削峰</td></tr>
+    <tr><td>「看過的票號」名單越長越大</td><td>設<strong>保存期限(TTL)</strong>過期清掉＋按票號切成好幾份分開存</td></tr>
+    <tr><td>所有廣告都擠同一個結算器</td><td>輸送帶<strong>按廣告分流</strong>，同一支廣告固定走同一個結算器，各算各的</td></tr>
+    <tr><td>有「超熱門廣告」獨自塞爆一台</td><td>把熱門廣告再<strong>拆成好幾股分頭算</strong>，最後合併</td></tr>
+    <tr><td>報表查詢量太大打爆結算器</td><td>把算好的數字<strong>放進報表庫(OLAP)＋快取熱門廣告</strong>，查詢不碰原始資料</td></tr>
+    <tr><td>即時數字跟真實值有一點點誤差</td><td>日終<strong>重放原始點擊重算一次（對帳）</strong>，把帳校到精確</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 至少送一次＋去重 vs 真正的「剛好一次傳輸」</span>
+    讓網路傳輸「保證剛好送一次」極難又貴。業界務實做法：<strong>傳輸只保證不漏（會重送）→ 收端用票號去重</strong>，效果等同剛好一次。</div>
+  <div class="fear"><span class="label">⚖️ 票號名單留多久？</span>
+    留太短 → 遲到的重複點擊漏抓、多算錢；留太長 → 記憶體爆。原則：<strong>留得比上游最晚可能重送的時間還長一點</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 翻滾視窗 vs 滑動視窗</span>
+    收錢一定用<strong>翻滾視窗</strong>（每小時一段、不重疊，一筆點擊只算一段）。<strong>滑動視窗</strong>（會重疊）拿來算「近 5 分鐘平均」做監控就好，拿去收錢會重複算錢。</div>
+  <details class="qa"><summary>💭 追問：點擊「遲到」了（網路塞車晚到 10 分鐘）怎麼算？</summary>
+    用「事件時間」歸到它<strong>真正發生</strong>的那一段，不是按收到的時間。系統用「水位線」判斷某段是否到齊才結算；遲到太久、那段已結算的，就丟到<strong>日終對帳</strong>時再補算。</details>
+  <details class="qa"><summary>💭 追問：結算器中途當機重啟，會不會把同一段重算、害人被多扣錢？</summary>
+    不會。結算器會定期存檔（checkpoint）並記住處理到輸送帶的哪個位置；重啟後從上次位置重放，重放出來的重複點擊會被<strong>第 2 關去重</strong>擋掉，所以不會多算。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「去重 → 防作弊 → 結算」這條漏斗：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8022 -t public
+# 然後瀏覽器打開 http://localhost:8022</code></pre>
+  <ol>
+    <li>按「<strong>跑範例批次</strong>」（等於餵一批點擊事件進管線）。</li>
+    <li>觀察那條<strong>漏斗</strong>：原始事件數 → <strong>去重後剩多少</strong> → <strong>踢掉作弊後剩多少</strong> → 最終可計費數。</li>
+    <li>再看<strong>分時段的聚合結果</strong>：每支廣告每個視窗被算了幾次。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把同一筆點擊（同一個 click_id）餵兩次，看「去重後」的數字會不會變多——不會，這就是 <strong>exactly-once 去重</strong>在運作。再把同一個 IP 連點很多下，看它怎麼被<strong>防作弊關</strong>踢出帳單。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「同一封信收兩次」解釋，為什麼點擊計數不是單純 COUNT(*)？</summary>
+    因為傳輸層為了不漏掉，會把同一筆點擊重送兩三次（像同一封確認信寄兩三次）。直接 COUNT 會把重複也算進去 → 多收錢。所以要先去重，同一筆只算一次。</details>
+  <details class="qa"><summary>Q2：去重和防作弊為什麼是「兩個不同的關卡」？</summary>
+    去重擋的是「票號一模一樣的重複」；防作弊擋的是機器人灌的點擊——它每一下票號都不同，騙得過去重，所以要另一關專門「看行為」（同 IP 短時間爆量就剔除）。</details>
+  <details class="qa"><summary>Q3：tumbling window（翻滾視窗）是什麼？用「每小時結算」說說看。</summary>
+    把時間切成不重疊的整段（像便利商店每小時清點一次收銀機），每筆點擊只屬於它發生的那一段，加總起來就是帳。不重疊，所以不會重複算錢。</details>
+  <details class="qa"><summary>Q4：為什麼傳輸選「寧可重送也不漏送」，而不是想辦法剛好送一次？</summary>
+    漏掉點擊那筆錢就收不回來了，而「保證剛好送一次」的傳輸極難又貴。務實做法：傳輸保證不漏（會重送），重複的交給收端的去重關處理，效果等同剛好一次。</details>
+  <details class="qa"><summary>Q5（工程）：收到點擊為什麼要「立刻回 202」而不是算完才回？</summary>
+    因為點擊的人不該卡著等去重、防作弊、結算跑完。先接住、丟上輸送帶(Kafka)就回「收到」，後面非同步慢慢處理。像停車場閘口先抬桿放行，算帳是後面的事。</details>
+  <details class="qa"><summary>Q6（工程）：為什麼 click_id（票號）一定要在「點擊發生的當下」由前端產生？</summary>
+    這樣同一筆點擊不管被重送幾次都帶同一個票號，去重才認得出是重複。如果等到伺服器才生編號，重送就會變成兩個不同編號，去重失效，會多算錢。</details>
+  <details class="qa"><summary>Q7（工程）：「看過的票號」名單為什麼要設保存期限，期限要設多長？</summary>
+    不設會無限長大撐爆記憶體。但要設得比「上游最晚可能重送的時間」還長，否則一筆遲到的重複送來時名單已清掉它，就會被當成新的多算一次。這是省記憶體 vs 算對錢的取捨。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>廣告點擊聚合 = 一台超精準、防作弊的點擊收費機。</strong></p>
+    <p><strong>4 個關卡：</strong>① 收下點擊立刻放行 → ② 去重（重複票擋掉，做到 exactly-once）→ ③ 防作弊（機器人灌的不算）→ ④ 分段結算（每小時一筆帳，tumbling window）。</p>
+    <p><strong>3 個怕：</strong>怕算錯錢（同一筆絕不算兩次）、怕漏掉點擊（寧可重送＋去重）、怕被作弊洗錢（假流量踢出帳單）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>先估「高速公路尖峰」般的暴衝 → 收到先回 202、票號上游產生 → 三本本子（看過的票號短命／IP 紀錄短命／結算帳本長存）＋名單設 TTL → 即時出近似、日終重算對帳到精確。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㉒ 廣告點擊聚合 / 計費 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊸ 推薦系統 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅴 AI/LLM 系統</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊸ 推薦系統 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">🅴 AI/LLM</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼不能「整間店掃一遍」？</a></li>
+      <li><a href="#steps">把系統拆成 3 個關卡</a></li>
+      <li><a href="#cold">第一次來的客人怎麼辦？（冷啟動）</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你走進一間<strong>有 200 萬本書的超級大書店</strong>。你什麼都沒說，店員卻能在幾秒內，
+  端來一疊<strong>「你大概會喜歡」的書</strong>放在你面前。這就是推薦系統在做的事——
+  購物網站的「猜你喜歡」、YouTube 的下一支影片、首頁那條永遠滑不完的信息流，背後都是它。</p>
+  <p>它的難，不難在「會不會挑書」，而難在<strong>規模 + 速度</strong>：商品有<strong>幾百萬個</strong>、用戶有<strong>幾千萬人</strong>，
+  而你只有<strong>不到 0.1 秒</strong>可以反應（慢一點你就滑走了）。不可能每次都把 200 萬個商品全部評一輪。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    推薦系統 = <strong>會看人端菜的書店店員</strong>：先<strong>粗略抓一疊你可能愛的（召回）</strong>，
+    再<strong>從這疊裡精挑出最好的幾本端給你（排序）</strong>。先海選、再決賽，兩階段。
+  </div>
+
+  <h2 id="why">2. 為什麼不能「整間店掃一遍」？</h2>
+  <p>很多人第一個念頭是：「不就把每個商品都打個分數，分數高的排前面就好？」聽起來合理，但你想想——</p>
+  <div class="analogy">
+    <span class="label">🛒 比喻：選舉跟超商集點</span>
+    要選出「全國最受歡迎的人」，你<strong>不會</strong>叫 2300 萬人每個都互相打分（算到天荒地老）。
+    你會先<strong>初選</strong>圈出幾百個有人氣的，再讓他們<strong>決選</strong>細比。
+    一次只認真比「一小撮」，而不是「全部」。
+  </div>
+  <p>推薦系統一模一樣。200 萬個商品，每個都用複雜模型仔細打分，<strong>幾秒鐘根本算不完</strong>，使用者早就關掉 App 了。</p>
+  <p>所以聰明的做法是<strong>分兩階段</strong>：<br>
+  ① 先用<strong>很便宜、很快</strong>的方法，把 200 萬粗砍成<strong>幾百個候選</strong>（這叫<strong>召回</strong>）。<br>
+  ② 再用<strong>很貴、很準</strong>的方法，只對這幾百個仔細打分排名（這叫<strong>排序</strong>）。</p>
+  <p>關鍵洞察：<strong>「貴」的工只做在「少數」身上。</strong>把 200 萬瞬間縮到幾百，貴的排序才付得起這個錢。</p>
+  <p class="pause">💭 停一下：為什麼不乾脆「只用便宜的召回」就好，省掉排序這步？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為召回為了快，用的是很粗的方法，只能保證「大致相關」，分不出這幾百個裡面<strong>誰最好</strong>。排序才會考慮「現在幾點、你用手機還是電腦、這商品最近紅不紅」等細節，把最該擺第一的挑出來。<strong>召回管廣度（別漏掉好東西），排序管精度（把最好的擺最前）。</strong>
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 3 個關卡</h2>
+  <p>別被「系統」嚇到。整件事其實就是闖 3 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>召回：先抓一籃「可能喜歡的」</h3>
+    <p>目標：從幾百萬商品裡，<strong>快速</strong>撈出幾百個候選。怎麼撈？常用兩條路，可以同時跑：</p>
+    <div class="analogy">
+      <span class="label">👥 路 A：協同過濾「跟你像的人也買了什麼」</span>
+      你買了登山鞋。系統發現「買登山鞋的人，常常也買登山杖、排汗衣」。
+      於是把<strong>登山杖、排汗衣</strong>丟進你的籃子。就像朋友推薦：<strong>「你跟阿明口味好像，他超愛這個，你應該也會喜歡」</strong>。
+    </div>
+    <div class="analogy">
+      <span class="label">🧭 路 B：embedding 找「氣味相近」的商品</span>
+      系統會幫每個商品標上一組「氣味座標」（這叫 <strong>embedding</strong>）——
+      讓<strong>意思相近的東西，座標也靠在一起</strong>（科幻小說 ↔ 科幻電影、瑜珈墊 ↔ 瑜珈服）。
+      於是「找你可能喜歡的」就變成「<strong>在地圖上找離你口味最近的幾個商品</strong>」，超快。
+    </div>
+    <p>👉 這兩路<strong>互補</strong>：協同過濾靠「大家一起買」的紀錄，遇到<strong>剛上架、還沒人買過</strong>的新商品就沒輒；
+    embedding 靠「內容像不像」，新商品只要氣味對也撈得到。所以兩條一起跑，再把結果<strong>合併去重</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>排序：從這一籃精挑出 Top-N</h3>
+    <p>籃子裡現在有幾百個候選了。這關要<strong>仔細比較</strong>，排出最該給你看的前 20 個。</p>
+    <div class="analogy">
+      <span class="label">🍽️ 比喻：店員端菜前再瞄你一眼</span>
+      店員抓了一疊書後，端給你之前還會想：<strong>「現在是早上（你可能想看輕鬆的）、你上週買過這系列、這本最近超紅」</strong>……
+      綜合一堆線索，才決定哪本擺最上面。排序就是在做這個「綜合考量、排名」。
+    </div>
+    <p>排序會看很多<strong>特徵（線索）</strong>：召回時的分數、商品多紅、夠不夠新、跟你過去口味合不合、現在幾點、你用什麼裝置……
+    全部餵進一個模型，算出「你會點它的機率」，由高到低排，取前 N 個。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>回饋：你一點，它就變更聰明</h3>
+    <p>你點了、買了、看了多久，這些動作會<strong>偷偷回流</strong>成新資料，讓系統越來越懂你。這叫<strong>回饋迴路</strong>。</p>
+    <div class="analogy">
+      <span class="label">🔁 比喻：常去的店記住你的習慣</span>
+      你常去的咖啡店，因為你每次都點燕麥拿鐵，店員漸漸記住了，下次你一進門就問「一樣燕麥拿鐵？」。
+      系統也是：你每次的點擊就是線索，<strong>慢慢累積成「它對你的理解」</strong>。
+    </div>
+    <p>⚠️ 但這裡有個陷阱：系統只看得到<strong>「它推給你、你才有機會點」</strong>的東西。
+    久了會<strong>越推越像、越來越窄</strong>（你只看到同一類，可能喜歡的新類別永遠出不來）。這個坑後面會再講怎麼補。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 三關一句話</span>
+    ① <strong>召回</strong>粗抓一籃（跟你像的人買了啥 + 氣味相近的商品）→ ② <strong>排序</strong>精挑出 Top-N → ③ 你的點擊<strong>回饋</strong>讓它更懂你。就這樣。</div>
+
+  <h2 id="cold">4. 第一次來的客人怎麼辦？（冷啟動）</h2>
+  <p>上面整套都建立在「<strong>系統認識你</strong>」之上。但如果是<strong>剛註冊、什麼都沒點過</strong>的新用戶呢？
+  系統對你一無所知，「跟你像的人」「你的口味座標」全都是空白——這叫<strong>冷啟動</strong>。</p>
+  <div class="analogy">
+    <span class="label">🆕 比喻：店員面對第一次上門的客人</span>
+    完全不認識你，店員會怎麼辦？先端<strong>店裡最暢銷的幾本</strong>給你看（總不會錯到哪去），
+    同時<strong>觀察你拿起哪本</strong>，馬上開始建立對你的印象。
+  </div>
+  <p>系統做法一樣：新用戶先推<strong>「熱門 / 大家都愛」</strong>當保底（fallback），
+  等你一有動作，立刻拿來啟動個人化。新<em>商品</em>也有同樣問題（沒人買過，協同過濾撈不到），
+  靠 embedding 的「內容氣味」先讓它有機會被看到，再慢慢累積數據。</p>
+  <p class="pause">💭 停一下：為什麼新用戶「推熱門」是個不錯的保底，而不是隨機亂推？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為熱門代表「<strong>大多數人都接受</strong>」，對一個你還不了解的人來說，這是命中率最高的猜測——總比亂槍打鳥好。等他點了第一下，你就有線索了，可以馬上切回個人化。隨機亂推容易踩雷，第一印象差人就跑了。
+  </details>
+
+  <h2 id="fears">5. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「召回漏了好東西」</span>
+    召回是第一關，<strong>召回沒撈到的，排序再強也救不回來</strong>（決賽名單裡根本沒這個人，怎麼比都選不上）。
+    所以召回寧可<strong>多開幾條路、撈寬一點</strong>。但太寬又會塞給排序一堆垃圾、拖慢速度——要拿捏。<em>寧可多撈，但別撈成垃圾山。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「太慢」</span>
+    使用者沒耐心，慢個半秒就滑走了。所以<strong>「貴的計算」一律離線先算好</strong>（商品的氣味座標、相似商品表，半夜慢慢算），
+    線上只做<strong>查表</strong>這種秒回的動作。<em>把重活搬到沒人等的時候做。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「越推越窄（回聲室）」</span>
+    一味迎合你過去的點擊，會把你關進「<strong>同溫層</strong>」——永遠只看到同一類，無聊又流失。
+    所以要<strong>故意留一點名額去「探索」</strong>新東西（叫 exploration），打散一下，讓你偶爾遇到驚喜。<em>別只討好，要偶爾驚喜。</em>
+  </div>
+
+  <h2 id="pic">6. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分「<strong>半夜先做功課</strong>」和「<strong>你一打開 App 的瞬間</strong>」兩部分看：</p>
+  <ul>
+    <li>🌙 <strong>離線（半夜慢慢算）</strong>：把大家的點擊紀錄拿來，算出「<strong>哪些商品常被同一批人買</strong>」的相似表、
+    幫每個商品標好「<strong>氣味座標</strong>」，存進倉庫備用。</li>
+    <li>⚡ <strong>線上（你一打開的瞬間）</strong>：</li>
+    <li>　① <strong>召回</strong>：查相似表（跟你買過的像的）＋查氣味地圖（離你口味近的）→ 撈出幾百個候選。</li>
+    <li>　（如果你是新用戶 → 走 <strong>熱門保底</strong>那條路）</li>
+    <li>　② <strong>排序</strong>：對這幾百個用一堆線索仔細打分 → 排出 <strong>Top-N</strong>。</li>
+    <li>📱 結果端到你眼前 → 你一點，動作又<strong>回流</strong>成新資料，餵養下一輪。</li>
+  </ul>
+
+  <h2 id="words">7. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>召回 (Recall / 候選生成)</td><td>海選：從幾百萬粗抓一籃「可能喜歡的」幾百個</td></tr>
+    <tr><td>排序 (Ranking / 精排)</td><td>決賽：對那一籃仔細打分，排出最好的 Top-N</td></tr>
+    <tr><td>協同過濾</td><td>「跟你口味像的人也買了什麼」「跟你買過的像的東西」</td></tr>
+    <tr><td>embedding（向量）</td><td>商品的「氣味座標」：意思相近的東西座標就靠在一起</td></tr>
+    <tr><td>ANN（近似最近鄰）</td><td>在氣味地圖上「快速找最近的幾個」的找法，不用全部量一遍</td></tr>
+    <tr><td>冷啟動</td><td>對新用戶/新商品一無所知時的處理（先推熱門保底）</td></tr>
+    <tr><td>特徵 (feature)</td><td>排序時參考的「線索」：多紅、多新、合不合你口味、現在幾點…</td></tr>
+    <tr><td>回饋迴路</td><td>你的點擊回流成新資料，讓系統越來越懂你</td></tr>
+    <tr><td>exploration（探索）</td><td>故意留名額推點新東西，避免越推越窄</td></tr>
+    <tr><td>離線 / 線上</td><td>離線=半夜慢慢算的重活；線上=你打開時的秒回查表</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆請求（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">8. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>商品 / 用戶規模</td><td>200 萬商品、5000 萬用戶</td><td>「誰買過誰」的大表超級空（&lt;0.1% 有填），不能硬掃全庫</td></tr>
+    <tr><td>有多少人在刷</td><td>每人每天刷 10 次 → 5 億次/天</td><td>平均每秒 6 千次、尖峰 3 萬次，讀的壓力很大</td></tr>
+    <tr><td>召回後剩幾個</td><td>從 200 萬縮到 ~500 個</td><td>砍掉約 4000 倍！貴的排序只付這 500 個的錢</td></tr>
+    <tr><td>能用多少時間</td><td>整趟 &lt; 100 毫秒（眨一下眼）</td><td>召回約 20ms＋排序約 30ms，剩的當緩衝</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">🎯 關鍵洞察：把貴的工留給少數</span>
+    瓶頸就是一句話：<strong>「商品太多 ÷ 時間太少」</strong>。200 萬個不可能在 0.1 秒內逐一細算。
+    解法永遠是：<strong>召回先把候選砍到幾百（用很快的查表、找最近鄰），排序只對這幾百個花大錢。</strong>
+  </div>
+  <p class="pause">💭 停一下：為什麼「把重活放到離線（半夜）做」能讓線上變快？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為訓練模型、算每個商品的氣味座標、算相似商品表，這些都是<strong>又慢又吃資源</strong>的事。半夜沒人等的時候慢慢算好、存起來，<strong>線上要用時直接查現成的</strong>就好——查表是毫秒級。把「算」和「用」分開，用的時候自然快。這叫「<strong>離線算、線上查</strong>」。</details>
+
+  <h2 id="api">9. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住三張「點餐單」：</p>
+  <pre><code>① 要推薦（最高頻，使用者一刷就呼叫）
+   GET /recommend?user=u_123&n=20&scene=home
+   我回：[ {商品:"i_55", 分數:0.83, 理由:"跟你買過的耳機相似"}, ... ]</code></pre>
+  <p class="codecaption">回傳會附上<strong>理由</strong>（讓推薦看起來不像亂猜，叫「可解釋性」）和「<strong>是不是冷啟動</strong>」的標記。這是被呼叫最兇的一張單，所以要最快。</p>
+  <pre><code>② 回報互動（你點了/買了，事件，非同步）
+   POST /interaction
+   給我：{ user:"u_123", 商品:"i_55", 動作:"click" }  # 看/點/買…</code></pre>
+  <p class="codecaption">關鍵：這張單<strong>走自己的通道，不擋推薦那條路</strong>。先收下你的點擊，後面慢慢拿去更新資料——就像餐廳收意見卡，不會因為你寫意見就讓後面的人沒法點餐。</p>
+  <pre><code>③ 找相似商品（商品詳情頁的「相關商品」）
+   GET /items/{id}/similar?n=10</code></pre>
+  <p class="codecaption">這張直接查離線算好的「相似表」就能回，不用跑完整兩階段。</p>
+
+  <h2 id="data">10. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：四本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。重點是<strong>「天天在寫的」和「偶爾算一次的」要分開放</strong>，原因下面講：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📝</span>互動簿（誰對誰做了什麼）</h3>
+    <p>每個動作一列：<code>user、商品、動作(看/點/買)、時間</code>。這本<strong>一直在加新行、量超大</strong>，
+    只加不改（append-only）。它是所有學習的原料。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔗</span>相似商品簿（離線算好）</h3>
+    <p><code>來源商品 → 相似商品 → 相似度分數</code>。每個商品只存「最像的前幾名鄰居」。
+    召回路 A（協同過濾）直接查這本，秒回。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🧭</span>氣味座標簿（embedding，離線算好）</h3>
+    <p><code>商品 → 一串座標數字（例如 64 個）</code>。召回路 B 在這本上「找最近鄰」。
+    200 萬個座標其實才約 0.5 GB，<strong>小到可以整本塞進記憶體</strong>，找起來飛快。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🏷️</span>特徵簿（排序要用的線索）</h3>
+    <p>分兩種：<code>每個 user 的(近期偏好、活躍度…)</code>、<code>每個商品的(多紅、多新、類別、點擊率…)</code>。
+    排序時<strong>快速查出這些線索</strong>來打分。</p>
+  </div>
+  <div class="box"><span class="label">為什麼要分這麼多本？</span>
+    因為它們的「個性」完全不同：互動簿是<strong>狂寫</strong>的流水帳、相似簿和座標簿是<strong>半夜算一次</strong>的成品、特徵簿是<strong>線上狂查</strong>的小抄。
+    分開放，才能各自用最適合的方式存、各自擴展。記住那句核心：<strong>線上只查不算，算的全留給離線。</strong></div>
+
+  <h2 id="bottleneck">11. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>召回：200 萬商品沒法即時逐一算</td><td>用「氣味地圖找最近鄰」＋查相似表，把「全部掃一遍」的笨功砍掉</td></tr>
+    <tr><td>排序：要查一大堆 user/商品的線索</td><td>把特徵簿放<strong>記憶體</strong>、一次批次撈、用不到的線索砍掉</td></tr>
+    <tr><td>剛點的東西沒馬上反映到推薦</td><td>大盤<strong>半夜批次算</strong>，近期口味用<strong>即時串流</strong>補上去（兩者合用）</td></tr>
+    <tr><td>商品一直新增，氣味地圖要重建很貴</td><td>支援「<strong>邊加邊用</strong>」的索引，平時增量補、定期再整個重建</td></tr>
+    <tr><td>每次都要對幾百個候選打分，算力吃緊</td><td>限制候選數上限、把模型<strong>瘦身</strong>、用 GPU 一次批次算多個</td></tr>
+  </table>
+
+  <h2 id="tradeoff">12. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 召回撈寬 vs 撈窄</span>
+    撈太寬 → 排序負擔大、混進雜訊；撈太窄 → 好東西根本進不了決賽。
+    實務做法：<strong>開多條召回路、各取一些，再控制總候選數</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 即時 vs 批次</span>
+    批次（半夜重算）穩、省力，但「剛點的」要等下次才反映；即時（串流更新）新鮮，但工程複雜。
+    常見折衷：<strong>離線算大盤 + 即時補近期</strong>。</div>
+  <div class="fear"><span class="label">⚖️ 準 vs 快</span>
+    更大的排序模型、更多線索 → 更準，但更慢更吃算力。
+    召回用「<strong>近似</strong>」（找差不多近的，不保證絕對最近）換速度——在 0.1 秒預算內找平衡。</div>
+  <details class="qa"><summary>💭 追問：「召回根本沒撈到那個好商品」怎麼救？</summary>
+    救不了——排序只能在召回給的籃子裡挑。所以對策在<strong>召回端</strong>：多開幾條路（協同過濾 + 內容/氣味召回兜底），讓好東西更不容易被漏掉。這也是為什麼「召回求廣度」這麼重要。</details>
+  <details class="qa"><summary>💭 追問：怎麼知道推得好不好？</summary>
+    線上看真實指標：<strong>點擊率、轉換率、停留時長</strong>，並做 <strong>A/B test</strong>（一半的人用新版、一半用舊版，比成績）。離線則用一些準確度指標先篩掉明顯爛的版本。</details>
+
+  <h2 id="play">13. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「召回 → 排序」兩階段：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8043 -t public
+# 然後瀏覽器打開 http://localhost:8043</code></pre>
+  <ol>
+    <li>點一個老用戶（例如 <strong>u1</strong>，3C 重度愛好者）→ 看它<strong>召回</strong>撈出哪些候選、再<strong>排序</strong>出 Top-N。</li>
+    <li>輸入一個<strong>沒互動過的新名字</strong>（例如 <code>newbie</code>）→ 看它<strong>退回推熱門</strong>（冷啟動）。</li>
+    <li>觀察每個推薦旁邊的「<strong>理由</strong>」和「召回分 vs 排序分」怎麼變。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>
+    對 u1 看召回撈出來「一籃」，再看排序後「順序變了」——這就是<strong>兩階段</strong>在運作（海選 → 決賽）。
+    換成新名字看它推熱門，這就是<strong>冷啟動保底</strong>。</div>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「書店店員」比喻，解釋推薦系統為什麼要分兩階段？</summary>
+    200 萬本書沒法本本仔細評（太慢）。店員先<strong>粗抓一疊你可能愛的（召回）</strong>，再<strong>從這疊精挑端給你（排序）</strong>。先海選、再決賽——貴的功只花在少數候選身上。</details>
+  <details class="qa"><summary>Q2：召回的兩條路是什麼？各自的長處與短處？</summary>
+    路 A 協同過濾：「跟你像的人也買了什麼」，靠大家的購買紀錄，但<strong>新商品沒人買過就撈不到</strong>。路 B embedding：用商品的「氣味座標」找相近的，<strong>新商品只要氣味對也撈得到</strong>。兩路互補，一起跑再合併。</details>
+  <details class="qa"><summary>Q3：新用戶什麼都沒點過，系統怎麼辦？為什麼這樣做？</summary>
+    冷啟動：先推<strong>熱門/大家都愛</strong>當保底（命中率最高的猜測），同時觀察他第一個動作，馬上開始個人化。比亂推安全。</details>
+  <details class="qa"><summary>Q4：為什麼「召回沒撈到，排序再強也沒用」？</summary>
+    排序只能在召回給的籃子裡排名。好東西沒進籃子，等於決賽名單裡根本沒這個人，怎麼比都選不上。所以召回要<strong>求廣度、別漏</strong>，常開多路召回兜底。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼要把「貴的計算」放到離線（半夜）做？</summary>
+    訓練模型、算氣味座標、算相似表都又慢又吃資源。半夜沒人等時算好存起來，<strong>線上只要查現成的</strong>（毫秒級）。把「算」和「用」分開，用的時候才快——離線算、線上查。</details>
+  <details class="qa"><summary>Q6（工程）：互動回報（你點了什麼）為什麼要走「獨立、非同步」的通道？</summary>
+    因為推薦讀取是最高頻、最該快的關鍵路徑，不能被「寫紀錄」這件事拖住。回報走自己的路先收下，後面再慢慢拿去更新特徵——<strong>寫不擋讀</strong>。</details>
+  <details class="qa"><summary>Q7（工程）：為什麼資料要分成互動簿、相似簿、座標簿、特徵簿好幾本？</summary>
+    因為它們個性不同：互動是<strong>狂寫</strong>的流水帳、相似/座標是<strong>離線算一次</strong>的成品、特徵是<strong>線上狂查</strong>的小抄。分開放才能各用最合適的存法與擴展方式，並落實「線上只查不算」。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>推薦系統 = 會看人端菜的書店店員：先海選（召回）、再決賽（排序）。</strong></p>
+    <p><strong>3 個關卡：</strong>① <strong>召回</strong>粗抓一籃（跟你像的人買了啥 + 氣味相近的商品）→ ② <strong>排序</strong>精挑 Top-N → ③ 你的點擊<strong>回饋</strong>讓它更懂你。新用戶先推<strong>熱門保底</strong>（冷啟動）。</p>
+    <p><strong>3 個怕：</strong>怕召回漏了好東西（多路召回、求廣度）、怕太慢（離線算、線上查）、怕越推越窄（留名額探索）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>瓶頸是「商品太多 ÷ 時間太少」→ 召回砍 4000 倍、排序只算幾百個 → 用「點餐單(API)」溝通、寫不擋讀 → 四本筆記本（互動/相似/座標/特徵）分開放 → 把重活全搬到離線。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊸ 推薦系統 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

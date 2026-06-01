@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>③ Polymarket 預測市場 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅲 一致性/交易</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>③ Polymarket 預測市場 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">C 一致性/交易</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 25 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（這系統在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#why">為什麼「機率」可以拿來買賣？</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>想像你經營一個<strong>線上菜市場</strong>，但賣的不是青菜，而是「對未來事件的賭注」。
+  比如「2028 誰當選總統？」這個攤位上，有人喊「我用 <strong>0.62 元</strong>買一張<strong>『會當選』</strong>的票」，
+  另一個人喊「我用 0.62 元賣一張」——你的工作就是<strong>把喊價對得上的買家賣家湊成一筆交易</strong>，而且<strong>一塊錢都不能算錯</strong>。</p>
+  <p>Polymarket（預測市場）就是在做這件事。它的難，難在兩點：<strong>怎麼又快又公平地把買賣單配對</strong>，以及<strong>錢絕對不能算錯</strong>（不能讓人花同一筆錢買兩次、餘額不能變負數）。</p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    預測市場 = <strong>一個「喊價配對」的交易所 + 一本「絕不出錯」的帳本</strong>：把買賣單依規則撮合成交，同時保證每一塊錢都對得上、查得到。
+  </div>
+
+  <h2 id="why">2. 為什麼「機率」可以拿來買賣？</h2>
+  <p>很多人第一個疑問是：「未來還沒發生，怎麼能買賣？」關鍵在一個你其實懂的生活經驗——<strong>下注</strong>。</p>
+  <div class="analogy">
+    <span class="label">🎫 比喻：一張「兌獎券」</span>
+    想像一張票，上面寫「<strong>如果 A 當選，這張票兌換 1 元；如果沒當選，這張票變廢紙</strong>」。
+    如果大家覺得 A 有 <strong>62% 機會</strong>當選，這張票現在大概值多少？——差不多 <strong>0.62 元</strong>。
+    機率越高的事，它的票就越值錢，價格自然往 1 元靠；越沒希望，價格往 0 元掉。
+  </div>
+  <p>所以這裡的「<strong>價格</strong>」其實就是大家心中「<strong>這件事會發生的機率</strong>」。買 0.62 的人賭它會發生（將來兌 1 元、賺 0.38）；賣的人賭它不會。
+  每個攤位有兩種票：<strong>YES（會發生）</strong>和 <strong>NO（不會發生）</strong>，事件結束後由一個公正的「裁判」（叫<strong>預言機 oracle</strong>）宣布結果，贏的那種票每張兌 1 元，輸的歸零。</p>
+  <p class="pause">💭 停一下：如果一張「YES 票」現在賣 0.9 元，這代表市場覺得這件事<strong>很可能</strong>還是<strong>很不可能</strong>發生？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    很可能發生。價格越接近 1 元，代表市場認為機率越高（90%）。因為事件成真時這張票會兌 1 元，所以「願意付 0.9 元買」就等於「賭它有九成把握成真」。價格 = 隱含機率，這是預測市場最核心的直覺。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「交易所」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>下單 + 先扣住錢（凍結）</h3>
+    <p>你喊「用 0.62 元買 100 張」，系統第一件事<strong>不是</strong>馬上成交，而是<strong>先把這筆錢扣住、卡在一邊</strong>（0.62 × 100 = 62 元）。</p>
+    <div class="analogy">
+      <span class="label">💳 比喻：刷卡的「預授權」</span>
+      你去飯店 check-in 或租車，店家會先在你信用卡上<strong>「預授權」一筆錢卡住</strong>，但還沒真的請款。
+      確定你有這筆錢、跑不掉了，才放心讓你住、讓你開車。系統下單也一樣：<strong>先凍結、確定你付得起，才讓這張單上場</strong>。
+    </div>
+    <p>👉 為什麼要先凍結？因為如果「掛單時有錢、輪到成交時錢卻被花掉了」，帳就爆了。先卡住錢，就杜絕這種情況——<strong>凍結不到，就不准下單</strong>。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>撮合：把買家賣家湊成一對</h3>
+    <p>單子進場後，要去找對手。問題是：<strong>同時有一堆人想買、一堆人想賣，誰先成交、用誰的價？</strong></p>
+    <div class="analogy">
+      <span class="label">🐟 比喻：菜市場喊價配對</span>
+      菜市場裡，<strong>出價最高的買家</strong>最先買到魚（誰肯出錢誰先得）；<strong>開價最低的賣家</strong>最先賣掉（誰肯便宜賣誰先成交）。
+      如果兩個人出一樣的價，那就<strong>先喊的先成交</strong>（排隊先到先贏）。
+    </div>
+    <p>這套規則叫 <strong>「價格優先、時間優先」</strong>：先比價（買家比誰出得高、賣家比誰開得低），同價再比誰先掛單。
+    當<strong>最高的買價 ≥ 最低的賣價</strong>，就配對成交。大單也可以<strong>吃掉好幾張小單</strong>，沒吃完的部分繼續留在攤位上等（叫「部分成交」）。</p>
+    <p>⚠️ 關鍵細節：這件事<strong>不能讓很多人同時亂搶</strong>，否則會出現「兩個買家同時吃掉同一張賣單」的鬼打牆。所以同一個攤位的所有單子，要<strong>排成一條隊、一筆一筆處理</strong>（後面 Part 2 會講為什麼這樣反而更快又更安全）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>過帳：把錢和票真正交換（一次到位）</h3>
+    <p>配對成交後，要真的<strong>銀貨兩訖</strong>：買方付錢拿到票、賣方交票拿到錢。這一步<strong>絕對不能做一半</strong>。</p>
+    <div class="analogy">
+      <span class="label">🤝 比喻：一手交錢一手交貨</span>
+      二手交易最怕「給了錢沒拿到貨」或「給了貨沒收到錢」。所以要<strong>同時發生、要嘛全部成功、要嘛全部取消</strong>——
+      不可能「買方錢扣了，票卻沒給」。系統把這一整組動作綁成<strong>一個不可分割的交易</strong>（術語叫 ACID 的原子性）。
+    </div>
+    <p>而且每扣一筆錢都用「<strong>有才扣得動</strong>」的方式做（餘額夠才扣、不夠就整筆拒絕），這樣<strong>餘額永遠不會變成負數</strong>，也防止有人拿同一筆錢買兩次（叫「防雙花」）。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>結算：事件揭曉，發錢</h3>
+    <p>事件結束（選舉開票了），由公正裁判<strong>預言機</strong>宣布結果。贏的那種票<strong>每張兌 1 元</strong>，輸的<strong>歸零</strong>。系統按大家手上的持倉，把錢發給贏家。</p>
+    <div class="analogy"><span class="label">🎰 比喻：開獎</span>就像彩券開獎：對中的票去櫃台換錢，沒中的就作廢。交易期間的買賣，賭的就是「我這張票最後能不能兌到 1 元」。</div>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① 下單先<strong>凍結錢</strong>（刷卡預授權）→ ② <strong>喊價配對</strong>撮合（菜市場）→ ③ <strong>一手交錢一手交貨</strong>過帳（絕不做一半）→ ④ 事件揭曉<strong>結算發錢</strong>。就這樣。</div>
+
+  <h2 id="fears">4. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「錢算錯」</span>
+    這是錢的事，<strong>正確性壓倒一切</strong>。不能超額下單、不能讓人花同一筆錢兩次、餘額不能變負數，事件結束後總錢數必須對得上（守恆）。
+    所以資金一定要<strong>強一致</strong>——你剛存的 100 元，下一秒查一定看得到，絕不會「等一下才同步」。<em>寧可慢一點，不可算錯。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「同時搶單搶到打架」</span>
+    很多人同時對同一個攤位下單，如果讓系統並行亂處理，會出現「<strong>兩個人吃掉同一張賣單</strong>」「同一筆錢被花兩次」的競態。
+    所以同一個市場的單子<strong>排成一條隊、一筆一筆認真處理</strong>（單執行緒序列化）——慢工出細活，反而最不會出錯。
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「系統一掛，帳就消失」</span>
+    撮合在記憶體裡跑（很快），但如果機器突然斷電，記憶體一清空，剛剛成交的單豈不是全沒了？
+    所以每一個動作（下單、成交、過帳）都先<strong>寫成一筆「永不塗改的流水帳」</strong>（事件日誌）。
+    機器掛了，<strong>把流水帳重新播一遍</strong>就能還原現場，事後查帳、對帳、處理糾紛也全靠它。
+  </div>
+
+  <h2 id="pic">5. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，順著一筆下單的旅程看：</p>
+  <ul>
+    <li>🧑 <strong>交易者</strong>送出「買/賣單」→</li>
+    <li>🛡️ <strong>API / 風控</strong>先檢查、<strong>凍結保證金</strong>（刷卡預授權），錢不夠直接退回 →</li>
+    <li>⚙️ <strong>撮合引擎</strong>（一條隊伍、一筆筆處理）跑「價格-時間優先」配對，產生成交 →</li>
+    <li>📜 每個動作都寫進<strong>事件日誌</strong>（永不塗改的流水帳，崩潰能重播）→</li>
+    <li>💰 <strong>結算/帳本</strong>做<strong>原子過帳</strong>（一手交錢一手交貨，要嘛全成要嘛全退）→</li>
+    <li>📈 成交的變動即時<strong>推播</strong>給在看行情的觀眾（最新價格、深度、成交）。</li>
+  </ul>
+
+  <h2 id="words">6. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>order book（委託簿）</td><td>攤位上「所有掛著的買單和賣單」的清單</td></tr>
+    <tr><td>撮合（matching）</td><td>把對得上價的買家賣家湊成一筆交易</td></tr>
+    <tr><td>價格-時間優先</td><td>先比價（買高/賣低先），同價先到先成交</td></tr>
+    <tr><td>maker / taker</td><td>先掛在簿上等的人（maker）/ 主動來吃單的人（taker）</td></tr>
+    <tr><td>部分成交</td><td>大單先吃掉幾張對手單，剩下的繼續掛著等</td></tr>
+    <tr><td>凍結（hold）</td><td>下單先把錢/票卡住，像刷卡「預授權」</td></tr>
+    <tr><td>過帳（settle）</td><td>真正把錢和票交換，「一手交錢一手交貨」</td></tr>
+    <tr><td>原子 / ACID</td><td>一整組動作「要嘛全成功、要嘛全取消」，不做一半</td></tr>
+    <tr><td>防雙花 / 防超額</td><td>不准用同一筆錢買兩次、餘額不准變負數</td></tr>
+    <tr><td>強一致</td><td>剛改的資料下一秒一定查得到（錢的事必須這樣）</td></tr>
+    <tr><td>事件日誌 / 事件溯源</td><td>永不塗改的流水帳，崩潰可重播、可查帳</td></tr>
+    <tr><td>單執行緒序列化</td><td>同一攤位的單排一條隊、一筆筆處理，不亂搶</td></tr>
+    <tr><td>分片（shard）</td><td>不同攤位分給不同機器各自處理，彼此不干擾</td></tr>
+    <tr><td>預言機（oracle）</td><td>宣布事件結果的公正裁判</td></tr>
+    <tr><td>冪等</td><td>同一個請求做幾次，結果都一樣（避免重複下單）</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">7. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：開店前先估生意量</span>
+    開店前，你會先估「一天大概做幾筆生意、尖峰時段多擠」，才決定<strong>請幾個店員、櫃台開幾個</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>一天下多少單（寫）</td><td>熱門事件 ~500 萬單/日，平均每秒約 58 筆，尖峰 ×10 約 580 筆</td><td>寫入量不算誇張，但<strong>不能出錯</strong>才是重點</td></tr>
+    <tr><td>看行情的人（讀）</td><td>看的人遠多於下單的人，讀:寫可達 100:1</td><td>看行情要走<strong>推播 + 快取</strong>，別每次都查帳本</td></tr>
+    <tr><td>一個攤位撮合多快</td><td>純記憶體、一條隊伍可達每秒~10 萬筆</td><td>單一攤位夠快了，瓶頸不在這</td></tr>
+    <tr><td>同時開幾個攤位</td><td>同時數千個活躍市場</td><td>不同攤位<strong>分給不同機器</strong>各管各的</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：別想「加人一起搶同一個收銀台」</span>
+    一般系統「變慢就多加機器並行」。但撮合<strong>不能這樣</strong>——多人同時動同一本帳會搶到打架、算錯帳。
+    正解是<strong>「一個攤位配一個專屬收銀台、一條隊伍」</strong>，要擴大就<strong>多開幾個攤位（不同市場）</strong>，攤位之間互不干擾。
+  </div>
+  <p class="pause">💭 停一下：行情（最新價格）每秒有上萬人來看，為什麼不直接讓他們去查那本「真相帳本」？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為那本帳本是<strong>錢的真相、要強一致</strong>，被上萬人狂查會拖垮它、還可能拖慢真正重要的下單與過帳。
+    所以把「看行情」和「動錢」<strong>分開</strong>：行情走推播 + 快取（看到的可能晚個零點幾秒沒關係），帳本只專心處理會動到錢的事。</details>
+
+  <h2 id="api">8. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 下一張單（最重要，撮合的入口）
+   POST /api/v1/orders
+   給我：{ 哪個市場, YES還是NO, 買還是賣, 價格0~1, 數量, 我的下單編號 }
+   我回：201「收到，已成交 40 張，還有 60 張掛著等」</code></pre>
+  <p class="codecaption">那個「我的下單編號（client_order_id）」很關鍵：如果網路不穩、你按了兩次或自動重送，系統靠這個編號認出「這是同一張單」，<strong>只算一次</strong>，不會幫你重複下單、重複凍結錢。這叫<strong>冪等</strong>——同個編號做幾次，結果都一樣。</p>
+  <pre><code>② 撤單（把還沒成交的單收回，退還凍結的錢/票）
+   DELETE /api/v1/orders/{order_id}</code></pre>
+  <pre><code>③ 看行情（超多人看 → 走推播 + 快取，別狂查帳本）
+   GET /api/v1/markets/{id}/book   → 現在簿上的買價/賣價、各有多少量
+   WS  /ws/markets/{id}            → 一有變動就「即時推」給你（不用一直問）</code></pre>
+  <p class="codecaption">為什麼看行情用「<strong>推</strong>」（WebSocket）而不是「<strong>拉</strong>」（一直重新整理）？因為上萬人每秒狂問「現在價格多少」會把系統問爆；改成「<strong>有變動我才主動推給你</strong>」，省事又即時。就像群組有新訊息會跳通知，你不用每秒打開看一次。</p>
+  <pre><code>④ 查帳戶 / 結算
+   GET  /api/v1/accounts/{id}/balance     → 可用現金、凍結中、各持倉
+   POST /api/v1/markets/{id}/resolve      → 裁判宣布結果，開始發錢</code></pre>
+
+  <h2 id="data">9. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：兩種筆記本——「可塗改的」和「不可塗改的」</span>
+    系統的資料分兩大類：<strong>會一直變動的「現況本」</strong>（餘額、掛著的單），和<strong>永不塗改的「流水帳本」</strong>（成交紀錄、事件日誌）。
+    分開的原因：錢的現況要能快速更新且強一致；歷史紀錄則要永久保存、能查帳。
+  </div>
+  <div class="step">
+    <h3><span class="badge">💰</span>帳戶本（誰有多少錢，可塗改）</h3>
+    <p>每個人一列：<code>可用現金、凍結中的現金、持有哪些 YES/NO 票</code>。
+    這是「錢的真相」，要<strong>強一致</strong>。每次扣錢都用「<strong>有才扣得動</strong>」的條件更新——餘額不夠就整筆拒絕，所以<strong>永遠不會變負數</strong>。</p>
+    <div class="analogy"><span class="label">為什麼要分「可用」和「凍結」兩欄？</span>
+      因為下單時錢還沒真的花掉，只是被「卡住」（預授權）。分兩欄，你才知道「<strong>哪些錢還能用、哪些已經被掛單佔住</strong>」，避免重複拿同一筆錢去下別的單。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📋</span>掛單本 + 攤位本（現在簿上有什麼，可塗改）</h3>
+    <p>掛單本記每張還沒成交完的單（價格、數量、成交了多少、狀態）；攤位本記每個市場（哪個事件、現在開市還是已結算）。這些是<strong>當下的現況</strong>，會隨成交一直變。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📜</span>成交本 + 事件日誌（歷史，永不塗改）</h3>
+    <p>每筆成交、每個關鍵動作都<strong>只增不改</strong>地記一筆（append-only）。
+    這本<strong>才是真正的真相來源</strong>：撮合引擎在記憶體裡跑得飛快，但萬一崩潰，就<strong>把這本流水帳從頭播一遍</strong>，現場立刻還原。查帳、對帳、處理糾紛也全靠它。</p>
+  </div>
+
+  <h2 id="bottleneck">10. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>一個攤位的撮合速度到頂</td><td>它已經很快了（純記憶體、一條隊伍）；可批次寫日誌再加速</td></tr>
+    <tr><td>一台機器塞不下幾千個攤位</td><td>不同<strong>市場分到不同機器</strong>各管各的（分片），彼此不影響</td></tr>
+    <tr><td>結算過帳全打同一本帳本</td><td><strong>帳戶分片</strong> + 條件更新；成交先記事件，過帳可批次處理</td></tr>
+    <tr><td>看行情的人太多，把系統問爆</td><td>改成<strong>推播 + 快取</strong>，把「看行情」和「動錢」分開</td></tr>
+    <tr><td>引擎崩潰，記憶體狀態全沒了</td><td><strong>重播事件日誌</strong>還原 + 定期存「快照」縮短重播時間</td></tr>
+  </table>
+
+  <h2 id="tradeoff">11. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 委託簿（喊價配對）vs 自動做市（AMM）</span>
+    委託簿撮合精準、價差小，但需要有人來掛單提供流動性；自動做市（用公式算價）永遠有得買賣，但會有滑點。實務常兩種混用。</div>
+  <div class="fear"><span class="label">⚖️ 一條隊伍（單執行緒）vs 多人並行</span>
+    一條隊伍換來「絕不算錯、可重播」，速度靠多開攤位；多人並行看似快，但要上鎖、難保證不出錯。<strong>錢的場景幾乎都選一條隊伍。</strong></div>
+  <div class="fear"><span class="label">⚖️ 強一致 vs 最終一致</span>
+    動錢（過帳、餘額）<strong>必須強一致</strong>，剛改完就要查得到、絕不超額；看行情/做分析可以<strong>最終一致</strong>（晚一點同步沒關係）。<strong>該嚴的地方嚴、能鬆的地方鬆。</strong></div>
+  <details class="qa"><summary>💭 追問：同一個人「同時下兩張單、想花同一筆錢」會怎樣？</summary>
+    第一張單下單時就把錢凍結了；第二張單要凍結時發現「可用餘額不夠」，當場被拒。靠「先凍結 + 有才扣得動的條件更新」防住雙花。</details>
+  <details class="qa"><summary>💭 追問：成交價到底用買家出的還是賣家開的？</summary>
+    用<strong>先掛在簿上那張（maker）</strong>的價。主動來吃單的人（taker）反而可能拿到比自己出價更好的價，多凍結的保證金會退回。</details>
+
+  <h2 id="play">12. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「撮合 + 資金一致」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8003 -t public
+# 然後瀏覽器打開 http://localhost:8003</code></pre>
+  <ol>
+    <li>下幾筆<strong>買單和賣單</strong>，看價格對得上時<strong>怎麼自動撮合成交</strong>。</li>
+    <li>觀察<strong>委託簿</strong>（誰掛了什麼）、<strong>最近成交</strong>、各帳戶的<strong>餘額/持倉</strong>。</li>
+    <li>故意下一筆<strong>超過你餘額</strong>的單，看它<strong>被拒</strong>（這就是防超額）。</li>
+    <li>看<strong>事件日誌</strong>：每個動作都記了一筆，這就是「能重播的流水帳」。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>下一筆大買單去吃好幾張小賣單，看是不是「<strong>部分成交</strong>」、剩下的繼續掛著。每做一筆，把所有人的現金加股份全加起來，是不是<strong>總數永遠不變</strong>？這就是<strong>資金守恆</strong>——錢沒憑空多也沒憑空少。</div>
+
+  <h2 id="quiz">13. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：為什麼一張票的「價格」就等於「機率」？用兌獎券解釋。</summary>
+    因為這張票「事件成真就兌 1 元、不成真歸零」。如果市場覺得有 62% 機會成真，這張票就值約 0.62 元——願意付多少買，就等於賭它有多少把握成真。所以價格 = 隱含機率。</details>
+  <details class="qa"><summary>Q2：用「菜市場喊價」解釋撮合規則（價格-時間優先）。</summary>
+    出價最高的買家先買到、開價最低的賣家先賣掉（價格優先）；同價就先掛單的先成交（時間優先）。當最高買價 ≥ 最低賣價就配對，大單可吃掉多張小單，沒吃完的繼續掛著。</details>
+  <details class="qa"><summary>Q3：下單時為什麼要「先凍結錢」？像生活中的什麼？</summary>
+    像刷卡的「預授權」：飯店先卡住你一筆錢、確定你付得起才讓你住。下單先凍結，確定你有錢、跑不掉，才讓單上場——杜絕「掛單時有錢、成交時沒錢」的爛帳。</details>
+  <details class="qa"><summary>Q4：這系統「最怕」哪三件事？</summary>
+    怕錢算錯（正確性壓倒一切、要強一致）、怕同時搶單搶到打架（同一攤位排一條隊一筆筆處理）、怕系統一掛帳就消失（每個動作先寫永不塗改的流水帳，崩潰能重播）。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼撮合要「一條隊伍、一筆筆處理」，而不是多人並行加速？</summary>
+    多人同時動同一本委託簿會搶到打架（兩人吃同一張單、同筆錢花兩次），要靠大量鎖且難保證正確。一條隊伍序列化反而無鎖、確定性高、可重播；要擴大就多開攤位（按市場分片），攤位間互不干擾。</details>
+  <details class="qa"><summary>Q6（工程）：成交時「過帳」為什麼一定要綁成一個原子交易？</summary>
+    因為「買方付錢拿票、賣方交票拿錢」必須同時發生、要嘛全成要嘛全退，絕不能做一半（買方錢扣了票卻沒給）。再配上「有才扣得動」的條件更新，保證餘額永不為負、不被雙花。</details>
+  <details class="qa"><summary>Q7（工程）：引擎在記憶體跑很快，但崩潰了狀態怎麼救回來？</summary>
+    每個關鍵動作（下單、成交、過帳）都先寫進「永不塗改的事件日誌」。崩潰後把日誌從頭重播一遍就能還原現場；再配定期存「快照」縮短重播時間。這本日誌也是查帳、對帳、處理糾紛的真相來源。</details>
+
+  <h2 id="recap">14. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>預測市場 = 喊價配對的交易所 + 絕不出錯的帳本。</strong>價格就是大家心中的「機率」。</p>
+    <p><strong>4 個關卡：</strong>① 下單先<strong>凍結錢</strong>（刷卡預授權）→ ② <strong>喊價配對</strong>撮合（菜市場，價格-時間優先）→ ③ <strong>一手交錢一手交貨</strong>原子過帳 → ④ 事件揭曉<strong>結算發錢</strong>。</p>
+    <p><strong>3 個怕：</strong>怕錢算錯（正確性壓倒一切、強一致）、怕同時搶單打架（一條隊伍一筆筆處理）、怕崩潰丟帳（永不塗改的流水帳可重播）。</p>
+    <p style="margin-bottom:0"><strong>工程細節一句話：</strong>讀多寫少 → 看行情走推播+快取、別查真相帳本；撮合按市場分片各跑一條隊伍；資金用「先凍結 → 原子過帳 → 有才扣得動」防超額防雙花；一切先記事件日誌，崩潰可重播、可審計。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>③ Polymarket 預測市場 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>

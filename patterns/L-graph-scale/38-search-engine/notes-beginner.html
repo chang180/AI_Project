@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>㊳ 網頁搜尋引擎 · 初學者友善版</title>
+<link rel="stylesheet" href="../../../assets/style.css">
+<style>
+  /* 這頁專用的小樣式（自包含，不動全站 CSS） */
+  .switch { display:flex; gap:8px; flex-wrap:wrap; margin:1em 0; }
+  .switch a { padding:6px 14px; border-radius:999px; border:1px solid var(--border); text-decoration:none; }
+  .switch a.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .step { border:1px solid var(--border); border-radius:12px; padding:16px 18px; margin:1em 0; background:var(--bg-soft); }
+  .step h3 { margin-top:0; display:flex; align-items:center; gap:10px; }
+  .badge { display:inline-flex; align-items:center; justify-content:center;
+    width:34px; height:34px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; flex:none; }
+  .analogy { border-left:4px solid #f2b705; background:rgba(242,183,5,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .analogy .label { font-weight:700; display:block; margin-bottom:4px; }
+  .fear { border-left:4px solid #e5484d; background:rgba(229,72,77,.08); padding:10px 14px; border-radius:0 8px 8px 0; margin:.8em 0; }
+  .fear .label { font-weight:700; display:block; margin-bottom:4px; }
+  details.qa { border:1px solid var(--border); border-radius:8px; padding:10px 14px; margin:.6em 0; background:var(--bg-soft); }
+  details.qa summary { cursor:pointer; font-weight:600; }
+  details.qa[open] summary { margin-bottom:8px; }
+  .pause { font-style:italic; color:var(--text-dim); margin:.6em 0; }
+  .glossary td:first-child { white-space:nowrap; font-weight:600; }
+  .recap { border:2px dashed var(--accent); border-radius:12px; padding:16px 18px; }
+  .partbanner { background:linear-gradient(90deg, var(--accent), var(--accent-2,#6c5ce7));
+    color:#fff; border-radius:12px; padding:18px 20px; margin:2em 0 1em; }
+  .partbanner h2 { color:#fff; border:0; margin:0 0 6px; }
+  .codecaption { color:var(--text-dim); font-size:.9em; margin:.3em 0 1em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">🏛️ 系統設計</span>
+  <a href="../../../index.html">← 回總覽</a>
+  <a href="../README.md">🅻 圖/大規模演算法</a>
+  <a href="https://github.com/ryus2002/AI_Project" target="_blank">GitHub</a>
+</div>
+
+<div class="wrap">
+  <h1>㊳ 網頁搜尋引擎 · 初學者友善版</h1>
+  <p class="subtitle">
+    <span class="tag group">L 圖/演算法</span>
+    <span class="tag">看故事就懂</span>
+    <span class="tag time">輕鬆讀 30 分鐘</span>
+  </p>
+
+  <div class="switch">
+    <a class="active" href="notes-beginner.html">🌱 初學版（你在這）</a>
+    <a href="notes.html">🛠️ 完整版（精簡工程速查）</a>
+  </div>
+
+  <div class="box tip">
+    <span class="label">🧠 這份怎麼讀？</span>
+    這份用「大腦比較好吸收」的方式重寫：<strong>先講生活比喻 → 把系統拆成小關卡 → 邊讀邊考自己</strong>。
+    分成兩部分：<strong>Part 1 概念</strong>（搜尋引擎到底在幹嘛）、<strong>Part 2 工程細節</strong>（怎麼真的蓋出來，一樣白話）。
+    遇到 <span style="font-style:normal">💭 停一下</span> 就先自己想 3 秒再往下看——這叫「提取練習」，比一直往下滑記得更牢。
+  </div>
+
+  <div class="box"><span class="label">🔗 先打個底</span>
+    這題是<strong>第 ㉖ 題「站內全文搜尋」的升級版</strong>。㉖ 題是在你自己的小資料庫裡找字（像在一本書裡找）；
+    這題是要在<strong>整個網際網路</strong>（500 億頁）裡找字，而且還要判斷「哪一頁比較<strong>可信</strong>」。
+    如果你還沒看過 ㉖ 題也沒關係，這份會從頭講。
+  </div>
+
+  <div class="toc">
+    <strong>目錄</strong>
+    <ol>
+      <li><a href="#big">Part 1｜60 秒搞懂它在幹嘛</a></li>
+      <li><a href="#index">關鍵魔法：書末的「索引頁」</a></li>
+      <li><a href="#steps">把系統拆成 4 個關卡</a></li>
+      <li><a href="#pagerank">人氣分數：PageRank 是什麼？</a></li>
+      <li><a href="#fears">設計時最怕的 3 件事</a></li>
+      <li><a href="#pic">一張圖看懂</a></li>
+      <li><a href="#words">名詞白話翻譯</a></li>
+      <li><a href="#scale">Part 2｜要準備多大？（規模估算）</a></li>
+      <li><a href="#api">系統之間怎麼溝通？（API）</a></li>
+      <li><a href="#data">系統要記住哪些事？（資料模型）</a></li>
+      <li><a href="#bottleneck">哪裡會塞車、怎麼拓寬？（擴展）</a></li>
+      <li><a href="#tradeoff">還有哪些「魚與熊掌」？（取捨）</a></li>
+      <li><a href="#play">動手玩玩看</a></li>
+      <li><a href="#quiz">考考自己</a></li>
+      <li><a href="#recap">30 秒回顧</a></li>
+    </ol>
+  </div>
+
+  <h2 id="big">1. 60 秒搞懂它在幹嘛</h2>
+  <p>你在 Google 打「分散式系統」，按下 Enter，<strong>不到半秒</strong>，它從<strong>幾百億個網頁</strong>裡，挑出最相關、最可信的幾筆排給你看。</p>
+  <p>這件事的難，難在兩點：<strong>① 網頁多到一台電腦放不下</strong>（500 億頁的索引是好幾個 PB，比你硬碟大幾百萬倍）；
+  <strong>② 同樣有提到「分散式系統」的頁有上百萬個，到底誰該排第一？</strong></p>
+  <div class="analogy">
+    <span class="label">🔑 一句話</span>
+    網頁搜尋 = <strong>一座超大型圖書館的查詢櫃台</strong>：先把每本書做好「索引頁」（哪個字在哪幾頁），
+    查詢時同時問<strong>很多分館</strong>再合併答案，最後不只看<strong>「誰提到這個字」</strong>，還看<strong>「誰比較有份量」</strong>，排出順序給你。
+  </div>
+
+  <h2 id="index">2. 關鍵魔法：書末的「索引頁」</h2>
+  <p>很多人以為搜尋引擎是「拿到你的字，再一頁一頁翻過所有網頁找」。那樣慢到天荒地老。真正的魔法你其實早就見過——</p>
+  <div class="analogy">
+    <span class="label">📖 翻到書的最後一頁</span>
+    拿一本厚厚的教科書，要找「光合作用」在哪。你<strong>不會</strong>從第 1 頁一頁頁翻到第 800 頁，
+    你會翻到<strong>書末的「索引」</strong>：<em>「光合作用 …… 見 P.342, P.510」</em>，直接跳過去。
+  </div>
+  <p>搜尋引擎事先做的，就是這張超大的索引：<strong>把每個「字」對應到「哪些網頁有出現它」</strong>。這張表叫做 <strong>倒排索引</strong>。</p>
+  <p>「倒排」是因為它把關係<strong>反過來</strong>了：一般我們想「這一頁有哪些字」（順著看）；索引則是「這個字出現在哪些頁」（倒著看）。
+  查詢時直接從字查到頁，完全不用翻全部網頁。</p>
+  <p class="pause">💭 停一下：如果不先做索引，每次有人搜尋都要「掃過全部 500 億頁」，會發生什麼事？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    每一次查詢都要讀完整個網際網路一遍，可能要算上好幾天，而且同時有幾萬人在搜尋。這完全不可行。所以一定要<strong>事先</strong>把索引建好（「預先算好，換查詢飛快」），查詢時只查那張表。這跟「書末索引」是同一招。
+  </details>
+
+  <h2 id="steps">3. 把系統拆成 4 個關卡</h2>
+  <p>別被「搜尋引擎」嚇到。整件事其實就是闖 4 關，一關一關來：</p>
+
+  <div class="step">
+    <h3><span class="badge">1</span>爬：先把網頁「搬回家」</h3>
+    <p>網頁分散在全世界的網站上，搜尋引擎得先派出<strong>爬蟲</strong>（一支自動程式），順著超連結一頁一頁逛、把內容抓回自己家存起來。</p>
+    <div class="analogy"><span class="label">🕷️ 比喻</span>像一個<strong>不眠不休的剪報員</strong>，每天逛遍所有報紙雜誌，把全部文章剪下來收進倉庫。</div>
+    <p>👉 這關（爬蟲）其實是<strong>第 ㊲ 題</strong>的主題。本題假設「文章都已經剪回來了」，我們專心做後面 3 關。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">2</span>建索引：做出那張「索引頁」</h3>
+    <p>把每篇抓回來的文章<strong>切成一個個字</strong>，記下「哪個字出現在哪些網頁、出現幾次」，存成上面講的<strong>倒排索引</strong>。</p>
+    <div class="analogy"><span class="label">📇 比喻</span>就像圖書館員把每本新書讀過，把書裡的關鍵詞抄進<strong>卡片目錄</strong>，以後別人查這個詞就找得到這本書。</div>
+    <p>但索引大到一台電腦放不下，所以要<strong>切成很多份</strong>放在很多台機器上——這就帶到第 3 關。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">3</span>查：同時問很多分館，再合併（scatter-gather）</h3>
+    <p>因為索引被拆開放在好幾百、上千台機器（每台叫一個<strong>分片 shard</strong>），你要找的那個字可能<strong>每台機器都存了一部分</strong>。怎麼辦？</p>
+    <div class="analogy">
+      <span class="label">🏛️ 比喻：問遍所有分館</span>
+      你要找一本書，但圖書館有 1000 個分館，書可能在任何一個。你<strong>同時打電話問全部分館</strong>「你那有沒有？有的話最相關的幾本給我」，
+      然後把大家的回覆<strong>收齊、合併</strong>，挑出最好的幾本。
+    </div>
+    <p>這個「<strong>同時撒出去問所有分片 → 收齊合併</strong>」的動作，工程上叫 <strong>scatter-gather</strong>（scatter＝撒出去、gather＝收回來）。
+    每個分片各自挑出自己手上最相關的幾筆回報，協調者再把全部合在一起。</p>
+  </div>
+
+  <div class="step">
+    <h3><span class="badge">4</span>排序：誰該排第一？（相關 + 有份量）</h3>
+    <p>合併後可能有上百萬筆都「提到了你的字」。最後一關是<strong>排順序</strong>，靠兩個分數一起算：</p>
+    <ul>
+      <li><strong>相關性</strong>（叫 BM25）：這頁<strong>跟你查的字多相關</strong>——這個字出現幾次？是不是很罕見的關鍵字？（罕見字命中更值錢）</li>
+      <li><strong>權威 / 人氣</strong>（叫 PageRank）：這頁<strong>本身多有份量</strong>，跟你查什麼無關。下一節專門講它。</li>
+    </ul>
+    <p>最後 <code>總分 = 相關性 + 權威</code>，分數高的排前面。這就是為什麼搜尋結果第一名通常又相關、又是大家信得過的網站。</p>
+  </div>
+
+  <div class="box tip"><span class="label">✅ 四關一句話</span>
+    ① <strong>爬</strong>回網頁 → ② 建好<strong>索引頁</strong>（字 → 哪些頁）→ ③ 查詢時<strong>問遍所有分片</strong>再合併 → ④ 用<strong>相關 + 人氣</strong>排順序。就這樣。</div>
+
+  <h2 id="pagerank">4. 人氣分數：PageRank 是什麼？</h2>
+  <p>第 4 關提到的 <strong>PageRank</strong>，是 Google 起家的招牌絕活，但概念超好懂——它就是給每個網頁打一個<strong>「人氣 / 權威分數」</strong>。</p>
+  <div class="analogy">
+    <span class="label">⭐ 比喻：被大咖轉發的人比較有份量</span>
+    社群上，一個人有沒有「份量」，不是看他自己喊多大聲，而是看<strong>「誰轉發他」</strong>。
+    被<strong>很多大咖（本身也很有份量的人）轉發</strong>的人，明顯比被一堆路人帳號轉發的更可信。
+  </div>
+  <p>網頁也一樣。在網路上，「<strong>A 頁放了一個連結指向 B 頁</strong>」就等於「<strong>A 幫 B 投了一票 / 轉發了 B</strong>」。PageRank 的核心精神：</p>
+  <ul>
+    <li>越<strong>多</strong>網頁連到你 → 你越可信。</li>
+    <li>而且連到你的那些頁<strong>本身越有份量</strong> → 這一票越值錢（大咖的轉發 &gt; 路人的轉發）。</li>
+  </ul>
+  <p>所以一個沒沒無聞的小部落格，就算自稱權威也沒用；維基百科被全世界幾百萬頁連入，自然分數很高。
+  關鍵是：<strong>PageRank 只看「連結關係」，跟你查什麼字無關</strong>——它是這頁與生俱來的「江湖地位」。</p>
+  <div class="analogy">
+    <span class="label">🔁 為什麼要「反覆算很多輪」？</span>
+    這裡有個雞生蛋問題：「要算 B 的份量，得先知道連到 B 的 A 有多少份量；可是要算 A 的份量，又得先知道連到 A 的人……」
+    解法是<strong>大家先平分，然後一輪一輪互相更新</strong>：第一輪大家分數一樣，每頁把自己的分數平分給「它連出去的頁」；
+    收到票的頁分數上升，再進行下一輪……反覆幾十輪後，分數就會<strong>穩定下來</strong>（不再大變動），那就是最終人氣分。這個反覆過程叫<strong>冪次迭代</strong>。
+  </div>
+  <p>因為要掃過整張「誰連誰」的大網（幾兆條連結），這個計算<strong>很重、很慢</strong>，所以是<strong>離線事先算好存起來</strong>的，
+  不會在你按 Enter 那半秒裡現算。查詢時只是<strong>查一下這頁的人氣分是多少</strong>，很快。</p>
+  <p class="pause">💭 停一下：為什麼搜尋結果不能「只看人氣（PageRank）」就好？</p>
+  <details class="qa">
+    <summary>看答案</summary>
+    因為人氣跟「你查的字」無關。維基百科首頁人氣超高，但你搜「我家附近的牛肉麵」，把維基首頁排第一完全沒用。所以一定要<strong>同時</strong>看「相關性（有沒有講到你要的）」跟「人氣（可不可信）」，兩個一起算才合理。光看人氣會讓萬年熱門頁霸榜；光看相關性，內容農場靠堆關鍵字也能上。
+  </details>
+
+  <h2 id="fears">5. 設計時最怕的 3 件事</h2>
+  <p>工程上的「取捨」聽起來很抽象。換個方式記：這個系統<strong>最怕三件事</strong>，每個設計都是為了避開某個「怕」。</p>
+
+  <div class="fear">
+    <span class="label">😱 怕「慢」</span>
+    你按 Enter 後超過 1 秒沒結果，就會覺得這搜尋引擎好爛。但要同時問上千個分片、還要算分排序——很容易慢。
+    對策：<strong>熱門查詢的結果先快取起來</strong>（同樣的問題別人剛問過，直接給上次的答案，跳過整個流程）。<em>能不算就不算。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「排錯順序」</span>
+    搜尋引擎的命脈就是<strong>排序好不好</strong>。第一名爛，大家就換別家用。所以「相關 + 人氣」要平衡：
+    太偏人氣 → 萬年大站霸榜、好的新內容被埋沒；太偏相關 → 內容農場堆關鍵字也能上。<em>排序就是搜尋引擎的靈魂。</em>
+  </div>
+  <div class="fear">
+    <span class="label">😱 怕「大到放不下 / 算不動」</span>
+    500 億頁的索引一台機器放不下、PageRank 的兆級連結一次算不完。
+    對策：索引<strong>切成上千片分散放</strong>（查詢時問遍再合併）；PageRank <strong>離線慢慢算好存起來</strong>，不擋查詢。<em>放不下就切開、算不動就先算好。</em>
+  </div>
+
+  <h2 id="pic">6. 一張圖看懂</h2>
+  <img class="diagram-svg" src="diagram.svg" alt="網頁搜尋引擎架構圖" loading="lazy">
+  <a class="diagram-link" href="diagram.excalidraw">✏️ 用 Excalidraw 開啟編輯（diagram.excalidraw）</a>
+  <p>白話導讀，分「建索引（平時準備）」跟「查詢（你按 Enter）」兩條路：</p>
+  <ul>
+    <li>🕷️ <strong>爬蟲</strong>把網頁抓回來 → 🧩 <strong>切詞建索引</strong>，依編號分配到不同<strong>分片</strong>（shard0、shard1…）。</li>
+    <li>🔗 同時記下「誰連誰」成<strong>連結圖</strong> → 離線跑 <strong>PageRank</strong> 算好每頁人氣分，存成一張表。</li>
+    <li>🔎 你<strong>查詢</strong> → 先看<strong>快取</strong>有沒有現成答案；沒有的話 →</li>
+    <li>📡 協調者把問題<strong>撒給所有分片</strong>（scatter）→ 每片算自己的相關性、回報最佳幾筆 →</li>
+    <li>🧮 <strong>收齊合併</strong>（gather）→ 用「相關 + 人氣」<strong>融合排序</strong> → 把答案<strong>存進快取</strong>下次更快 → 回給你。</li>
+  </ul>
+
+  <h2 id="words">7. 名詞白話翻譯</h2>
+  <p>看完上面，這些詞你其實都已經懂了，這裡只是把「工程術語 ↔ 白話」對起來，Part 2 會用到：</p>
+  <table class="glossary">
+    <tr><th>工程術語</th><th>白話解釋</th></tr>
+    <tr><td>倒排索引</td><td>書末的「索引頁」：每個字對應到「它出現在哪些網頁」</td></tr>
+    <tr><td>爬蟲 (Crawler)</td><td>自動逛網頁、把內容抓回家的「剪報員」（第 ㊲ 題主題）</td></tr>
+    <tr><td>分片 (Shard)</td><td>索引太大放不下，切成很多份，每份放一台機器（一個「分館」）</td></tr>
+    <tr><td>scatter-gather</td><td>同時問遍所有分館（scatter）→ 收齊答案合併（gather）</td></tr>
+    <tr><td>BM25</td><td>「相關性」分數：這頁跟你查的字多相關（出現幾次、字夠不夠罕見）</td></tr>
+    <tr><td>PageRank</td><td>「人氣 / 權威」分數：被越多有份量的頁連入，自己越可信（像被大咖轉發）</td></tr>
+    <tr><td>連結圖</td><td>「誰連到誰」的大網，算 PageRank 用的</td></tr>
+    <tr><td>冪次迭代</td><td>PageRank 反覆算很多輪，直到分數穩定下來</td></tr>
+    <tr><td>融合排序</td><td>把「相關性」和「人氣」兩個分數加起來，決定最終順序</td></tr>
+    <tr><td>快取 (Cache)</td><td>把熱門查詢的答案先存著，下次同樣問題直接給，不重算</td></tr>
+    <tr><td>QPS</td><td>每秒幾筆查詢（衡量「多忙」的單位）</td></tr>
+    <tr><td>API</td><td>系統之間講好的「點餐單」格式：你給我什麼、我回你什麼</td></tr>
+    <tr><td>水平擴展</td><td>不夠就「多找幾台機器一起做」（這題就是多加分片）</td></tr>
+  </table>
+
+  <!-- ============ PART 2 ============ -->
+  <div class="partbanner">
+    <h2 style="padding:0">🛠️ Part 2 ｜ 工程細節（一樣白話）</h2>
+    <p style="margin:0">概念懂了，來看「真的要動手蓋，得想清楚哪些事」。一樣用比喻，不用怕。</p>
+  </div>
+
+  <h2 id="scale">8. 要準備多大？（規模估算）</h2>
+  <div class="analogy">
+    <span class="label">🍱 比喻：辦活動前先估人數</span>
+    辦活動前，你會先估「大概來幾個人」，才決定<strong>訂幾個便當、租多大場地</strong>。
+    系統設計也一樣：先估數字，才知道要準備多大的「料」。這一步叫<strong>規模估算</strong>。
+  </div>
+  <p>我們估幾個關鍵數字（數字不必背，重點是<strong>感受它的「形狀」</strong>）：</p>
+  <table>
+    <tr><th>估什麼</th><th>大概數字</th><th>所以呢？</th></tr>
+    <tr><td>要索引多少網頁</td><td>~500 億頁</td><td>索引大到數百 TB ~ PB 級，<strong>一台機器絕對放不下</strong></td></tr>
+    <tr><td>要切成幾片</td><td>單片控在 ~50GB → 需要<strong>數千片</strong></td><td>每片放一台機器，再加副本備援</td></tr>
+    <tr><td>每秒多少查詢</td><td>峰值 ~10 萬 QPS</td><td>因為每次查詢都要問遍所有分片，每片承受的壓力＝外部總查詢量</td></tr>
+    <tr><td>查詢要多快</td><td>p99 &lt; 200 毫秒</td><td>問所有分片 ~100ms + 合併 ~30ms + 排序取摘要 ~50ms，要塞進預算內</td></tr>
+    <tr><td>PageRank 多大</td><td>500 億節點、數兆條連結</td><td>太重 → <strong>離線批次算</strong>，絕不放在你按 Enter 的那條路上</td></tr>
+  </table>
+  <div class="analogy">
+    <span class="label">💡 關鍵洞察：兩個「太大」決定一切</span>
+    這題的所有設計，都來自兩個「太大」：① <strong>索引太大 → 切片 + 問遍合併（scatter-gather）</strong>；
+    ② <strong>PageRank 太重 → 離線先算好，查詢時只查一個分數</strong>。抓住這兩條，整題就通了。
+  </div>
+  <p class="pause">💭 停一下：為什麼「熱門查詢的快取」這麼划算？</p>
+  <details class="qa"><summary>看答案</summary>
+    因為大家搜的東西高度重複（少數熱門關鍵字佔了大半流量）。一旦命中快取，就<strong>整條 scatter-gather 全部跳過</strong>——不用問上千個分片、不用算分排序，直接回上次的答案。用一點點記憶體，換掉最貴的那段運算，當然划算。</details>
+
+  <h2 id="api">9. 系統之間怎麼溝通？（API）</h2>
+  <div class="analogy">
+    <span class="label">🍔 比喻：點餐單</span>
+    <strong>API</strong> 就是兩個系統之間講好的「<strong>點餐單格式</strong>」：你要點什麼（給我哪些欄位）、我回你什麼。
+    講好格式，雙方就能合作，不用知道對方廚房怎麼運作。
+  </div>
+  <p>這題只要記住幾張「點餐單」：</p>
+  <pre><code>① 查詢（最高頻，就是你按 Enter）
+   GET /api/v1/search?q=分散式系統&op=or&alpha=0.7&beta=0.3
+   給我：要查的字、AND還OR、相關性vs人氣的比重(α/β)
+   我回：排好序的結果 + 各片各撈幾筆 + 是不是來自快取</code></pre>
+  <p class="codecaption">那個 <code>alpha / beta</code> 是<strong>「相關 vs 人氣」的旋鈕</strong>：beta 調大 → 更偏好權威大站；alpha 調大 → 更純比相關。可以依查詢類型調。</p>
+  <pre><code>② 新增 / 更新一篇文件（建索引用）
+   POST /api/v1/documents
+   給我：{ 網址, 標題, 內文, links:[連到哪些網址] }</code></pre>
+  <p class="codecaption">特別注意 <code>links</code> 那欄——它記下「這頁連到誰」，就是拿來拼出<strong>連結圖</strong>、算 PageRank 的原料。</p>
+  <pre><code>③ 重算 PageRank（離線批次，不在查詢路上）
+   POST /api/v1/pagerank   { damping: 0.85 }
+
+④ 看系統狀態（分片分布、快取命中率…）
+   GET /api/v1/state</code></pre>
+  <p class="codecaption">PageRank 是「平時偷偷重算」的，所以它有自己的觸發口，跟你按 Enter 的查詢完全分開兩條路。</p>
+
+  <h2 id="data">10. 系統要記住哪些事？（資料模型）</h2>
+  <div class="analogy">
+    <span class="label">📒 比喻：幾本筆記本</span>
+    系統要把資料記在「筆記本」（資料表）裡。這題的筆記本可以這樣理解：
+  </div>
+  <div class="step">
+    <h3><span class="badge">📄</span>文件簿（原始網頁）</h3>
+    <p>每頁一列：<code>編號、網址、標題、內文、連到哪些頁(out_links)</code>。
+    那欄「連到哪些頁」之後會拿來拼<strong>連結圖</strong>。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">📇</span>分片索引簿（字 → 哪些頁，切成很多本）</h3>
+    <p>文件依編號分到不同片：<code>第 s 片只存「自己那批頁」的：某個字 → 哪些頁、各出現幾次</code>。
+    另外存每頁的<strong>字數</strong>（算相關性時要做「長文不該佔便宜」的修正）。</p>
+    <div class="analogy"><span class="label">⚠️ 一個關鍵小細節：「罕見度」要看全部，不能只看自己這片</span>
+      相關性裡有一項是「這個字夠不夠罕見」（罕見字命中更值錢）。但「罕見度」必須以<strong>整個網路</strong>來算——
+      如果每片只用自己手上的資料判斷罕見度，同一個字在不同片會算出不同分數，<strong>合併時就比不準了</strong>。
+      所以這個「全域罕見度」要跨所有片共用一份。</div>
+  </div>
+  <div class="step">
+    <h3><span class="badge">🔗</span>連結圖簿 + 人氣分簿</h3>
+    <p><code>連結圖：哪頁指向哪些頁</code>；<code>人氣分：每頁的 PageRank 分數</code>（離線冪次迭代算好的結果）。
+    查詢排序時，從這本直接查一頁的人氣分，很快。</p>
+  </div>
+  <div class="step">
+    <h3><span class="badge">⚡</span>快取簿（熱門答案）</h3>
+    <p><code>(正規化後的查詢字 + α + β) → 上次算好的結果</code>。同樣的問題再來，直接給，跳過整個 scatter-gather。</p>
+  </div>
+
+  <h2 id="bottleneck">11. 哪裡會塞車、怎麼拓寬？（擴展）</h2>
+  <div class="analogy">
+    <span class="label">🚗 比喻：找出塞車路段，拓寬它</span>
+    系統變大時，總有某個環節會先「塞車」。工程師的工作就是<strong>找出最會塞的地方，把它拓寬</strong>。一個一個看：
+  </div>
+  <table>
+    <tr><th>哪裡會塞車</th><th>怎麼拓寬</th></tr>
+    <tr><td>單一分片太大 → 查詢變慢</td><td>把每片控在剛好的大小（如 ~50GB），語料變大就<strong>多切幾片</strong> + 加副本分攤讀取</td></tr>
+    <tr><td>問遍上千片，要等<strong>最慢的那片</strong>才能合併</td><td>每片只回「自己最好的幾筆」減少傳輸；對慢的片<strong>再補問一台副本</strong>，誰先回用誰</td></tr>
+    <tr><td>罕見查詢快取命中不了，每次都要全問一遍</td><td>靠「切片平行」把工作攤平；熱門詞的索引可提前備好</td></tr>
+    <tr><td>同一個爆紅查詢被打爆</td><td><strong>結果快取</strong>（命中就跳過整條路）+ 在離使用者近的地方也放一份</td></tr>
+    <tr><td>「全域罕見度」分片後難維護</td><td>分散維護，或<strong>用近似值</strong>（容許一點點誤差，換可擴展）</td></tr>
+    <tr><td>PageRank 兆級連結算不動</td><td><strong>離線分散式</strong>批次算，週期性重算，絕不進查詢路徑</td></tr>
+  </table>
+
+  <h2 id="tradeoff">12. 還有哪些「魚與熊掌」？（取捨）</h2>
+  <p>「Part 1 的三個怕」是核心取捨。這裡補幾個常被面試官追問的：</p>
+  <div class="fear"><span class="label">⚖️ 相關 vs 人氣（α vs β 的旋鈕）</span>
+    人氣調太重 → 萬年大站霸榜、好的新內容被埋；相關調太重 → 內容農場靠堆關鍵字也能上。要平衡，實務還會再加「點擊回饋、新鮮度」等更多訊號。</div>
+  <div class="fear"><span class="label">⚖️ 準確 vs 快</span>
+    每片只回「自己最好的幾筆」是一種<strong>近似</strong>——理論上可能漏掉某片排第 K+1、但其實全域夠前的頁。換來的是傳輸與合併便宜很多。實務上「幾筆」取夠大就可忽略。</div>
+  <div class="fear"><span class="label">⚖️ 依「文件」分片 vs 依「字」分片</span>
+    這題依文件分（每次查詢要問所有片，但寫入簡單、不會有熱點）。另一種依字分（查詢只問含該字的片，但熱門字那片會被打爆、多字查詢要跨片求交集，更複雜）。業界主流選前者。</div>
+  <details class="qa"><summary>💭 追問：剛爬到的新頁，要等下次重建索引才搜得到嗎？</summary>
+    不用。新頁先進一個「增量小索引」可立刻被查到，背景再慢慢合併進主分片。PageRank 因為連結圖變動慢，可以容忍延遲、週期性重算就好。</details>
+  <details class="qa"><summary>💭 追問：為什麼相關性的「罕見度」一定要用全部資料、不能各片各算？</summary>
+    因為各片各算的話，同一個字在不同片的分數標準不一樣，合併時就像「不同單位的成績硬湊在一起比」，會排錯。所以罕見度必須是全域共用的一份（或夠好的近似）。</details>
+
+  <h2 id="play">13. 動手玩玩看</h2>
+  <p>讀十遍不如玩一遍。這題有一個<strong>真的可以跑</strong>的小程式，讓你親眼看到「分片 + 問遍合併 + 人氣排序」：</p>
+  <pre><code># 啟動（在這題的 demo 資料夾裡）
+cd demo
+php -S localhost:8038 -t public
+# 然後瀏覽器打開 http://localhost:8038</code></pre>
+  <ol>
+    <li>看<strong>文件連結圖與 PageRank</strong>：哪頁被連得多，人氣分就高。</li>
+    <li>看<strong>分片分布</strong>：文件被分到哪幾片（這就是「切開放」）。</li>
+    <li>同一個查詢，比「<strong>只看相關性</strong>」vs「<strong>相關 + 人氣融合</strong>」的排序差在哪。</li>
+    <li>自己調 <strong>α / β</strong> 旋鈕、切 AND/OR；同一查詢問第二次，看是不是回 <code>cached: true</code>（命中快取）。</li>
+  </ol>
+  <div class="box"><span class="label">玩的時候想一下</span>把某一頁多加幾個「連到它」的連結，再重算 PageRank，看它的人氣分是不是上升、排名是不是往前——這就是<strong>「被越多頁連入越可信」</strong>在運作。把 β 調到很大，看是不是高人氣頁開始霸榜——這就是<strong>排序取捨</strong>。</div>
+
+  <h2 id="quiz">14. 考考自己</h2>
+  <p>先不要看答案，自己用<strong>講給朋友聽</strong>的方式回答看看（講得出來才是真的懂）：</p>
+  <details class="qa"><summary>Q1：用「書末索引」解釋，搜尋引擎為什麼能秒回，而不是現翻 500 億頁？</summary>
+    因為它事先建好了「倒排索引」——像書末那張「字 → 在哪幾頁」的表。查詢時直接查這張表，不用掃過全部網頁。預先算好，換查詢飛快。</details>
+  <details class="qa"><summary>Q2：索引大到一台機器放不下怎麼辦？查詢時又怎麼運作？</summary>
+    把索引切成很多片（shard）放在很多台機器。查詢時用 scatter-gather：同時問遍所有片（scatter），每片回報自己最相關的幾筆，再收齊合併（gather）。像同時打電話問 1000 個分館再彙整。</details>
+  <details class="qa"><summary>Q3：用「被大咖轉發」的比喻說說 PageRank 是什麼？</summary>
+    PageRank 是網頁的人氣 / 權威分。「A 連到 B」等於「A 轉發了 B」。被越多頁、尤其被越有份量的頁連入，分數越高——就像被大咖轉發比被路人轉發更有份量。它跟你查什麼字無關，是這頁本身的江湖地位。</details>
+  <details class="qa"><summary>Q4：為什麼最終排序要「相關 + 人氣」一起算，不能只看一個？</summary>
+    只看人氣 → 維基首頁這種高人氣頁霸榜，但跟你查的字可能毫不相關。只看相關 → 內容農場堆關鍵字也能上、不可信。所以要兩個一起：又相關、又可信的頁才該排前面。</details>
+  <details class="qa"><summary>Q5（工程）：為什麼 PageRank 要「離線事先算好」，不在查詢當下現算？</summary>
+    因為它要掃過整張「誰連誰」的大網（幾兆條連結）、反覆迭代幾十輪，非常重非常慢。查詢只有幾百毫秒預算，現算來不及。所以離線批次算好存成一張分數表，查詢時只查一個分數。</details>
+  <details class="qa"><summary>Q6（工程）：相關性裡的「罕見度」為什麼必須用全部資料來算，不能各片各算？</summary>
+    因為各片各算的話，同一個字在不同片會有不同分數標準，合併時就比不準、排錯。所以「罕見度」要是全域共用的一份（或夠好的近似），各片算出來的相關性分數才能放在一起比較。</details>
+  <details class="qa"><summary>Q7（工程）：熱門查詢的「結果快取」為什麼是最划算的優化？</summary>
+    因為查詢高度集中，少數熱門詞佔了大半流量。一旦命中快取，就整條 scatter-gather 全跳過——不用問上千片、不用算分排序，直接回上次答案。用一點記憶體換掉最貴的運算。</details>
+
+  <h2 id="recap">15. 30 秒回顧</h2>
+  <div class="recap">
+    <p style="margin-top:0"><strong>網頁搜尋 = 超大型圖書館的查詢櫃台。</strong>（是第 ㉖ 題站內搜尋的「整個網際網路」放大版）</p>
+    <p><strong>4 個關卡：</strong>① 爬回網頁 → ② 建「書末索引」（字 → 哪些頁）→ ③ 查詢時問遍所有分片再合併（scatter-gather）→ ④ 用「相關(BM25) + 人氣(PageRank)」融合排序。</p>
+    <p><strong>PageRank 一句話：</strong>網頁的人氣分，被越多有份量的頁連入越可信（像被大咖轉發），跟查的字無關、離線先算好。</p>
+    <p style="margin-bottom:0"><strong>3 個怕：</strong>怕慢（熱門查詢用快取跳過）、怕排錯順序（相關與人氣要平衡）、怕大到放不下/算不動（索引切片、PageRank 離線算）。</p>
+  </div>
+  <p style="margin-top:1.2em">想看更精簡、面試速查用的版本？👉 <a href="notes.html">前往完整版</a>（同樣內容的工程速查格式）。</p>
+
+  <footer>㊳ 網頁搜尋引擎 · 初學者友善版 · 系統設計學習專案</footer>
+</div>
+</body>
+</html>
